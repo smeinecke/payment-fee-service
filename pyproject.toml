@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3,<10",
-  "pytest-cov>=6,<7",
+  "pytest-cov>=6,<8",
   "ruff>=0.9,<1",
 ]
 
@@ -37,7 +37,7 @@ dev = [
   "bandit>=1.7.9",
   "pre-commit>=3.7.0",
   "pyright>=1.1.370",
-  "pytest-cov>=6,<7",
+  "pytest-cov>=6,<8",
   "pytest>=8.3,<10",
   "ruff>=0.9,<1",
 ]
