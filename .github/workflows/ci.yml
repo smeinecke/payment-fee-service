@@ -18,3 +18,4 @@ jobs:
       - run: uv sync --group dev
       - run: make validate
       - run: make test-unit
+      - run: make test-e2e

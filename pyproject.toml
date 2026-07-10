@@ -62,6 +62,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
   "live: tests that hit the live network",
+  "e2e: tests that start a real HTTP server",
 ]
 
 [tool.ruff]

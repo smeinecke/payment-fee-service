@@ -1,6 +1,6 @@
 # Makefile for paypal-fee-crawler
 
-.PHONY: all format check validate test test-unit test-live help
+.PHONY: all format check validate test test-unit test-e2e test-live help
 
 all: validate test-unit
 
@@ -29,7 +29,10 @@ test:
 	uv run pytest
 
 test-unit:
-	uv run pytest tests/ -m "not live"
+	uv run pytest tests/ -m "not live and not e2e"
+
+test-e2e:
+	uv run pytest tests/e2e -m e2e
 
 test-live:
 	uv run pytest tests/ -m live
@@ -48,7 +51,8 @@ help:
 	@echo "  pyright       - Run type checking"
 	@echo "  bandit        - Run security analysis"
 	@echo "  test          - Run all tests"
-	@echo "  test-unit     - Run unit tests (no live network)"
+	@echo "  test-unit     - Run unit tests (no live network, no e2e)"
+	@echo "  test-e2e      - Run end-to-end tests against a real server"
 	@echo "  test-live     - Run live integration tests"
 	@echo "  validate      - Run all validation checks"
 	@echo "  help          - Show this help message"
