@@ -1,0 +1,18 @@
+{
+  "refresh_interval_seconds": 86400,
+  "admin_token": "change-me-in-production",
+  "providers": {
+    "paypal": {
+      "data_url": "https://raw.githubusercontent.com/smeinecke/paypal-fee-data/main",
+      "data_path": null,
+      "data_ref": "main",
+      "enabled": true
+    },
+    "stripe": {
+      "data_url": "https://raw.githubusercontent.com/smeinecke/stripe-fee-data/main",
+      "data_path": null,
+      "data_ref": "main",
+      "enabled": true
+    }
+  }
+}

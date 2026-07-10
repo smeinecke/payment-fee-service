@@ -1,0 +1,17 @@
+[Unit]
+Description=Payment Fee Service
+After=network.target
+
+[Service]
+Type=simple
+User=payment-fee-service
+Group=payment-fee-service
+WorkingDirectory=/opt/payment-fee-service
+Environment=PAYMENT_FEE_CONFIG_FILE=/etc/payment-fee-service/config.json
+Environment=PAYMENT_FEE_LOG_LEVEL=INFO
+ExecStart=/usr/local/bin/payment-fee-service serve --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

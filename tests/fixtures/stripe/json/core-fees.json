@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "generated_at": null,
+  "markets": [
+    {
+      "account_country": "DE",
+      "stripe_market_code": "de",
+      "locale": "en-de",
+      "derivation_status": "partial",
+      "unclassified_count": 0,
+      "rules": [
+        {
+          "rule_id": "stripe-de-card-eea",
+          "provider": "stripe",
+          "name": "Standard EEA cards",
+          "account_country": "DE",
+          "payment_method": "card",
+          "card_region": "eea",
+          "channel": "online",
+          "percentage": "1.50",
+          "basis_points": "150",
+          "fixed_amount": "0.25",
+          "fixed_amount_minor": "25",
+          "fixed_currency": "EUR",
+          "behavior": "additive",
+          "unit": "per_transaction",
+          "classification_status": "classified",
+          "confidence": 1.0,
+          "exactness": "exact",
+          "conditions": [],
+          "additional_fees": [],
+          "source_url": "https://stripe.com/en-de/pricing"
+        },
+        {
+          "rule_id": "stripe-de-card-international-surcharge",
+          "provider": "stripe",
+          "name": "International card surcharge",
+          "account_country": "DE",
+          "payment_method": null,
+          "card_origin": "international",
+          "percentage": "1.50",
+          "basis_points": "150",
+          "behavior": "additive",
+          "unit": "per_transaction",
+          "classification_status": "classified",
+          "confidence": 1.0,
+          "exactness": "exact",
+          "conditions": [],
+          "additional_fees": [],
+          "source_url": "https://stripe.com/en-de/pricing"
+        },
+        {
+          "rule_id": "stripe-de-sepa",
+          "provider": "stripe",
+          "name": "SEPA Direct Debit",
+          "account_country": "DE",
+          "payment_method": "sepa_debit",
+          "percentage": "0.80",
+          "basis_points": "80",
+          "maximum_amount": "5.00",
+          "behavior": "additive",
+          "unit": "per_transaction",
+          "classification_status": "classified",
+          "confidence": 1.0,
+          "exactness": "exact",
+          "conditions": [],
+          "additional_fees": [],
+          "source_url": "https://stripe.com/en-de/pricing/local-payment-methods"
+        }
+      ]
+    }
+  ]
+}
