@@ -166,6 +166,24 @@ sudo systemctl enable --now payment-fee-service
 
 OpenAPI documentation is available at `/docs` and `/redoc`.
 
+## Docker image
+
+A pre-built image is published to GitHub Container Registry on every push:
+
+```bash
+docker run -p 8000:8000 \
+  -e PAYMENT_FEE_CONFIG_FILE=/etc/payment-fee-service/config.json \
+  -v $(pwd)/config.json:/etc/payment-fee-service/config.json:ro \
+  ghcr.io/smeinecke/payment-fee-service:latest
+```
+
+Build locally:
+
+```bash
+make docker-build
+docker run -p 8000:8000 ghcr.io/smeinecke/payment-fee-service:local
+```
+
 ## Validate configured data
 
 ```bash

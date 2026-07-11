@@ -1,6 +1,8 @@
 # Makefile for paypal-fee-crawler
 
-.PHONY: all format check validate test test-unit test-e2e test-live help
+DOCKER_IMAGE ?= ghcr.io/smeinecke/payment-fee-service
+
+.PHONY: all format check validate test test-unit test-e2e test-live docker-build docker-push help
 
 all: validate test-unit
 
@@ -37,6 +39,12 @@ test-e2e:
 test-live:
 	uv run pytest tests/ -m live
 
+docker-build:
+	docker buildx build --load --platform linux/amd64 -t $(DOCKER_IMAGE):local .
+
+docker-push:
+	docker buildx build --push --platform linux/amd64,linux/arm64 -t $(DOCKER_IMAGE):latest .
+
 validate: format check pyright bandit
 	@echo "Validation passed."
 
@@ -54,5 +62,7 @@ help:
 	@echo "  test-unit     - Run unit tests (no live network, no e2e)"
 	@echo "  test-e2e      - Run end-to-end tests against a real server"
 	@echo "  test-live     - Run live integration tests"
+	@echo "  docker-build  - Build a local Docker image for linux/amd64"
+	@echo "  docker-push   - Build and push the Docker image to GHCR for linux/amd64+arm64"
 	@echo "  validate      - Run all validation checks"
 	@echo "  help          - Show this help message"
