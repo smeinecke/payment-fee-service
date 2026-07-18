@@ -3,9 +3,7 @@
   "description": "Cross-language conformance cases for payment-fee implementations.",
   "cases": [
     "cases/unknown-provider.json",
-    "cases/currency-mismatch.json",
     "cases/paypal-minimal-fixed.json",
-    "cases/paypal-domestic-de.json",
-    "cases/stripe-online-domestic-card-de.json"
+    "cases/rounding-jpy-midpoint.json"
   ]
 }

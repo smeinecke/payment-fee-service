@@ -17,7 +17,11 @@
                   "label": "JPY percentage",
                   "percentage": "3.4",
                   "calculation_status": "calculable",
-                  "fee_components": [{"type": "percentage"}],
+                  "fee_components": [
+                    {
+                      "type": "percentage"
+                    }
+                  ],
                   "conditions": {}
                 }
               ],
@@ -32,7 +36,10 @@
   },
   "request": {
     "provider": "paypal",
-    "amount": {"value": "101", "currency": "JPY"},
+    "amount": {
+      "value": "101",
+      "currency": "JPY"
+    },
     "account_country": "JP",
     "customer_country": "JP",
     "transaction": {
@@ -44,9 +51,18 @@
   "expected_result": {
     "provider": "paypal",
     "status": "exact_for_public_rate",
-    "amount": {"value": "101", "currency": "JPY"},
-    "processing_fee": {"value": "3", "currency": "JPY"},
-    "net_amount": {"value": "98", "currency": "JPY"},
+    "amount": {
+      "value": "101",
+      "currency": "JPY"
+    },
+    "processing_fee": {
+      "value": "3",
+      "currency": "JPY"
+    },
+    "net_amount": {
+      "value": "98",
+      "currency": "JPY"
+    },
     "components": [
       {
         "type": "processing",
@@ -54,25 +70,38 @@
         "amount": "3",
         "currency": "JPY",
         "rate_percentage": "3.4",
+        "fixed_amount": null,
         "minimum_applied": false,
         "maximum_applied": false,
+        "payer": null,
+        "unit": null,
         "source_rule_id": "paypal:JP:other_commercial:standard:base"
       }
     ],
     "matched_rules": [
       {
         "rule_id": "paypal:JP:other_commercial:standard:base",
-        "classification_status": "calculable"
+        "classification_status": "calculable",
+        "confidence": 1.0,
+        "exactness": "exact",
+        "source_url": null
       }
     ],
     "selected_product_id": "other_commercial",
     "selected_variant_id": "standard",
-    "assumptions": [],
+    "assumptions": [
+      "Public standard pricing was used; negotiated merchant pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used."
+    ],
     "warnings": [],
     "data": {
       "provider": "paypal",
       "schema_version": 1,
-      "market": "JP"
+      "market": "JP",
+      "content_sha256": null,
+      "source_urls": [],
+      "source_updated_at": null,
+      "data_ref": "documents"
     }
   },
   "expected_error": null

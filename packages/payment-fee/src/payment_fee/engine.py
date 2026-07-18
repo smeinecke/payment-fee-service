@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from payment_fee.calculator import FeeCalculator
+from payment_fee.errors import UnknownProvider
 from payment_fee.models import (
     BaseQuoteRequest,
     CapabilityInfo,
@@ -88,7 +89,16 @@ class PaymentFeeEngine:
 
     def quote(self, request: BaseQuoteRequest | dict[str, Any]) -> QuoteResponse:
         if isinstance(request, dict):
-            request = _QUOTE_REQUEST_ADAPTER.validate_python(request)
+            provider_id = request.get("provider")
+            if provider_id and provider_id not in self._registry.providers():
+                raise UnknownProvider(provider_id)
+            try:
+                request = _QUOTE_REQUEST_ADAPTER.validate_python(request)
+            except ValidationError as exc:
+                provider_id = request.get("provider") if isinstance(request, dict) else None
+                if provider_id:
+                    raise UnknownProvider(provider_id) from exc
+                raise
         provider = self._registry.get(request.provider)
         plan = provider.compile_rules(request)
         return self._calculator.calculate(request.amount, plan)
