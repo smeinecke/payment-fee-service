@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smeinecke.github.io/payment-fee-service/schemas/capabilities-v1.schema.json",
+  "title": "Capabilities v1",
+  "description": "Capability metadata for a provider market.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "provider": { "type": "string" },
+    "account_country": { "type": "string" },
+    "quotable": { "type": "boolean" },
+    "product_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "variants": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "payment_methods": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "supported_fee_shapes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "supported_currencies": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "condition_dimensions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "allowed_values": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array"
+      }
+    },
+    "required_context": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "calculable_products": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "included_products": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "custom_pricing_products": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "unsupported_products": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "non_calculable_products": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "dataset_status": { "type": "string" },
+    "source_revision": { "type": ["string", "null"] }
+  },
+  "required": ["provider", "account_country", "quotable"]
+}

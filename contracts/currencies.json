@@ -1,0 +1,494 @@
+{
+  "AED": {
+    "minor_units": 2
+  },
+  "AFN": {
+    "minor_units": 2
+  },
+  "ALL": {
+    "minor_units": 2
+  },
+  "AMD": {
+    "minor_units": 2
+  },
+  "ANG": {
+    "minor_units": 2
+  },
+  "AOA": {
+    "minor_units": 2
+  },
+  "ARS": {
+    "minor_units": 2
+  },
+  "AUD": {
+    "minor_units": 2
+  },
+  "AWG": {
+    "minor_units": 2
+  },
+  "AZN": {
+    "minor_units": 2
+  },
+  "BAM": {
+    "minor_units": 2
+  },
+  "BBD": {
+    "minor_units": 2
+  },
+  "BDT": {
+    "minor_units": 2
+  },
+  "BGN": {
+    "minor_units": 2
+  },
+  "BHD": {
+    "minor_units": 3
+  },
+  "BIF": {
+    "minor_units": 0
+  },
+  "BMD": {
+    "minor_units": 2
+  },
+  "BND": {
+    "minor_units": 2
+  },
+  "BOB": {
+    "minor_units": 2
+  },
+  "BRL": {
+    "minor_units": 2
+  },
+  "BSD": {
+    "minor_units": 2
+  },
+  "BTN": {
+    "minor_units": 2
+  },
+  "BWP": {
+    "minor_units": 2
+  },
+  "BYN": {
+    "minor_units": 2
+  },
+  "BZD": {
+    "minor_units": 2
+  },
+  "CAD": {
+    "minor_units": 2
+  },
+  "CDF": {
+    "minor_units": 2
+  },
+  "CHF": {
+    "minor_units": 2
+  },
+  "CLF": {
+    "minor_units": 4
+  },
+  "CLP": {
+    "minor_units": 0
+  },
+  "CNY": {
+    "minor_units": 2
+  },
+  "COP": {
+    "minor_units": 2
+  },
+  "CRC": {
+    "minor_units": 2
+  },
+  "CUP": {
+    "minor_units": 2
+  },
+  "CVE": {
+    "minor_units": 2
+  },
+  "CZK": {
+    "minor_units": 2
+  },
+  "DJF": {
+    "minor_units": 0
+  },
+  "DKK": {
+    "minor_units": 2
+  },
+  "DOP": {
+    "minor_units": 2
+  },
+  "DZD": {
+    "minor_units": 2
+  },
+  "EGP": {
+    "minor_units": 2
+  },
+  "ERN": {
+    "minor_units": 2
+  },
+  "ETB": {
+    "minor_units": 2
+  },
+  "EUR": {
+    "minor_units": 2
+  },
+  "FJD": {
+    "minor_units": 2
+  },
+  "FKP": {
+    "minor_units": 2
+  },
+  "GBP": {
+    "minor_units": 2
+  },
+  "GEL": {
+    "minor_units": 2
+  },
+  "GHS": {
+    "minor_units": 2
+  },
+  "GIP": {
+    "minor_units": 2
+  },
+  "GMD": {
+    "minor_units": 2
+  },
+  "GNF": {
+    "minor_units": 0
+  },
+  "GTQ": {
+    "minor_units": 2
+  },
+  "GYD": {
+    "minor_units": 2
+  },
+  "HKD": {
+    "minor_units": 2
+  },
+  "HNL": {
+    "minor_units": 2
+  },
+  "HTG": {
+    "minor_units": 2
+  },
+  "HUF": {
+    "minor_units": 2
+  },
+  "IDR": {
+    "minor_units": 2
+  },
+  "ILS": {
+    "minor_units": 2
+  },
+  "INR": {
+    "minor_units": 2
+  },
+  "IQD": {
+    "minor_units": 3
+  },
+  "IRR": {
+    "minor_units": 2
+  },
+  "ISK": {
+    "minor_units": 0
+  },
+  "JMD": {
+    "minor_units": 2
+  },
+  "JOD": {
+    "minor_units": 3
+  },
+  "JPY": {
+    "minor_units": 0
+  },
+  "KES": {
+    "minor_units": 2
+  },
+  "KGS": {
+    "minor_units": 2
+  },
+  "KHR": {
+    "minor_units": 2
+  },
+  "KMF": {
+    "minor_units": 0
+  },
+  "KPW": {
+    "minor_units": 2
+  },
+  "KRW": {
+    "minor_units": 0
+  },
+  "KWD": {
+    "minor_units": 3
+  },
+  "KYD": {
+    "minor_units": 2
+  },
+  "KZT": {
+    "minor_units": 2
+  },
+  "LAK": {
+    "minor_units": 2
+  },
+  "LBP": {
+    "minor_units": 2
+  },
+  "LKR": {
+    "minor_units": 2
+  },
+  "LRD": {
+    "minor_units": 2
+  },
+  "LSL": {
+    "minor_units": 2
+  },
+  "LYD": {
+    "minor_units": 3
+  },
+  "MAD": {
+    "minor_units": 2
+  },
+  "MDL": {
+    "minor_units": 2
+  },
+  "MGA": {
+    "minor_units": 2
+  },
+  "MKD": {
+    "minor_units": 2
+  },
+  "MMK": {
+    "minor_units": 2
+  },
+  "MNT": {
+    "minor_units": 2
+  },
+  "MOP": {
+    "minor_units": 2
+  },
+  "MRU": {
+    "minor_units": 2
+  },
+  "MUR": {
+    "minor_units": 2
+  },
+  "MVR": {
+    "minor_units": 2
+  },
+  "MWK": {
+    "minor_units": 2
+  },
+  "MXN": {
+    "minor_units": 2
+  },
+  "MYR": {
+    "minor_units": 2
+  },
+  "MZN": {
+    "minor_units": 2
+  },
+  "NAD": {
+    "minor_units": 2
+  },
+  "NGN": {
+    "minor_units": 2
+  },
+  "NIO": {
+    "minor_units": 2
+  },
+  "NOK": {
+    "minor_units": 2
+  },
+  "NPR": {
+    "minor_units": 2
+  },
+  "NZD": {
+    "minor_units": 2
+  },
+  "OMR": {
+    "minor_units": 3
+  },
+  "PAB": {
+    "minor_units": 2
+  },
+  "PEN": {
+    "minor_units": 2
+  },
+  "PGK": {
+    "minor_units": 2
+  },
+  "PHP": {
+    "minor_units": 2
+  },
+  "PKR": {
+    "minor_units": 2
+  },
+  "PLN": {
+    "minor_units": 2
+  },
+  "PYG": {
+    "minor_units": 0
+  },
+  "QAR": {
+    "minor_units": 2
+  },
+  "RON": {
+    "minor_units": 2
+  },
+  "RSD": {
+    "minor_units": 2
+  },
+  "RUB": {
+    "minor_units": 2
+  },
+  "RWF": {
+    "minor_units": 0
+  },
+  "SAR": {
+    "minor_units": 2
+  },
+  "SBD": {
+    "minor_units": 2
+  },
+  "SCR": {
+    "minor_units": 2
+  },
+  "SDG": {
+    "minor_units": 2
+  },
+  "SEK": {
+    "minor_units": 2
+  },
+  "SGD": {
+    "minor_units": 2
+  },
+  "SHP": {
+    "minor_units": 2
+  },
+  "SLE": {
+    "minor_units": 2
+  },
+  "SOS": {
+    "minor_units": 2
+  },
+  "SRD": {
+    "minor_units": 2
+  },
+  "SSP": {
+    "minor_units": 2
+  },
+  "STN": {
+    "minor_units": 2
+  },
+  "SVC": {
+    "minor_units": 2
+  },
+  "SYP": {
+    "minor_units": 2
+  },
+  "SZL": {
+    "minor_units": 2
+  },
+  "THB": {
+    "minor_units": 2
+  },
+  "TJS": {
+    "minor_units": 2
+  },
+  "TMT": {
+    "minor_units": 2
+  },
+  "TND": {
+    "minor_units": 3
+  },
+  "TOP": {
+    "minor_units": 2
+  },
+  "TRY": {
+    "minor_units": 2
+  },
+  "TTD": {
+    "minor_units": 2
+  },
+  "TWD": {
+    "minor_units": 2
+  },
+  "TZS": {
+    "minor_units": 2
+  },
+  "UAH": {
+    "minor_units": 2
+  },
+  "UGX": {
+    "minor_units": 0
+  },
+  "USD": {
+    "minor_units": 2
+  },
+  "UYU": {
+    "minor_units": 2
+  },
+  "UYW": {
+    "minor_units": 4
+  },
+  "UZS": {
+    "minor_units": 2
+  },
+  "VED": {
+    "minor_units": 2
+  },
+  "VES": {
+    "minor_units": 2
+  },
+  "VND": {
+    "minor_units": 0
+  },
+  "VUV": {
+    "minor_units": 0
+  },
+  "WST": {
+    "minor_units": 2
+  },
+  "XAF": {
+    "minor_units": 0
+  },
+  "XAG": {
+    "minor_units": 2
+  },
+  "XAU": {
+    "minor_units": 2
+  },
+  "XCD": {
+    "minor_units": 2
+  },
+  "XCG": {
+    "minor_units": 2
+  },
+  "XDR": {
+    "minor_units": 2
+  },
+  "XOF": {
+    "minor_units": 0
+  },
+  "XPD": {
+    "minor_units": 2
+  },
+  "XPF": {
+    "minor_units": 0
+  },
+  "XPT": {
+    "minor_units": 2
+  },
+  "YER": {
+    "minor_units": 2
+  },
+  "ZAR": {
+    "minor_units": 2
+  },
+  "ZMW": {
+    "minor_units": 2
+  },
+  "ZWG": {
+    "minor_units": 2
+  }
+}

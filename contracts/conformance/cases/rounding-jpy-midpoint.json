@@ -1,0 +1,79 @@
+{
+  "id": "rounding-jpy-midpoint",
+  "provider_documents": {
+    "paypal": {
+      "core": {
+        "schema_version": 1,
+        "countries": [
+          {
+            "country_code": "JP",
+            "derived_status": "calculable",
+            "derived": {
+              "status": "calculable",
+              "transaction_fee_rules": [
+                {
+                  "id": "other_commercial",
+                  "variant_id": "standard",
+                  "label": "JPY percentage",
+                  "percentage": "3.4",
+                  "calculation_status": "calculable",
+                  "fee_components": [{"type": "percentage"}],
+                  "conditions": {}
+                }
+              ],
+              "fixed_fee_schedules": {},
+              "international_surcharge_schedules": {},
+              "maximum_fee_schedules": {}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "paypal",
+    "amount": {"value": "101", "currency": "JPY"},
+    "account_country": "JP",
+    "customer_country": "JP",
+    "transaction": {
+      "product_id": "other_commercial",
+      "variant_id": "standard",
+      "transaction_region": "domestic"
+    }
+  },
+  "expected_result": {
+    "provider": "paypal",
+    "status": "exact_for_public_rate",
+    "amount": {"value": "101", "currency": "JPY"},
+    "processing_fee": {"value": "3", "currency": "JPY"},
+    "net_amount": {"value": "98", "currency": "JPY"},
+    "components": [
+      {
+        "type": "processing",
+        "label": "JPY percentage",
+        "amount": "3",
+        "currency": "JPY",
+        "rate_percentage": "3.4",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "source_rule_id": "paypal:JP:other_commercial:standard:base"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "paypal:JP:other_commercial:standard:base",
+        "classification_status": "calculable"
+      }
+    ],
+    "selected_product_id": "other_commercial",
+    "selected_variant_id": "standard",
+    "assumptions": [],
+    "warnings": [],
+    "data": {
+      "provider": "paypal",
+      "schema_version": 1,
+      "market": "JP"
+    }
+  },
+  "expected_error": null
+}

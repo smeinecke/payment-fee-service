@@ -1,0 +1,11 @@
+{
+  "paypal": {
+    "core-fees": [1],
+    "index": [1]
+  },
+  "stripe": {
+    "core-fees": [1],
+    "index": [1],
+    "payment-methods": [1]
+  }
+}

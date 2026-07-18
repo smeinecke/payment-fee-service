@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smeinecke.github.io/payment-fee-service/schemas/quote-request-v1.schema.json",
+  "title": "Quote Request v1",
+  "description": "Canonical /v1 quote request. Provider-native transaction objects are discriminated by the provider field.",
+  "type": "object",
+  "$defs": {
+    "Money": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^\\d+(?:\\.\\d+)?$",
+          "description": "Non-negative decimal amount as a string."
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "description": "Uppercase ISO 4217 currency code."
+        }
+      },
+      "required": ["value", "currency"]
+    },
+    "CardContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": { "type": ["string", "null"] },
+        "region": { "type": ["string", "null"] },
+        "type": { "type": ["string", "null"] },
+        "network": { "type": ["string", "null"] },
+        "tier": { "type": ["string", "null"] },
+        "entry_mode": { "type": ["string", "null"] }
+      }
+    },
+    "SettlementContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "anyOf": [
+            { "type": "string", "minLength": 3, "maxLength": 3, "pattern": "^[A-Z]{3}$" },
+            { "type": "null" }
+          ]
+        },
+        "timing": { "type": ["string", "null"] }
+      }
+    },
+    "BankContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "validation": { "type": ["string", "null"] },
+        "transfer_type": { "type": ["string", "null"] }
+      }
+    },
+    "BaseTransaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_id": { "type": ["string", "null"] },
+        "variant_id": { "type": ["string", "null"] },
+        "payment_method": { "type": ["string", "null"] },
+        "payment_method_variant": { "type": ["string", "null"] },
+        "channel": { "type": ["string", "null"] },
+        "pricing_plan": { "type": ["string", "null"] },
+        "pricing_tier": { "type": ["string", "null"] },
+        "payer": { "type": ["string", "null"] },
+        "unit": { "type": ["string", "null"], "default": "per_transaction" },
+        "currency_conversion_required": { "type": ["boolean", "null"] },
+        "context": {
+          "type": "object",
+          "additionalProperties": {
+            "description": "JSON scalar or array of scalars. Nested objects are not allowed.",
+            "anyOf": [
+              { "type": ["string", "number", "boolean", "integer", "null"] },
+              {
+                "type": "array",
+                "items": { "type": ["string", "number", "boolean", "integer", "null"] }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "PayPalTransaction": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseTransaction" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "transaction_region": { "type": ["string", "null"] },
+            "payer_region": { "type": ["string", "null"] },
+            "surcharge_region": { "type": ["string", "null"] },
+            "merchant_approval_required": { "type": ["boolean", "null"] },
+            "withdrawal_method": { "type": ["string", "null"] },
+            "authorization_channel": { "type": ["string", "null"] },
+            "point_of_sale": { "type": ["boolean", "null"] },
+            "card_present": { "type": ["boolean", "null"] },
+            "transaction_purpose": { "type": ["string", "null"] },
+            "funding_source": { "type": ["string", "null"] },
+            "service": { "type": ["string", "null"] },
+            "recipient_location": { "type": ["string", "null"] },
+            "volume_status": { "type": ["string", "null"] },
+            "fee_currency": {
+              "anyOf": [
+                { "type": "string", "minLength": 3, "maxLength": 3, "pattern": "^[A-Z]{3}$" },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "StripeTransaction": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseTransaction" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "card": { "$ref": "#/$defs/CardContext" },
+            "settlement": { "$ref": "#/$defs/SettlementContext" },
+            "bank": { "$ref": "#/$defs/BankContext" },
+            "recurring": { "type": ["boolean", "null"] },
+            "billing_type": { "type": ["string", "null"] },
+            "transaction_region": { "type": ["string", "null"] },
+            "customer_country": {
+              "anyOf": [
+                { "type": "string", "minLength": 2, "maxLength": 2, "pattern": "^[A-Z]{2}$" },
+                { "type": "null" }
+              ]
+            },
+            "presentment_currency": {
+              "anyOf": [
+                { "type": "string", "minLength": 3, "maxLength": 3, "pattern": "^[A-Z]{3}$" },
+                { "type": "null" }
+              ]
+            },
+            "settlement_currency": {
+              "anyOf": [
+                { "type": "string", "minLength": 3, "maxLength": 3, "pattern": "^[A-Z]{3}$" },
+                { "type": "null" }
+              ]
+            },
+            "settlement_timing": { "type": ["string", "null"] },
+            "bank_account_validation": { "type": ["string", "null"] },
+            "integration_type": { "type": ["string", "null"] },
+            "product_feature": { "type": ["string", "null"] },
+            "contract_length": { "type": ["string", "null"] },
+            "cross_border": { "type": ["boolean", "null"] },
+            "feature_enabled": { "type": ["string", "null"] },
+            "dispute_state": { "type": ["string", "null"] },
+            "card_tier": { "type": ["string", "null"] },
+            "card_type": { "type": ["string", "null"] },
+            "card_network": { "type": ["string", "null"] },
+            "card_origin": { "type": ["string", "null"] },
+            "card_region": { "type": ["string", "null"] },
+            "card_entry_mode": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "PayPalQuoteRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "const": "paypal" },
+        "amount": { "$ref": "#/$defs/Money" },
+        "account_country": { "type": "string", "minLength": 2, "maxLength": 2, "pattern": "^[A-Z]{2}$" },
+        "customer_country": {
+          "anyOf": [
+            { "type": "string", "minLength": 2, "maxLength": 2, "pattern": "^[A-Z]{2}$" },
+            { "type": "null" }
+          ]
+        },
+        "settlement_currency": {
+          "anyOf": [
+            { "type": "string", "minLength": 3, "maxLength": 3, "pattern": "^[A-Z]{3}$" },
+            { "type": "null" }
+          ]
+        },
+        "transaction": { "$ref": "#/$defs/PayPalTransaction" }
+      },
+      "required": ["provider", "amount", "account_country", "transaction"]
+    },
+    "StripeQuoteRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "const": "stripe" },
+        "amount": { "$ref": "#/$defs/Money" },
+        "account_country": { "type": "string", "minLength": 2, "maxLength": 2, "pattern": "^[A-Z]{2}$" },
+        "customer_country": {
+          "anyOf": [
+            { "type": "string", "minLength": 2, "maxLength": 2, "pattern": "^[A-Z]{2}$" },
+            { "type": "null" }
+          ]
+        },
+        "settlement_currency": {
+          "anyOf": [
+            { "type": "string", "minLength": 3, "maxLength": 3, "pattern": "^[A-Z]{3}$" },
+            { "type": "null" }
+          ]
+        },
+        "transaction": { "$ref": "#/$defs/StripeTransaction" }
+      },
+      "required": ["provider", "amount", "account_country", "transaction"]
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/PayPalQuoteRequest" },
+    { "$ref": "#/$defs/StripeQuoteRequest" }
+  ],
+  "discriminator": {
+    "propertyName": "provider",
+    "mapping": {
+      "paypal": "#/$defs/PayPalQuoteRequest",
+      "stripe": "#/$defs/StripeQuoteRequest"
+    }
+  }
+}

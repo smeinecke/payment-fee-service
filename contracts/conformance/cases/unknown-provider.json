@@ -1,0 +1,19 @@
+{
+  "id": "unknown-provider",
+  "provider_documents": {},
+  "request": {
+    "provider": "adyen",
+    "amount": {"value": "100.00", "currency": "EUR"},
+    "account_country": "DE",
+    "transaction": {
+      "product_id": "payments",
+      "variant_id": "standard"
+    }
+  },
+  "expected_result": null,
+  "expected_error": {
+    "code": "UNKNOWN_PROVIDER",
+    "message": "Unknown provider: adyen",
+    "details": {"provider": "adyen"}
+  }
+}

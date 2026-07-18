@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smeinecke.github.io/payment-fee-service/schemas/data-status-v1.schema.json",
+  "title": "Data Status v1",
+  "description": "Provider data readiness status returned by /v1/data/status.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "provider": { "type": "string" },
+      "ready": { "type": "boolean" },
+      "market_count": { "type": "integer", "default": 0 },
+      "error": { "type": ["string", "null"] }
+    },
+    "required": ["provider", "ready"]
+  }
+}

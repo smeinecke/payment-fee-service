@@ -11,7 +11,7 @@ def test_openapi_schema_is_canonical_v1(client: TestClient) -> None:
     assert response.status_code == 200
     schema = response.json()
     assert schema["info"]["title"] == "Payment Fee Service"
-    assert schema["info"]["version"] == "0.3.0"
+    assert schema["info"]["version"] == "0.4.0"
     assert "/v1/quotes" in schema["paths"]
     assert "/v2/quotes" not in schema["paths"]
     assert all(path.startswith("/v1/") or path.startswith("/health/") for path in schema["paths"])

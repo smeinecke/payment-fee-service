@@ -1,5 +1,8 @@
 [tool.uv.workspace]
-members = ["packages/*", "services/*"]
+members = [
+  "packages/payment-fee",
+  "services/payment-fee-service",
+]
 
 [tool.uv]
 package = true

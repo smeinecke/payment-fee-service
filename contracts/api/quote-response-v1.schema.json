@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smeinecke.github.io/payment-fee-service/schemas/quote-response-v1.schema.json",
+  "title": "Quote Response v1",
+  "description": "Canonical /v1 quote response. Monetary values are fixed-point decimal strings.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "Money": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^-?\\d+(?:\\.\\d+)?$",
+          "description": "Decimal amount as a string. Negative zero must serialize as 0."
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$"
+        }
+      },
+      "required": ["value", "currency"]
+    },
+    "FeeComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "label": { "type": "string" },
+        "amount": {
+          "type": "string",
+          "pattern": "^-?\\d+(?:\\.\\d+)?$"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$"
+        },
+        "rate_percentage": {
+          "anyOf": [
+            { "type": "string", "pattern": "^-?\\d+(?:\\.\\d+)?$" },
+            { "type": "null" }
+          ],
+          "description": "Percentage rate as a decimal string, e.g. '2.9'."
+        },
+        "fixed_amount": {
+          "anyOf": [
+            { "type": "string", "pattern": "^-?\\d+(?:\\.\\d+)?$" },
+            { "type": "null" }
+          ]
+        },
+        "minimum_applied": { "type": "boolean", "default": false },
+        "maximum_applied": { "type": "boolean", "default": false },
+        "payer": { "type": ["string", "null"] },
+        "unit": { "type": ["string", "null"] },
+        "source_rule_id": { "type": "string" }
+      },
+      "required": ["type", "label", "amount", "currency", "source_rule_id"]
+    },
+    "MatchedRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rule_id": { "type": "string" },
+        "classification_status": { "type": "string" },
+        "confidence": {
+          "anyOf": [
+            { "type": "number" },
+            { "type": "null" }
+          ]
+        },
+        "exactness": { "type": ["string", "null"] },
+        "source_url": { "type": ["string", "null"] }
+      },
+      "required": ["rule_id", "classification_status"]
+    },
+    "DataProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "schema_version": { "type": "integer" },
+        "market": { "type": "string" },
+        "content_sha256": { "type": ["string", "null"] },
+        "source_urls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "source_updated_at": { "type": ["string", "null"] },
+        "data_ref": { "type": ["string", "null"] }
+      },
+      "required": ["provider", "schema_version", "market"]
+    }
+  },
+  "properties": {
+    "provider": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["exact_for_public_rate", "estimated", "range", "included", "not_calculable"]
+    },
+    "amount": { "$ref": "#/$defs/Money" },
+    "processing_fee": { "$ref": "#/$defs/Money" },
+    "net_amount": { "$ref": "#/$defs/Money" },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FeeComponent" }
+    },
+    "matched_rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/MatchedRule" }
+    },
+    "selected_product_id": { "type": ["string", "null"] },
+    "selected_variant_id": { "type": ["string", "null"] },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "data": { "$ref": "#/$defs/DataProvenance" }
+  },
+  "required": ["provider", "status", "amount", "processing_fee", "net_amount", "components", "matched_rules", "data"]
+}
