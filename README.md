@@ -26,15 +26,17 @@ stripe-fee-data ──►  │ Stripe rules │    ▼  Decimal calculator, sche
 ## Features
 
 - `POST /v1/quotes` with discriminated PayPal and Stripe requests
+- `POST /v2/quotes` with provider-native transaction context and the same calculation engine
 - exact decimal calculations and ISO 4217-aware rounding
 - fixed, percentage, basis-point, minimum, maximum, and additive fee components
-- PayPal transaction categories and international surcharge-region handling
+- explicit PayPal schedule registry (schedule IDs, market selectors, and pricing-plan selectors)
 - Stripe multidimensional matching for payment method, card origin/region/tier, channel, recurrence, billing type, currencies, thresholds, and published conditions
+- fail-closed dataset adapters that reject unknown upstream fields before Pydantic validation
 - fail-closed behavior for ambiguous rules, missing context, unsupported conditions, unknown behaviors, and currency mismatches
 - rule-level availability rather than rejecting every market marked `partial`
-- market, capability, data-status, liveness, and readiness endpoints
-- local or HTTPS-based snapshot loading
-- JSON Schema validation at startup
+- market, capability, quote-schema, data-status, liveness, and readiness endpoints
+- local or HTTPS-based snapshot loading with optional JSON Schema validation
+- contract audit helpers with counters for skipped rules, unknown dimensions, and unresolved schedules
 - Docker image, CLI, tests, and GitHub Actions
 
 ## Requirements
@@ -200,6 +202,83 @@ quote = engine.quote({
 })
 print(quote.processing_fee.value)
 ```
+
+### Validating documents against JSON Schema
+
+Both `from_paths` and `from_documents` accept a `validate` flag. For `from_documents`, pass the matching schemas under a `schemas` key:
+
+```python
+engine = PaymentFeeEngine.from_documents(
+    paypal={
+        "core": core_doc,
+        "index": index_doc,
+        "schemas": {
+            "core": core_schema,
+            "index": index_schema,
+        },
+    },
+    stripe={
+        "core": core_doc,
+        "index": index_doc,
+        "payment_methods": pm_doc,
+        "schemas": {
+            "core": core_schema,
+            "index": index_schema,
+            "payment_methods": pm_schema,
+        },
+    },
+    validate=True,
+)
+```
+
+If `validate=True` and the schemas are missing, `DatasetValidationError` is raised.
+
+### Contract audit
+
+The library exposes an `audit_contract` helper that walks every calculable rule and produces counters for parsed, skipped, context-required, unknown dimensions/operators, unsupported components, and unresolved schedule references:
+
+```python
+from payment_fee.audit import audit_contract
+
+result = audit_contract(engine)
+assert result.paypal_calculable_rules_skipped == 0
+assert result.stripe_calculable_rules_skipped == 0
+```
+
+## V2 API
+
+`/v2/quotes` accepts the provider-native `transaction` object directly and is parity-tested against `/v1/quotes`:
+
+```bash
+curl -sS http://localhost:8000/v2/quotes \
+  -H 'content-type: application/json' \
+  -d '{
+    "provider": "stripe",
+    "amount": {"value": "100.00", "currency": "EUR"},
+    "account_country": "DE",
+    "customer_country": "DE",
+    "settlement_currency": "EUR",
+    "transaction": {
+      "product_id": "payments",
+      "variant_id": "online_domestic_cards",
+      "payment_method": "card",
+      "channel": "online",
+      "pricing_tier": "standard",
+      "card": {"origin": "domestic", "region": "domestic", "tier": "standard"}
+    }
+  }'
+```
+
+Additional endpoints include:
+
+- `GET /v2/providers/{provider}/markets/{account_country}/capabilities`
+- `GET /v2/providers/{provider}/markets/{account_country}/quote-schema`
+- `GET /v2/data/status`
+- `POST /v2/data/refresh`
+
+## PayPal schedule resolution
+
+PayPal fee rules reference fixed-fee, maximum-fee, and international-surcharge schedules. The provider builds an explicit registry from the adapted `core-fees.json` document and resolves each reference by exact schedule ID, market selector (`__applies_to_markets=<code>`), and pricing-plan selector (`__pricing_plan=<plan>`). Unknown or ambiguous schedule references raise `QuoteNotAvailable` instead of falling back to a heuristic match.
 
 ## Docker image
 

@@ -85,3 +85,102 @@ def test_refresh_endpoint_with_valid_token(client) -> None:
     )
     assert response.status_code == 200
     assert {item["provider"] for item in response.json()} == {"paypal", "stripe"}
+
+
+def test_v2_quote_matches_v1_for_paypal(client) -> None:
+    v1 = client.post(
+        "/v1/quotes",
+        json={
+            "provider": "paypal",
+            "amount": {"value": "100.00", "currency": "EUR"},
+            "account_country": "DE",
+            "customer_country": "DE",
+            "payment": {"transaction_type": "standard_commercial"},
+        },
+    )
+    assert v1.status_code == 200
+    v2 = client.post(
+        "/v2/quotes",
+        json={
+            "provider": "paypal",
+            "amount": {"value": "100.00", "currency": "EUR"},
+            "account_country": "DE",
+            "customer_country": "DE",
+            "transaction": {"product_id": "other_commercial", "transaction_region": "domestic"},
+        },
+    )
+    assert v2.status_code == 200
+    assert v1.json()["processing_fee"] == v2.json()["processing_fee"]
+    assert v1.json()["net_amount"] == v2.json()["net_amount"]
+
+
+def test_v2_quote_matches_v1_for_stripe(client) -> None:
+    v1 = client.post(
+        "/v1/quotes",
+        json={
+            "provider": "stripe",
+            "amount": {"value": "100.00", "currency": "EUR"},
+            "account_country": "DE",
+            "customer_country": "DE",
+            "settlement_currency": "EUR",
+            "payment": {
+                "method": "card",
+                "channel": "online",
+                "card": {"origin": "domestic", "region": "eea", "tier": "standard"},
+            },
+        },
+    )
+    assert v1.status_code == 200
+    v2 = client.post(
+        "/v2/quotes",
+        json={
+            "provider": "stripe",
+            "amount": {"value": "100.00", "currency": "EUR"},
+            "account_country": "DE",
+            "customer_country": "DE",
+            "settlement_currency": "EUR",
+            "transaction": {
+                "product_id": "payments",
+                "variant_id": "online_domestic_cards",
+                "payment_method": "card",
+                "channel": "online",
+                "pricing_tier": "standard",
+                "card": {"origin": "domestic", "region": "domestic", "tier": "standard"},
+            },
+        },
+    )
+    assert v2.status_code == 200
+    assert v1.json()["processing_fee"] == v2.json()["processing_fee"]
+    assert v1.json()["net_amount"] == v2.json()["net_amount"]
+
+
+def test_quote_schema_endpoint(client) -> None:
+    response = client.get("/v2/providers/stripe/markets/DE/quote-schema")
+    assert response.status_code == 200
+    schema = response.json()
+    assert schema["provider"] == "stripe"
+    assert schema["account_country"] == "DE"
+    assert "request_schema" in schema
+    assert "response_schema" in schema
+
+
+def test_data_status_endpoint(client) -> None:
+    response = client.get("/v1/data/status")
+    assert response.status_code == 200
+    statuses = {item["provider"]: item for item in response.json()}
+    assert statuses.keys() == {"paypal", "stripe"}
+    assert all(item["ready"] for item in statuses.values())
+
+
+def test_structured_error_v2(client) -> None:
+    response = client.post(
+        "/v2/quotes",
+        json={
+            "provider": "paypal",
+            "amount": {"value": "100.00", "currency": "XXX"},
+            "account_country": "DE",
+            "transaction": {"product_id": "other_commercial", "transaction_region": "domestic"},
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "QUOTE_NOT_AVAILABLE"

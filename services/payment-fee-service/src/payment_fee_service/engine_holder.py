@@ -127,6 +127,37 @@ def _first_calculable_product_variant(
     return None, None
 
 
+def _first_allowed(cap: CapabilityInfo, dimension: str) -> Any | None:
+    values = cap.allowed_values.get(dimension)
+    if values:
+        return values[0]
+    return None
+
+
+def _apply_required_context(
+    transaction: dict[str, Any],
+    required_context: list[str],
+    allowed_values: dict[str, list[Any]],
+    defaults: dict[str, Any],
+) -> None:
+    for path in required_context:
+        if not path.startswith("transaction."):
+            continue
+        parts = path.split(".")[1:]
+        value = allowed_values.get(path, [defaults.get(parts[-1])])[0]
+        if value is None:
+            value = defaults.get(parts[-1])
+        if value is None:
+            continue
+
+        target = transaction
+        for part in parts[:-1]:
+            if part not in target or target[part] is None:
+                target[part] = {}
+            target = target[part]
+        target[parts[-1]] = value
+
+
 def _build_smoke_request(
     provider_id: str,
     account_country: str,
@@ -134,27 +165,37 @@ def _build_smoke_request(
     variant: str | None,
     cap: CapabilityInfo,
 ) -> dict[str, Any]:
+    currency = cap.supported_currencies[0] if cap.supported_currencies else "USD"
     transaction: dict[str, Any] = {"product_id": product}
     if variant:
         transaction["variant_id"] = variant
 
+    defaults: dict[str, Any] = {}
     if provider_id == "paypal":
-        transaction["transaction_region"] = "domestic"
-        if "transaction.payment_method" in cap.required_context:
-            transaction["payment_method"] = "paypal"
+        defaults["transaction_region"] = "domestic"
+        defaults["payment_method"] = _first_allowed(cap, "transaction.payment_method") or "paypal"
+        defaults["pricing_plan"] = _first_allowed(cap, "transaction.pricing_plan")
     elif provider_id == "stripe":
-        if "transaction.payment_method" in cap.required_context or cap.payment_methods:
-            transaction["payment_method"] = "card"
-        if "transaction.channel" in cap.required_context:
-            transaction["channel"] = "online"
-        if "transaction.card.origin" in cap.required_context:
-            transaction["card"] = {"origin": "domestic", "region": "domestic", "tier": "standard"}
+        defaults["payment_method"] = _first_allowed(cap, "transaction.payment_method") or (
+            cap.payment_methods[0] if cap.payment_methods else "card"
+        )
+        defaults["channel"] = _first_allowed(cap, "transaction.channel") or "online"
+        defaults["pricing_tier"] = _first_allowed(cap, "transaction.pricing_tier")
+        defaults["pricing_plan"] = _first_allowed(cap, "transaction.pricing_plan")
+        defaults["transaction_region"] = _first_allowed(cap, "transaction.transaction_region") or "domestic"
+        defaults["card"] = {
+            "origin": _first_allowed(cap, "transaction.card.origin") or "domestic",
+            "region": _first_allowed(cap, "transaction.card.region") or "domestic",
+            "tier": _first_allowed(cap, "transaction.card.tier") or "standard",
+        }
+
+    _apply_required_context(transaction, cap.required_context, cap.allowed_values, defaults)
 
     return {
         "provider": provider_id,
-        "amount": {"value": "100", "currency": "USD"},
+        "amount": {"value": "100", "currency": currency},
         "account_country": account_country,
         "customer_country": account_country,
-        "settlement_currency": "USD",
+        "settlement_currency": currency,
         "transaction": transaction,
     }
