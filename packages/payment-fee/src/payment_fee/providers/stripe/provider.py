@@ -78,7 +78,6 @@ def _build_stripe_context(request: StripeQuoteRequest) -> dict[str, Any]:
         "contract_length": t.contract_length,
         "feature_enabled": t.feature_enabled,
         "dispute_state": t.dispute_state,
-        "fee_type": None,
     }
 
     if t.card:
@@ -106,7 +105,9 @@ def _build_stripe_context(request: StripeQuoteRequest) -> dict[str, Any]:
 
     for key, value in t.context.items():
         if key in context:
-            if value != context[key]:
+            if context[key] is None:
+                context[key] = value
+            elif value != context[key]:
                 raise QuoteNotAvailable(
                     "Contradictory duplicate value in transaction context.",
                     field=key,
@@ -544,11 +545,39 @@ class StripeProvider:
         core: dict[str, Any],
         index: dict[str, Any] | None = None,
         payment_methods: dict[str, Any] | None = None,
+        schemas: dict[str, Any] | None = None,
         data_ref: str | None = None,
+        validate_schema: bool = False,
     ) -> StripeProvider:
-        core_model = StripeCoreFees.model_validate(core)
-        index = _sanitize_index_document(index)
-        index_model = StripeIndex.model_validate(index) if index else None
+        from payment_fee.errors import DatasetValidationError
+
+        core_document = core
+        index_document = _sanitize_index_document(index)
+        if validate_schema:
+            from payment_fee.data import validate_json_schema
+
+            if schemas is None or "core" not in schemas:
+                raise DatasetValidationError(
+                    "Stripe core schema is required for document validation.",
+                    schema="core",
+                )
+            validate_json_schema(core_document, schemas["core"], "stripe-core")
+            if index_document is not None:
+                if "index" not in schemas:
+                    raise DatasetValidationError(
+                        "Stripe index schema is required for document validation.",
+                        schema="index",
+                    )
+                validate_json_schema(index_document, schemas["index"], "stripe-index")
+            if payment_methods is not None:
+                if schemas is None or "payment_methods" not in schemas:
+                    raise DatasetValidationError(
+                        "Stripe payment-methods schema is required for document validation.",
+                        schema="payment_methods",
+                    )
+                validate_json_schema(payment_methods, schemas["payment_methods"], "stripe-payment-methods")
+        core_model = StripeCoreFees.model_validate(core_document)
+        index_model = StripeIndex.model_validate(index_document) if index_document else None
         payment_methods_model = StripePaymentMethods.model_validate(payment_methods) if payment_methods else None
         if core_model.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise UnsupportedFeeShape(

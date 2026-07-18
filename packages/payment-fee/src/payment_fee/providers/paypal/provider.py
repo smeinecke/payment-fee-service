@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Literal, overload
+from typing import Any
 
 from payment_fee.calculator import to_decimal
 from payment_fee.data import load_json
 from payment_fee.errors import (
     AmbiguousFeeRules,
+    DatasetValidationError,
     InsufficientTransactionContext,
     QuoteNotAvailable,
     UnknownMarket,
     UnsupportedFeeShape,
 )
 from payment_fee.models import BaseQuoteRequest, CapabilityInfo, MarketInfo, PayPalQuoteRequest, QuoteSchema
+from payment_fee.providers.paypal.adapter import (
+    adapt_paypal_core_document,
+    adapt_paypal_index_document,
+)
 from payment_fee.providers.paypal.models import (
     PayPalCoreFees,
     PayPalCountryEntry,
@@ -36,144 +42,76 @@ SUPPORTED_FEE_COMPONENT_TYPES = {
     "maximum_fee_schedule",
 }
 
-_INDEX_COUNTRY_FIELDS = set(PayPalIndexCountry.model_fields.keys())
-_CORE_TOP_FIELDS = set(PayPalCoreFees.model_fields.keys())
-_COUNTRY_FIELDS = set(PayPalCountryEntry.model_fields.keys())
+
+@dataclass(frozen=True)
+class _ScheduleIdentity:
+    raw_id: str
+    stem: str
+    applies_to_markets: frozenset[str] | None
+    pricing_plan: str | None
+
+    @classmethod
+    def parse(cls, raw_id: str) -> _ScheduleIdentity:
+        parts = raw_id.split("__")
+        stem = parts[0]
+        markets: frozenset[str] | None = None
+        pricing_plan: str | None = None
+        for part in parts[1:]:
+            if "=" not in part:
+                raise DatasetValidationError(
+                    f"Malformed PayPal schedule selector {part!r} in {raw_id!r}.",
+                    schedule_id=raw_id,
+                    selector=part,
+                )
+            dimension, _, value = part.partition("=")
+            if dimension == "applies_to_markets":
+                markets = frozenset(value.split("_"))
+            elif dimension == "pricing_plan":
+                pricing_plan = value
+            else:
+                raise DatasetValidationError(
+                    f"Unknown PayPal schedule dimension {dimension!r} in {raw_id!r}.",
+                    schedule_id=raw_id,
+                    dimension=dimension,
+                )
+        return cls(raw_id=raw_id, stem=stem, applies_to_markets=markets, pricing_plan=pricing_plan)
 
 
-def _sanitize_index_document(document: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(document, dict):
-        return document
-    allowed = _INDEX_COUNTRY_FIELDS | {"schema_version", "generated_at", "countries"}
-    sanitized = {k: v for k, v in document.items() if k in allowed}
-    sanitized["countries"] = [
-        {k: v for k, v in country.items() if k in _INDEX_COUNTRY_FIELDS} for country in sanitized.get("countries", [])
-    ]
-    return sanitized
+class _PayPalScheduleRegistry:
+    def __init__(self, derived: PayPalDerivedData) -> None:
+        self._fixed_fee = derived.fixed_fee_schedules
+        self._international_surcharge = derived.international_surcharge_schedules
+        self._maximum_fee = derived.maximum_fee_schedules
+        for raw_id in self._fixed_fee:
+            _ScheduleIdentity.parse(raw_id)
+        for raw_id in self._international_surcharge:
+            _ScheduleIdentity.parse(raw_id)
+        for raw_id in self._maximum_fee:
+            _ScheduleIdentity.parse(raw_id)
 
+    def resolve_fixed(self, raw_id: str) -> PayPalFixedFeeSchedule:
+        if raw_id in self._fixed_fee:
+            return self._fixed_fee[raw_id]
+        raise QuoteNotAvailable(
+            "No matching PayPal fixed-fee schedule found.",
+            schedule_id=raw_id,
+        )
 
-def _sanitize_core_document(document: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(document, dict):
-        return document
-    sanitized = {k: v for k, v in document.items() if k in _CORE_TOP_FIELDS}
-    sanitized["countries"] = [
-        {k: v for k, v in country.items() if k in _COUNTRY_FIELDS} for country in sanitized.get("countries", [])
-    ]
-    return sanitized
+    def resolve_surcharge(self, raw_id: str) -> PayPalInternationalSurchargeSchedule:
+        if raw_id in self._international_surcharge:
+            return self._international_surcharge[raw_id]
+        raise QuoteNotAvailable(
+            "No matching PayPal international surcharge schedule found.",
+            schedule_id=raw_id,
+        )
 
-
-@overload
-def _resolve_schedule(
-    derived: PayPalDerivedData,
-    schedule_id: str,
-    account_country: str,
-    schedule_type: Literal["fixed_fee"],
-    rule: PayPalTransactionFeeRule | None = None,
-) -> PayPalFixedFeeSchedule | None: ...
-
-
-@overload
-def _resolve_schedule(
-    derived: PayPalDerivedData,
-    schedule_id: str,
-    account_country: str,
-    schedule_type: Literal["international_surcharge"],
-    rule: PayPalTransactionFeeRule | None = None,
-) -> PayPalInternationalSurchargeSchedule | None: ...
-
-
-@overload
-def _resolve_schedule(
-    derived: PayPalDerivedData,
-    schedule_id: str,
-    account_country: str,
-    schedule_type: Literal["maximum_fee"],
-    rule: PayPalTransactionFeeRule | None = None,
-) -> PayPalMaximumFeeSchedule | None: ...
-
-
-def _resolve_schedule(
-    derived: PayPalDerivedData,
-    schedule_id: str,
-    account_country: str,
-    schedule_type: str,
-    rule: PayPalTransactionFeeRule | None = None,
-) -> PayPalFixedFeeSchedule | PayPalInternationalSurchargeSchedule | PayPalMaximumFeeSchedule | None:
-    if not schedule_id:
-        return None
-
-    if schedule_type == "fixed_fee":
-        schedules = derived.fixed_fee_schedules
-    elif schedule_type == "international_surcharge":
-        schedules = derived.international_surcharge_schedules
-    elif schedule_type == "maximum_fee":
-        schedules = derived.maximum_fee_schedules
-    else:
-        return None
-
-    base_id = schedule_id.split("__", 1)[0]
-    candidates = [
-        key for key in schedules if key == base_id or (key.startswith(base_id) and "__" in key[len(base_id) :])
-    ]
-
-    best_key: str | None = None
-    best_score: tuple[int, str, int] = (-1, "", 0)
-
-    for key in candidates:
-        score = _schedule_key_score(key, schedule_id, base_id, account_country, rule)
-        if score is None:
-            continue
-        if best_key is None or score > best_score:
-            best_key = key
-            best_score = score
-
-    if best_key:
-        return schedules[best_key]
-    return None
-
-
-def _schedule_key_score(
-    key: str,
-    schedule_id: str,
-    base_id: str,
-    account_country: str,
-    rule: PayPalTransactionFeeRule | None,
-) -> tuple[int, str, int] | None:
-    if key == schedule_id:
-        if "__" in schedule_id:
-            return (2, "", len(key))
-        return (0, "", len(key))
-
-    if "__" not in key:
-        return None
-
-    base_without_suffix, _, suffix = key.rpartition("__")
-    if "=" not in suffix:
-        return None
-
-    dimension, _, value = suffix.partition("=")
-
-    if dimension == "applies_to_markets":
-        markets = [m.lower() for m in value.split("_")]
-        if account_country.lower() not in markets and "all_other_markets" not in markets:
-            return None
-        if rule and "applies_to_markets" in rule.conditions:
-            cond = rule.conditions["applies_to_markets"]
-            if isinstance(cond, list):
-                cond_values = [str(v).lower() for v in cond]
-                if "all_other_markets" not in cond_values:
-                    return (1, "applies_to_markets", len(key))
-        return None
-
-    if dimension == "pricing_plan":
-        if rule and rule.conditions.get("pricing_plan") == value:
-            specificity = 0
-            if base_without_suffix.rstrip("_").endswith(value) or ("_" + value) in base_without_suffix:
-                specificity = 1
-            return (1, f"pricing_plan_{specificity}", len(key))
-        return None
-
-    return None
+    def resolve_maximum(self, raw_id: str) -> PayPalMaximumFeeSchedule:
+        if raw_id in self._maximum_fee:
+            return self._maximum_fee[raw_id]
+        raise QuoteNotAvailable(
+            "No matching PayPal maximum-fee schedule found.",
+            schedule_id=raw_id,
+        )
 
 
 def _fixed_fee_amount(
@@ -421,21 +359,26 @@ def _api_field_name(dimension: str) -> str:
     return mapping.get(dimension, f"transaction.context.{dimension}")
 
 
-def _specificity(rule: PayPalTransactionFeeRule) -> int:
-    score = 0
+def _specificity(rule: PayPalTransactionFeeRule) -> float:
+    score = 0.0
     if rule.variant_id:
-        score += 1
+        score += 0.5
     for dimension, expected in rule.conditions.items():
-        if dimension == "applies_to_markets":
+        if dimension == "amount":
+            score += 1.0
+        elif dimension == "applies_to_markets":
             values = _as_list(expected)
-            if any(str(v).lower() != "all_other_markets" for v in values):
-                score += 2
+            if any(str(v).lower() == "all_other_markets" for v in values):
+                score += 1.0
             else:
-                score += 1
+                score += 1.0 + (1.0 / max(len(values), 1))
+        elif dimension == "payment_methods":
+            values = _as_list(expected)
+            score += 1.0 + (1.0 / max(len(values), 1))
         elif dimension == "pricing_plan":
-            score += 2
+            score += 2.0
         else:
-            score += 1
+            score += 1.0
     return score
 
 
@@ -457,11 +400,9 @@ def _component_schedule_id(rule: PayPalTransactionFeeRule, schedule_type: str) -
 
 def _rule_signature(
     rule: PayPalTransactionFeeRule,
-    derived: PayPalDerivedData,
-    account_country: str,
+    schedule_registry: _PayPalScheduleRegistry,
     currency: str,
     payer_region: str | None,
-    context: dict[str, Any],
 ) -> tuple[Any, ...]:
     percentage = _rule_percentage(rule)
 
@@ -471,9 +412,8 @@ def _rule_signature(
 
     fixed_schedule_name = rule.fixed_fee_schedule or _component_schedule_id(rule, "fixed_fee_schedule")
     if fixed_schedule_name:
-        fixed_schedule = _resolve_schedule(derived, fixed_schedule_name, account_country, "fixed_fee", rule)
-        if fixed_schedule:
-            fixed_amount = fixed_schedule.entries.get(currency)
+        fixed_schedule = schedule_registry.resolve_fixed(fixed_schedule_name)
+        fixed_amount = fixed_schedule.entries.get(currency)
 
     for comp in rule.fee_components:
         if comp.type == "fixed_amount" and comp.amount is not None and fixed_amount is None:
@@ -481,34 +421,29 @@ def _rule_signature(
 
     max_schedule_name = rule.maximum_fee_schedule or _component_schedule_id(rule, "maximum_fee_schedule")
     if max_schedule_name:
-        max_schedule = _resolve_schedule(derived, max_schedule_name, account_country, "maximum_fee", rule)
-        if max_schedule:
-            max_amount = max_schedule.entries.get(currency)
+        max_schedule = schedule_registry.resolve_maximum(max_schedule_name)
+        max_amount = max_schedule.entries.get(currency)
 
     surcharge_schedule_name = rule.international_surcharge_schedule or _component_schedule_id(
         rule, "international_surcharge_schedule"
     )
     if surcharge_schedule_name and payer_region:
-        surcharge_schedule = _resolve_schedule(
-            derived, surcharge_schedule_name, account_country, "international_surcharge", rule
+        surcharge_schedule = schedule_registry.resolve_surcharge(surcharge_schedule_name)
+        surcharge_rate = _international_surcharge_rate(
+            surcharge_schedule, payer_region, rule.id, surcharge_schedule_name
         )
-        if surcharge_schedule:
-            surcharge_rate = _international_surcharge_rate(
-                surcharge_schedule, payer_region, rule.id, surcharge_schedule_name
-            )
 
     return (percentage, fixed_amount, max_amount, surcharge_rate)
 
 
 def _compile_rule(
     rule: PayPalTransactionFeeRule,
-    derived: PayPalDerivedData,
+    schedule_registry: _PayPalScheduleRegistry,
     request: PayPalQuoteRequest,
     context: dict[str, Any],
     source_url: str | None,
 ) -> list[ExecutableFeeRule]:
     currency = request.amount.currency
-    account_country = request.account_country
     payer_region = context.get("payer_region") or context.get("surcharge_region")
 
     percentage_raw = _rule_percentage(rule)
@@ -528,7 +463,7 @@ def _compile_rule(
 
     fixed_schedule_name = rule.fixed_fee_schedule or _component_schedule_id(rule, "fixed_fee_schedule")
     if fixed_schedule_name:
-        fixed_schedule = _resolve_schedule(derived, fixed_schedule_name, account_country, "fixed_fee", rule)
+        fixed_schedule = schedule_registry.resolve_fixed(fixed_schedule_name)
         schedule_fixed = _fixed_fee_amount(fixed_schedule, currency, rule.id, fixed_schedule_name)
         if fixed_amount is None:
             fixed_amount = Decimal("0")
@@ -538,7 +473,7 @@ def _compile_rule(
     maximum_amount: Decimal | None = None
     max_schedule_name = rule.maximum_fee_schedule or _component_schedule_id(rule, "maximum_fee_schedule")
     if max_schedule_name:
-        max_schedule = _resolve_schedule(derived, max_schedule_name, account_country, "maximum_fee", rule)
+        max_schedule = schedule_registry.resolve_maximum(max_schedule_name)
         maximum_amount = _maximum_fee_amount(max_schedule, currency, rule.id, max_schedule_name)
 
     surcharge_rate: Decimal | None = None
@@ -546,15 +481,7 @@ def _compile_rule(
         rule, "international_surcharge_schedule"
     )
     if surcharge_schedule_name:
-        surcharge_schedule = _resolve_schedule(
-            derived, surcharge_schedule_name, account_country, "international_surcharge", rule
-        )
-        if surcharge_schedule is None:
-            raise QuoteNotAvailable(
-                "The selected PayPal fee category has no international surcharge schedule.",
-                rule_id=rule.id,
-                schedule=surcharge_schedule_name,
-            )
+        surcharge_schedule = schedule_registry.resolve_surcharge(surcharge_schedule_name)
         if payer_region:
             surcharge_rate = _international_surcharge_rate(
                 surcharge_schedule, payer_region, rule.id, surcharge_schedule_name
@@ -565,7 +492,7 @@ def _compile_rule(
     if percentage is not None or fixed_amount is not None or maximum_amount is not None:
         executable_rules.append(
             ExecutableFeeRule(
-                rule_id=f"paypal:{account_country}:{rule.id}:{rule.variant_id or 'default'}:base",
+                rule_id=f"paypal:{request.account_country}:{rule.id}:{rule.variant_id or 'default'}:base",
                 label=rule.label or rule.id,
                 component_type="processing",
                 behavior="base",
@@ -588,7 +515,10 @@ def _compile_rule(
     if surcharge_rate is not None:
         executable_rules.append(
             ExecutableFeeRule(
-                rule_id=f"paypal:{account_country}:{rule.id}:{rule.variant_id or 'default'}:surcharge:{payer_region}",
+                rule_id=(
+                    f"paypal:{request.account_country}:{rule.id}:"
+                    f"{rule.variant_id or 'default'}:surcharge:{payer_region}"
+                ),
                 label=f"International surcharge ({payer_region})",
                 component_type="surcharge",
                 behavior="additive",
@@ -631,6 +561,9 @@ class PayPalProvider:
         self._index_map: dict[str, PayPalIndexCountry] = {}
         if index:
             self._index_map = {ic.country_code.upper(): ic for ic in index.countries}
+        self._schedule_registries = {
+            code: _PayPalScheduleRegistry(country.derived) for code, country in self._countries.items()
+        }
 
     @classmethod
     def from_paths(
@@ -641,8 +574,8 @@ class PayPalProvider:
     ) -> PayPalProvider:
         core_path = load_json(f"{path}/json/core-fees.json")
         index_path = load_json(f"{path}/json/index.json")
-        core_document = _sanitize_core_document(core_path)
-        index_document = _sanitize_index_document(index_path)
+        core_document = adapt_paypal_core_document(core_path)
+        index_document = adapt_paypal_index_document(index_path)
         if validate_schema:
             from payment_fee.data import validate_json_schema
 
@@ -662,10 +595,30 @@ class PayPalProvider:
         cls,
         core: dict[str, Any],
         index: dict[str, Any] | None = None,
+        schemas: dict[str, Any] | None = None,
         data_ref: str | None = None,
+        validate_schema: bool = False,
     ) -> PayPalProvider:
-        core_model = PayPalCoreFees.model_validate(_sanitize_core_document(core))
-        index_model = PayPalIndex.model_validate(_sanitize_index_document(index)) if index else None
+        core_document = adapt_paypal_core_document(core)
+        index_document = adapt_paypal_index_document(index) if index else None
+        if validate_schema:
+            from payment_fee.data import validate_json_schema
+
+            if schemas is None or "core" not in schemas:
+                raise DatasetValidationError(
+                    "PayPal core schema is required for document validation.",
+                    schema="core",
+                )
+            validate_json_schema(core_document, schemas["core"], "paypal-core")
+            if index_document is not None:
+                if "index" not in schemas:
+                    raise DatasetValidationError(
+                        "PayPal index schema is required for document validation.",
+                        schema="index",
+                    )
+                validate_json_schema(index_document, schemas["index"], "paypal-index")
+        core_model = PayPalCoreFees.model_validate(core_document)
+        index_model = PayPalIndex.model_validate(index_document) if index_document else None
         if core_model.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise UnsupportedFeeShape(
                 f"Unsupported PayPal schema version: {core_model.schema_version}",
@@ -685,6 +638,7 @@ class PayPalProvider:
             raise TypeError(f"Expected PayPalQuoteRequest, got {type(request).__name__}")
         country = self._country(request.account_country)
         derived = country.derived
+        schedule_registry = self._schedule_registries[request.account_country.upper()]
         context = _build_paypal_context(request)
 
         product_id = context.get("product_id")
@@ -746,14 +700,14 @@ class PayPalProvider:
                     status=rule.calculation_status,
                 )
 
-        max_specificity = max(_specificity(rule) for rule in matching)
-        most_specific = [r for r in matching if _specificity(r) == max_specificity]
+        specificities = [(rule, _specificity(rule)) for rule in matching]
+        max_specificity = max(score for _, score in specificities)
+        most_specific = [rule for rule, score in specificities if abs(score - max_specificity) < 1e-9]
 
         payer_region = context.get("payer_region") or context.get("surcharge_region")
         if len(most_specific) > 1:
             signatures = {
-                _rule_signature(r, derived, request.account_country, request.amount.currency, payer_region, context)
-                for r in most_specific
+                _rule_signature(r, schedule_registry, request.amount.currency, payer_region) for r in most_specific
             }
             if len(signatures) > 1:
                 raise AmbiguousFeeRules(
@@ -770,15 +724,7 @@ class PayPalProvider:
             or ""
         )
         if surcharge_schedule_name and payer_region is None and context.get("transaction_region") != "domestic":
-            surcharge_schedule = _resolve_schedule(
-                derived, surcharge_schedule_name, request.account_country, "international_surcharge", selected
-            )
-            if surcharge_schedule is None:
-                raise QuoteNotAvailable(
-                    "The selected PayPal fee category has no international surcharge schedule.",
-                    rule_id=selected.id,
-                    schedule=surcharge_schedule_name,
-                )
+            surcharge_schedule = schedule_registry.resolve_surcharge(surcharge_schedule_name)
             available_regions = [e.payer_region for e in surcharge_schedule.entries]
             raise InsufficientTransactionContext(
                 ["transaction.payer_region", "transaction.surcharge_region"],
@@ -794,7 +740,7 @@ class PayPalProvider:
             index_entry = self._index_map.get(request.account_country.upper())
             source_url = index_entry.source_url if index_entry else None
 
-        executable_rules = _compile_rule(selected, derived, request, context, source_url)
+        executable_rules = _compile_rule(selected, schedule_registry, request, context, source_url)
 
         assumptions = [
             "Public standard pricing was used; negotiated merchant pricing is not represented.",
