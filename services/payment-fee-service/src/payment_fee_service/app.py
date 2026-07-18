@@ -23,7 +23,6 @@ from payment_fee.errors import (
 
 from payment_fee_service import __version__
 from payment_fee_service.api.routes import router
-from payment_fee_service.domain.errors import ServiceError
 from payment_fee_service.engine_holder import EngineHolder
 from payment_fee_service.settings import Settings
 
@@ -107,13 +106,6 @@ def create_app(
         lifespan=lifespan,
     )
     app.include_router(router)
-
-    @app.exception_handler(ServiceError)
-    async def service_error_handler(_: Request, exc: ServiceError) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
-        )
 
     @app.exception_handler(PaymentFeeError)
     async def payment_fee_error_handler(_: Request, exc: PaymentFeeError) -> JSONResponse:

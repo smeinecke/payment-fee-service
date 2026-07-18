@@ -18,15 +18,14 @@ The service never crawls provider websites during a quote request. It loads vali
 paypal-fee-data ──►  ┌──────────────┐  ──┐
                      │ PayPal rules │    │
 stripe-fee-data ──►  │ Stripe rules │    ▼  Decimal calculator, schemas, provenance
-                     └──────────────┘  ───►  services/payment-fee-service  ──►  FastAPI
+                     └──────────────┘  ───►  services/payment-fee-service  ──►  FastAPI /v1
 ```
 
 `payment-fee` is a reusable Python library with minimal dependencies (Pydantic, jsonschema, ISO currency metadata). It owns all provider parsing, rule compilation, and fee calculation. `payment-fee-service` is a thin FastAPI wrapper that handles HTTP concerns, snapshot loading, and refresh. The public request and response contracts are stable across providers. Storage schemas and rule matching remain provider-specific, so future adapters do not require either source repository to adopt a common schema.
 
 ## Features
 
-- `POST /v1/quotes` with discriminated PayPal and Stripe requests
-- `POST /v2/quotes` with provider-native transaction context and the same calculation engine
+- `POST /v1/quotes` with discriminated PayPal and Stripe requests using provider-native `transaction` objects
 - exact decimal calculations and ISO 4217-aware rounding
 - fixed, percentage, basis-point, minimum, maximum, and additive fee components
 - explicit PayPal schedule registry (schedule IDs, market selectors, and pricing-plan selectors)
@@ -36,7 +35,7 @@ stripe-fee-data ──►  │ Stripe rules │    ▼  Decimal calculator, sche
 - rule-level availability rather than rejecting every market marked `partial`
 - market, capability, quote-schema, data-status, liveness, and readiness endpoints
 - local or HTTPS-based snapshot loading with optional JSON Schema validation
-- contract audit helpers with counters for skipped rules, unknown dimensions, and unresolved schedules
+- contract audit helpers with counters for skipped rules, unknown dimensions, and unresolved schedule references
 - Docker image, CLI, tests, and GitHub Actions
 
 ## Requirements
@@ -174,83 +173,14 @@ sudo systemctl enable --now payment-fee-service
 
 OpenAPI documentation is available at `/docs` and `/redoc`.
 
-## Library usage
+## HTTP API
 
-`payment-fee` can be used directly without the service:
+The canonical public API is `/v1`. See `docs/HTTP_API.md` for full endpoint examples and `docs/LIBRARY_API.md` for direct library usage.
 
-```python
-from payment_fee import PaymentFeeEngine
-
-engine = PaymentFeeEngine.from_paths(
-    paypal="/path/to/paypal-fee-data",
-    stripe="/path/to/stripe-fee-data",
-)
-quote = engine.quote({
-    "provider": "stripe",
-    "amount": {"value": "100.00", "currency": "EUR"},
-    "account_country": "DE",
-    "customer_country": "DE",
-    "settlement_currency": "EUR",
-    "transaction": {
-        "product_id": "payments",
-        "variant_id": "online_domestic_cards",
-        "payment_method": "card",
-        "channel": "online",
-        "pricing_tier": "standard",
-        "card": {"origin": "domestic", "region": "domestic", "tier": "standard"},
-    },
-})
-print(quote.processing_fee.value)
-```
-
-### Validating documents against JSON Schema
-
-Both `from_paths` and `from_documents` accept a `validate` flag. For `from_documents`, pass the matching schemas under a `schemas` key:
-
-```python
-engine = PaymentFeeEngine.from_documents(
-    paypal={
-        "core": core_doc,
-        "index": index_doc,
-        "schemas": {
-            "core": core_schema,
-            "index": index_schema,
-        },
-    },
-    stripe={
-        "core": core_doc,
-        "index": index_doc,
-        "payment_methods": pm_doc,
-        "schemas": {
-            "core": core_schema,
-            "index": index_schema,
-            "payment_methods": pm_schema,
-        },
-    },
-    validate=True,
-)
-```
-
-If `validate=True` and the schemas are missing, `DatasetValidationError` is raised.
-
-### Contract audit
-
-The library exposes an `audit_contract` helper that walks every calculable rule and produces counters for parsed, skipped, context-required, unknown dimensions/operators, unsupported components, and unresolved schedule references:
-
-```python
-from payment_fee.audit import audit_contract
-
-result = audit_contract(engine)
-assert result.paypal_calculable_rules_skipped == 0
-assert result.stripe_calculable_rules_skipped == 0
-```
-
-## V2 API
-
-`/v2/quotes` accepts the provider-native `transaction` object directly and is parity-tested against `/v1/quotes`:
+### Stripe card quote
 
 ```bash
-curl -sS http://localhost:8000/v2/quotes \
+curl -sS http://localhost:8000/v1/quotes \
   -H 'content-type: application/json' \
   -d '{
     "provider": "stripe",
@@ -269,16 +199,70 @@ curl -sS http://localhost:8000/v2/quotes \
   }'
 ```
 
-Additional endpoints include:
+### PayPal domestic quote
 
-- `GET /v2/providers/{provider}/markets/{account_country}/capabilities`
-- `GET /v2/providers/{provider}/markets/{account_country}/quote-schema`
-- `GET /v2/data/status`
-- `POST /v2/data/refresh`
+```bash
+curl -sS http://localhost:8000/v1/quotes \
+  -H 'content-type: application/json' \
+  -d '{
+    "provider": "paypal",
+    "amount": {"value": "100.00", "currency": "EUR"},
+    "account_country": "DE",
+    "customer_country": "DE",
+    "settlement_currency": "EUR",
+    "transaction": {
+      "product_id": "other_commercial",
+      "variant_id": "standard",
+      "transaction_region": "domestic"
+    }
+  }'
+```
 
-## PayPal schedule resolution
+### Discovery and health
 
-PayPal fee rules reference fixed-fee, maximum-fee, and international-surcharge schedules. The provider builds an explicit registry from the adapted `core-fees.json` document and resolves each reference by exact schedule ID, market selector (`__applies_to_markets=<code>`), and pricing-plan selector (`__pricing_plan=<plan>`). Unknown or ambiguous schedule references raise `QuoteNotAvailable` instead of falling back to a heuristic match.
+```text
+GET /v1/providers
+GET /v1/providers/{provider}/markets
+GET /v1/providers/{provider}/markets/{account_country}/capabilities
+GET /v1/providers/{provider}/markets/{account_country}/quote-schema
+GET /v1/data/status
+GET /health/live
+GET /health/ready
+```
+
+### Errors
+
+Provider and calculation failures use a stable envelope:
+
+```json
+{
+  "error": {
+    "code": "INSUFFICIENT_TRANSACTION_CONTEXT",
+    "message": "Additional transaction context is required to select an applicable fee rule.",
+    "details": {
+      "missing_fields": ["transaction.card.region"],
+      "candidate_rule_ids": ["..."]
+    }
+  }
+}
+```
+
+Important codes:
+
+- `UNKNOWN_PROVIDER`
+- `UNKNOWN_MARKET`
+- `PROVIDER_DATA_UNAVAILABLE`
+- `QUOTE_NOT_AVAILABLE`
+- `INSUFFICIENT_TRANSACTION_CONTEXT`
+- `AMBIGUOUS_FEE_RULES`
+
+## Validate configured data
+
+```bash
+payment-fee-service validate-data
+```
+
+The command exits unsuccessfully if either configured provider snapshot cannot be loaded or validated.
 
 ## Docker image
 
@@ -298,206 +282,6 @@ make docker-build
 docker run -p 8000:8000 ghcr.io/smeinecke/payment-fee-service:local
 ```
 
-## Validate configured data
-
-```bash
-payment-fee-service validate-data
-```
-
-The command exits unsuccessfully if either configured provider snapshot cannot be loaded or validated.
-
-## API
-
-### PayPal domestic quote
-
-```bash
-curl -sS http://localhost:8000/v1/quotes \
-  -H 'content-type: application/json' \
-  -d '{
-    "provider": "paypal",
-    "amount": {"value": "100.00", "currency": "EUR"},
-    "account_country": "DE",
-    "customer_country": "DE",
-    "settlement_currency": "EUR",
-    "payment": {"transaction_type": "standard_commercial"}
-  }'
-```
-
-Supported PayPal transaction types are exposed per market and can include:
-
-- `standard_commercial`
-- `goods_and_services`
-- `micropayments`
-- `donations`
-- `nonprofit`
-
-For an international transaction, pass the exact PayPal surcharge-region label published for the merchant market when the customer country cannot be matched directly:
-
-```json
-{
-  "provider": "paypal",
-  "amount": {"value": "100.00", "currency": "EUR"},
-  "account_country": "DE",
-  "customer_country": "US",
-  "payment": {
-    "transaction_type": "standard_commercial",
-    "surcharge_region": "OTHER"
-  }
-}
-```
-
-The service deliberately does not guess provider-specific regions.
-
-### Stripe card quote
-
-```bash
-curl -sS http://localhost:8000/v1/quotes \
-  -H 'content-type: application/json' \
-  -d '{
-    "provider": "stripe",
-    "amount": {"value": "100.00", "currency": "EUR"},
-    "account_country": "DE",
-    "customer_country": "DE",
-    "settlement_currency": "EUR",
-    "payment": {
-      "method": "card",
-      "channel": "online",
-      "recurring": false,
-      "card": {
-        "origin": "domestic",
-        "region": "eea",
-        "tier": "standard"
-      }
-    }
-  }'
-```
-
-Additional published Stripe condition dimensions can be supplied under `payment.context`:
-
-```json
-{
-  "payment": {
-    "method": "example_method",
-    "context": {
-      "custom_dimension_from_dataset": "value"
-    }
-  }
-}
-```
-
-Unknown condition operators are rejected rather than ignored.
-
-### Example response
-
-```json
-{
-  "provider": "stripe",
-  "status": "estimated",
-  "amount": {"value": "100.00", "currency": "EUR"},
-  "processing_fee": {"value": "1.75", "currency": "EUR"},
-  "net_amount": {"value": "98.25", "currency": "EUR"},
-  "components": [
-    {
-      "type": "processing",
-      "label": "Standard EEA cards",
-      "amount": "1.75",
-      "currency": "EUR",
-      "rate_percentage": "1.5",
-      "fixed_amount": "0.25",
-      "source_rule_id": "..."
-    }
-  ],
-  "matched_rules": [
-    {
-      "rule_id": "...",
-      "classification_status": "classified",
-      "confidence": 1.0,
-      "exactness": "exact",
-      "source_url": "https://stripe.com/..."
-    }
-  ],
-  "assumptions": [
-    "Public standard pricing was used; negotiated or IC++ pricing is not represented."
-  ],
-  "data": {
-    "provider": "stripe",
-    "schema_version": 1,
-    "market": "DE",
-    "content_sha256": "...",
-    "source_urls": ["https://stripe.com/..."],
-    "source_updated_at": null,
-    "data_ref": "<pinned commit>"
-  }
-}
-```
-
-### Discovery and health
-
-```text
-GET /v1/providers
-GET /v1/providers/{provider}/markets
-GET /v1/providers/{provider}/markets/{country}/capabilities
-GET /v1/data/status
-GET /health/live
-GET /health/ready
-```
-
-### Errors
-
-Provider and calculation failures use a stable envelope:
-
-```json
-{
-  "error": {
-    "code": "INSUFFICIENT_TRANSACTION_CONTEXT",
-    "message": "Additional transaction context is required to select an applicable fee rule.",
-    "details": {
-      "missing_fields": ["payment.card.region"],
-      "candidate_rule_ids": ["..."]
-    }
-  }
-}
-```
-
-Important codes:
-
-- `UNKNOWN_PROVIDER`
-- `UNKNOWN_MARKET`
-- `PROVIDER_DATA_UNAVAILABLE`
-- `QUOTE_NOT_AVAILABLE`
-- `INSUFFICIENT_TRANSACTION_CONTEXT`
-- `AMBIGUOUS_FEE_RULES`
-
-## Rule selection safeguards
-
-### PayPal
-
-The adapter:
-
-1. Selects the merchant market by ISO country code.
-2. Selects the requested derived transaction category.
-3. Resolves the category's `fixed_fee_reference` instead of assuming a field.
-4. Requires an exact fixed fee for the transaction currency.
-5. Adds an international surcharge only when the payer is international and its region can be resolved explicitly.
-6. Returns the index hash, source URL, source timestamp, schema version, and configured data ref.
-
-Missing fixed fees never become zero.
-
-### Stripe
-
-The adapter:
-
-1. Limits candidates to the merchant account country.
-2. Excludes payout and dispute rules from transaction quotes.
-3. Excludes unclassified rules and rules without fee values.
-4. Applies every populated rule dimension and threshold.
-5. Evaluates published conditions using a small fail-closed operator set.
-6. Requires missing context before selecting a constrained rule.
-7. Chooses the most specific payment-method base rule.
-8. Rejects equally specific base rules with different financial values.
-9. Adds only contextual generic surcharges and prevents card surcharges from leaking into non-card quotes.
-10. Rejects unsupported `behavior` values.
-
 ## Tests
 
 ```bash
@@ -514,6 +298,7 @@ The suite covers:
 - missing Stripe dimensions
 - capped percentage fees
 - API discovery, health, quote, and structured-error behavior
+- library/HTTP parity
 
 ## Add another provider
 

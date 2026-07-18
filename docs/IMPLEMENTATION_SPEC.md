@@ -25,7 +25,7 @@ Runtime calculation input is `json/core-fees.json`. `json/payment-methods.json` 
 
 ## Public contract
 
-`POST /v1/quotes` accepts a discriminated union keyed by `provider`. Shared fields are amount, account country, customer country, and settlement currency. Provider-specific context is nested under `payment`.
+`POST /v1/quotes` accepts a discriminated union keyed by `provider`. Shared fields are amount, account country, customer country, and settlement currency. Provider-specific context is nested under `transaction` using the same typed models as the `payment-fee` library. The service calls `PaymentFeeEngine.quote()` directly, so HTTP and library results are identical.
 
 Responses always contain:
 

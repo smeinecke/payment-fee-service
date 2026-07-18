@@ -337,7 +337,7 @@ wheels = [
 
 [[package]]
 name = "payment-fee"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "packages/payment-fee" }
 dependencies = [
     { name = "jsonschema" },
@@ -371,7 +371,7 @@ provides-extras = ["http", "dev"]
 
 [[package]]
 name = "payment-fee-service"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "services/payment-fee-service" }
 dependencies = [
     { name = "fastapi" },

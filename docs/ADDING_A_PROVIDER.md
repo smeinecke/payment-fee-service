@@ -4,8 +4,8 @@ A provider adapter lives in `packages/payment-fee/src/payment_fee/providers/<nam
 
 ## Required work
 
-1. Add a Pydantic request model with a literal `provider` discriminator.
-2. Add the model to `QuoteRequest` in `packages/payment-fee/src/payment_fee/models.py`.
+1. Add a Pydantic transaction model and a Pydantic request model with a literal `provider` discriminator.
+2. Add the request model to `QuoteRequest` in `packages/payment-fee/src/payment_fee/models.py`.
 3. Add a transaction context model if needed.
 4. Implement a provider module that loads and validates the published snapshot.
 5. Implement `FeeProvider` (`compile_rules`, `markets`, `capabilities`, `quote_schema`, `data_status`).
