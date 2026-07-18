@@ -529,8 +529,11 @@ def _compile_rule(
     fixed_schedule_name = rule.fixed_fee_schedule or _component_schedule_id(rule, "fixed_fee_schedule")
     if fixed_schedule_name:
         fixed_schedule = _resolve_schedule(derived, fixed_schedule_name, account_country, "fixed_fee", rule)
-        fixed_amount = _fixed_fee_amount(fixed_schedule, currency, rule.id, fixed_schedule_name)
-        fixed_currency = currency
+        schedule_fixed = _fixed_fee_amount(fixed_schedule, currency, rule.id, fixed_schedule_name)
+        if fixed_amount is None:
+            fixed_amount = Decimal("0")
+            fixed_currency = currency
+        fixed_amount += schedule_fixed
 
     maximum_amount: Decimal | None = None
     max_schedule_name = rule.maximum_fee_schedule or _component_schedule_id(rule, "maximum_fee_schedule")
@@ -638,13 +641,15 @@ class PayPalProvider:
     ) -> PayPalProvider:
         core_path = load_json(f"{path}/json/core-fees.json")
         index_path = load_json(f"{path}/json/index.json")
+        core_document = _sanitize_core_document(core_path)
+        index_document = _sanitize_index_document(index_path)
         if validate_schema:
             from payment_fee.data import validate_json_schema
 
-            validate_json_schema(core_path, f"{path}/schemas/core-fees-v1.schema.json", "paypal-core")
-            validate_json_schema(index_path, f"{path}/schemas/index-v1.schema.json", "paypal-index")
-        core = PayPalCoreFees.model_validate(_sanitize_core_document(core_path))
-        index = PayPalIndex.model_validate(_sanitize_index_document(index_path))
+            validate_json_schema(core_document, f"{path}/schemas/core-fees-v1.schema.json", "paypal-core")
+            validate_json_schema(index_document, f"{path}/schemas/index-v1.schema.json", "paypal-index")
+        core = PayPalCoreFees.model_validate(core_document)
+        index = PayPalIndex.model_validate(index_document)
         if core.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise UnsupportedFeeShape(
                 f"Unsupported PayPal schema version: {core.schema_version}",
