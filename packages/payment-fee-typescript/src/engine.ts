@@ -109,7 +109,14 @@ export class PaymentFeeEngine {
   }
 
   auditContract(): Record<string, number> {
-    return {};
+    const result: Record<string, number> = {};
+    for (const provider of this._providers.values()) {
+      const audit = provider.auditContract();
+      for (const [key, value] of Object.entries(audit)) {
+        result[key] = (result[key] ?? 0) + value;
+      }
+    }
+    return result;
   }
 
   private requireProvider(provider: string): void {

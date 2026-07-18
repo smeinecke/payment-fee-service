@@ -144,7 +144,14 @@ final class PaymentFeeEngine
      */
     public function auditContract(): array
     {
-        return [];
+        $result = [];
+        foreach ($this->providers as $id => $provider) {
+            $audit = $provider->auditContract();
+            foreach ($audit as $key => $value) {
+                $result[$key] = ($result[$key] ?? 0) + $value;
+            }
+        }
+        return $result;
     }
 
     private function requireProvider(string $provider): void

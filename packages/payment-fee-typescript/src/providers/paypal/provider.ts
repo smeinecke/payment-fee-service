@@ -13,6 +13,7 @@ export interface PayPalRule {
   international_surcharge_schedule?: string | null;
   maximum_fee_schedule?: string | null;
   calculation_status?: string;
+  conditions?: Record<string, unknown>;
   fee_components?: {
     type: string;
     value?: string | null;
@@ -140,6 +141,49 @@ export class PayPalProvider {
     }
 
     return executable;
+  }
+
+  auditContract(): Record<string, number> {
+    let total = 0;
+    let parsed = 0;
+    let skipped = 0;
+    let contextRequired = 0;
+
+    for (const country of this.core.countries ?? []) {
+      for (const rule of (country.derived as { transaction_fee_rules?: PayPalRule[] })
+        .transaction_fee_rules ?? []) {
+        total += 1;
+        const status = rule.calculation_status ?? "calculable";
+        if (status !== "calculable") {
+          skipped += 1;
+          continue;
+        }
+        const supported = (rule.fee_components ?? []).every((comp) =>
+          [
+            "fixed_amount",
+            "fixed_fee_schedule",
+            "percentage",
+            "international_surcharge_schedule",
+            "maximum_fee_schedule",
+          ].includes(comp.type),
+        );
+        if (!supported) {
+          skipped += 1;
+          continue;
+        }
+        if (rule.conditions && Object.keys(rule.conditions).length > 0) {
+          contextRequired += 1;
+        }
+        parsed += 1;
+      }
+    }
+
+    return {
+      paypal_calculable_rules_total: total,
+      paypal_calculable_rules_parsed: parsed,
+      paypal_calculable_rules_skipped: skipped,
+      paypal_context_required: contextRequired,
+    };
   }
 
   private findCountry(code: string): PayPalCountry {

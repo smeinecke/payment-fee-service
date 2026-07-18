@@ -131,6 +131,49 @@ final class PayPalProvider
     }
 
     /**
+     * @return array<string, int>
+     */
+    public function auditContract(): array
+    {
+        $total = 0;
+        $parsed = 0;
+        $skipped = 0;
+        $contextRequired = 0;
+
+        foreach ($this->core['countries'] ?? [] as $country) {
+            foreach ($country['derived']['transaction_fee_rules'] ?? [] as $rule) {
+                $total += 1;
+                $status = $rule['calculation_status'] ?? 'calculable';
+                if ($status !== 'calculable') {
+                    $skipped += 1;
+                    continue;
+                }
+                $unsupported = false;
+                foreach ($rule['fee_components'] ?? [] as $comp) {
+                    if (!\in_array($comp['type'] ?? '', ['fixed_amount', 'fixed_fee_schedule', 'percentage', 'international_surcharge_schedule', 'maximum_fee_schedule'], true)) {
+                        $unsupported = true;
+                    }
+                }
+                if ($unsupported) {
+                    $skipped += 1;
+                    continue;
+                }
+                if (!empty($rule['conditions'])) {
+                    $contextRequired += 1;
+                }
+                $parsed += 1;
+            }
+        }
+
+        return [
+            'paypal_calculable_rules_total' => $total,
+            'paypal_calculable_rules_parsed' => $parsed,
+            'paypal_calculable_rules_skipped' => $skipped,
+            'paypal_context_required' => $contextRequired,
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function findCountry(string $code): array
