@@ -18,6 +18,8 @@ export interface ExecutableRule {
   confidence?: number;
   exactness?: string;
   source_url?: string | null;
+  payer?: string | null;
+  unit?: string | null;
 }
 
 export interface FeeComponent {
@@ -171,6 +173,13 @@ function calculateRule(amount: MoneyLike, currency: string, rule: ExecutableRule
       toDecimal(rule.fixed_amount),
       rule.fixed_currency ?? currency,
     );
+  }
+
+  if (rule.payer !== undefined && rule.payer !== null) {
+    component.payer = rule.payer;
+  }
+  if (rule.unit !== undefined && rule.unit !== null) {
+    component.unit = rule.unit;
   }
 
   return component;

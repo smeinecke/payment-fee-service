@@ -127,9 +127,9 @@ parameters:
 			path: src/PaymentFeeEngine.php
 
 		-
-			message: '#^Parameter \#1 \$json of function json_decode expects string, string\|false given\.$#'
+			message: '#^Parameter \#1 \$core of class Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider constructor expects array\<string, mixed\>, mixed given\.$#'
 			identifier: argument.type
-			count: 1
+			count: 2
 			path: src/PaymentFeeEngine.php
 
 		-
@@ -227,6 +227,132 @@ parameters:
 			identifier: cast.string
 			count: 4
 			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 3
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Binary operation "\." between ''Unsupported Stripe…'' and mixed results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Cannot access an offset on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Cannot access offset ''dimension'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Cannot access offset ''operator'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Cannot access offset ''rule_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Cannot access offset ''type'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Cannot access offset ''value'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 11
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:asList\(\) should return list\<mixed\> but returns array\<mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:compileComponents\(\) should return array\{percentage\: string\|null, fixed_amount\: string\|null, minimum_amount\: string\|null, maximum_amount\: string\|null, behavior\: string\} but returns array\{percentage\: string\|null, fixed_amount\: string\|null, minimum_amount\: string\|null, maximum_amount\: string\|null, behavior\: mixed\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:normalizeConditions\(\) should return list\<array\{dimension\: string, operator\: string, value\: mixed\}\> but returns list\<array\{dimension\: mixed, operator\: string, value\: mixed\}\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Parameter \#1 \$comp of method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:componentFixed\(\) expects array\<string, mixed\>, mixed given\.$#'
+			identifier: argument.type
+			count: 3
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Parameter \#1 \$comp of method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:componentRate\(\) expects array\<string, mixed\>, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Parameter \#1 \$matches of method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:sortBySpecificityDesc\(\) expects list\<array\{rule\: array\<string, mixed\>, specificity\: int, missing\?\: list\<string\>\}\>, non\-empty\-list\<array\{rule\: mixed, specificity\: int\<0, max\>\}\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Parameter \#1 \$rule of method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:normalizeConditions\(\) expects array\<string, mixed\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Parameter \#1 \$rules of method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:anyEvaluable\(\) expects list\<array\<string, mixed\>\>, list\<mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Parameter \#1 \$rules of method Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:selectAdditiveRules\(\) expects list\<array\<string, mixed\>\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Property Smeinecke\\PaymentFee\\Model\\StripeTransaction\:\:\$context \(array\<string, mixed\>\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Property Smeinecke\\PaymentFee\\Providers\\Stripe\\StripeProvider\:\:\$core type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between array\<string, mixed\> and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Providers/Stripe/StripeProvider.php
 
 		-
 			message: '#^Method Smeinecke\\PaymentFee\\QuoteRequestFactory\:\:fromArray\(\) has parameter \$data with no value type specified in iterable type array\.$#'

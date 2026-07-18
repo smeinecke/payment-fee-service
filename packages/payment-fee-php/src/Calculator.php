@@ -115,6 +115,13 @@ final class Calculator
             $component['fixed_amount'] = Rounding::toString(BigDecimal::of($rule['fixed_amount']), $rule['fixed_currency'] ?? $currency);
         }
 
+        if (($rule['payer'] ?? null) !== null) {
+            $component['payer'] = $rule['payer'];
+        }
+        if (($rule['unit'] ?? null) !== null) {
+            $component['unit'] = $rule['unit'];
+        }
+
         return $component;
     }
 

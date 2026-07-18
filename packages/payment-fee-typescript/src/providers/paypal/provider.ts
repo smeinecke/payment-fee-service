@@ -1,7 +1,7 @@
 import { Decimal } from "decimal.js";
 import { AmbiguousFeeRules, QuoteNotAvailable, UnsupportedFeeShape } from "../../errors.js";
 import type { ExecutableRule } from "../../calculator.js";
-import type { PayPalQuoteRequest } from "../../models.js";
+import type { PayPalQuoteRequest, QuoteRequest } from "../../models.js";
 import { ScheduleRegistry, type PayPalDerived } from "./schedule-registry.js";
 
 export interface PayPalRule {
@@ -36,8 +36,9 @@ export interface PayPalCore {
 export class PayPalProvider {
   constructor(private readonly core: PayPalCore) {}
 
-  compileRules(request: PayPalQuoteRequest): ExecutableRule[] {
-    const country = this.findCountry(request.account_country);
+  compileRules(request: QuoteRequest): ExecutableRule[] {
+    const paypalRequest = request as PayPalQuoteRequest;
+    const country = this.findCountry(paypalRequest.account_country);
     const derived = (country.derived ?? {}) as PayPalDerived & {
       transaction_fee_rules?: PayPalRule[];
     };
@@ -47,16 +48,16 @@ export class PayPalProvider {
     const candidates = rules.filter(
       (rule) =>
         (rule.calculation_status ?? "calculable") === "calculable" &&
-        rule.id === request.transaction.product_id &&
+        rule.id === paypalRequest.transaction.product_id &&
         (rule.variant_id === undefined ||
           rule.variant_id === null ||
-          rule.variant_id === request.transaction.variant_id),
+          rule.variant_id === paypalRequest.transaction.variant_id),
     );
 
     if (candidates.length === 0) {
       throw new QuoteNotAvailable("No matching PayPal fee rule found.", {
-        product_id: request.transaction.product_id,
-        variant_id: request.transaction.variant_id,
+        product_id: paypalRequest.transaction.product_id,
+        variant_id: paypalRequest.transaction.variant_id,
       });
     }
 
@@ -64,7 +65,7 @@ export class PayPalProvider {
       throw new AmbiguousFeeRules(candidates.map((r) => r.id));
     }
 
-    return [this.compileRule(candidates[0], registry, request)];
+    return [this.compileRule(candidates[0], registry, paypalRequest)];
   }
 
   private compileRule(

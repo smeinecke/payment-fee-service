@@ -7,12 +7,15 @@ namespace Smeinecke\PaymentFee;
 use Smeinecke\PaymentFee\Exception\UnknownProvider;
 use Smeinecke\PaymentFee\Model\PayPalQuoteRequest;
 use Smeinecke\PaymentFee\Model\QuoteRequest;
+use Smeinecke\PaymentFee\Model\StripeQuoteRequest;
 use Smeinecke\PaymentFee\Providers\PayPal\PayPalProvider;
+use Smeinecke\PaymentFee\Providers\ProviderInterface;
+use Smeinecke\PaymentFee\Providers\Stripe\StripeProvider;
 
 final class PaymentFeeEngine
 {
     /**
-     * @var array<string, PayPalProvider>
+     * @var array<string, ProviderInterface>
      */
     private array $providers = [];
 
@@ -20,11 +23,20 @@ final class PaymentFeeEngine
     {
         $engine = new self();
         if ($paypal !== null) {
-            $core = json_decode(file_get_contents($paypal . '/json/core-fees.json'), true);
+            $contents = file_get_contents($paypal . '/json/core-fees.json');
+            if ($contents === false) {
+                throw new \RuntimeException('Unable to read PayPal core-fees.json');
+            }
+            $core = json_decode($contents, true);
             $engine->register('paypal', new PayPalProvider($core));
         }
         if ($stripe !== null) {
-            // TODO: load Stripe provider from filesystem
+            $contents = file_get_contents($stripe . '/json/core-fees.json');
+            if ($contents === false) {
+                throw new \RuntimeException('Unable to read Stripe core-fees.json');
+            }
+            $core = json_decode($contents, true);
+            $engine->register('stripe', new StripeProvider($core));
         }
         return $engine;
     }
@@ -41,12 +53,13 @@ final class PaymentFeeEngine
             $engine->register('paypal', new PayPalProvider($core));
         }
         if ($stripe !== null) {
-            // TODO: load Stripe provider from documents
+            $core = $stripe['core'] ?? $stripe;
+            $engine->register('stripe', new StripeProvider($core));
         }
         return $engine;
     }
 
-    public function register(string $provider, PayPalProvider $instance): void
+    public function register(string $provider, ProviderInterface $instance): void
     {
         $this->providers[$provider] = $instance;
     }
@@ -93,7 +106,41 @@ final class PaymentFeeEngine
             ];
         }
 
-        throw new \RuntimeException('Stripe provider is not yet implemented.');
+        if ($request instanceof StripeQuoteRequest) {
+            $provider = $this->providers[$request->provider];
+            $rules = $provider->compileRules($request);
+            $calculator = new Calculator();
+            $result = $calculator->calculate($request->amount, $request->amount->currency, $rules);
+
+            return [
+                'provider' => $request->provider,
+                'status' => 'exact_for_public_rate',
+                'amount' => $result['amount'],
+                'processing_fee' => $result['processing_fee'],
+                'net_amount' => $result['net_amount'],
+                'components' => $result['components'],
+                'matched_rules' => $result['matched_rules'],
+                'selected_product_id' => $request->transaction->productId,
+                'selected_variant_id' => $request->transaction->variantId,
+                'assumptions' => [
+                    'Public standard pricing was used; negotiated or IC++ pricing is not represented.',
+                    'The published dataset does not encode provider settlement rounding, so standard currency rounding is used.',
+                    'Assumed a successful transaction for providers that require success.',
+                ],
+                'warnings' => [],
+                'data' => [
+                    'provider' => $request->provider,
+                    'schema_version' => 1,
+                    'market' => $request->accountCountry,
+                    'content_sha256' => null,
+                    'source_urls' => [],
+                    'source_updated_at' => null,
+                    'data_ref' => 'documents',
+                ],
+            ];
+        }
+
+        throw new UnknownProvider($request->provider);
     }
 
     /**
@@ -145,7 +192,7 @@ final class PaymentFeeEngine
     public function auditContract(): array
     {
         $result = [];
-        foreach ($this->providers as $id => $provider) {
+        foreach ($this->providers as $provider) {
             $audit = $provider->auditContract();
             foreach ($audit as $key => $value) {
                 $result[$key] = ($result[$key] ?? 0) + $value;

@@ -9,8 +9,10 @@ use Smeinecke\PaymentFee\Exception\AmbiguousFeeRules;
 use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
 use Smeinecke\PaymentFee\Exception\UnsupportedFeeShape;
 use Smeinecke\PaymentFee\Model\PayPalQuoteRequest;
+use Smeinecke\PaymentFee\Model\QuoteRequest;
+use Smeinecke\PaymentFee\Providers\ProviderInterface;
 
-final class PayPalProvider
+final class PayPalProvider implements ProviderInterface
 {
     private array $core;
 
@@ -25,9 +27,11 @@ final class PayPalProvider
     /**
      * @return list<array<string, mixed>>
      */
-    public function compileRules(PayPalQuoteRequest $request): array
+    public function compileRules(QuoteRequest $request): array
     {
-        $country = $this->findCountry($request->accountCountry);
+        $paypalRequest = $request;
+        \assert($paypalRequest instanceof PayPalQuoteRequest);
+        $country = $this->findCountry($paypalRequest->accountCountry);
         $registry = new ScheduleRegistry($country['derived'] ?? []);
         $rules = $country['derived']['transaction_fee_rules'] ?? [];
 
@@ -36,17 +40,17 @@ final class PayPalProvider
             if (($rule['calculation_status'] ?? 'calculable') !== 'calculable') {
                 continue;
             }
-            if (($rule['id'] ?? null) !== $request->transaction->productId) {
+            if (($rule['id'] ?? null) !== $paypalRequest->transaction->productId) {
                 continue;
             }
-            if (($rule['variant_id'] ?? null) !== null && $rule['variant_id'] !== $request->transaction->variantId) {
+            if (($rule['variant_id'] ?? null) !== null && $rule['variant_id'] !== $paypalRequest->transaction->variantId) {
                 continue;
             }
             $candidates[] = $rule;
         }
 
         if ($candidates === []) {
-            throw new QuoteNotAvailable('No matching PayPal fee rule found.', ['product_id' => $request->transaction->productId, 'variant_id' => $request->transaction->variantId]);
+            throw new QuoteNotAvailable('No matching PayPal fee rule found.', ['product_id' => $paypalRequest->transaction->productId, 'variant_id' => $paypalRequest->transaction->variantId]);
         }
 
         if (\count($candidates) > 1) {
@@ -54,7 +58,7 @@ final class PayPalProvider
         }
 
         $rule = $candidates[0];
-        return [$this->compileRule($rule, $registry, $request)];
+        return [$this->compileRule($rule, $registry, $paypalRequest)];
     }
 
     /**

@@ -1,0 +1,110 @@
+{
+  "id": "stripe-minimal-card-us",
+  "description": "Minimal Stripe card payment in the US with percentage + fixed fee.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "US",
+            "rules": [
+              {
+                "rule_id": "stripe:US:card:base",
+                "provider": "stripe",
+                "account_country": "US",
+                "classification_status": "calculable_rule",
+                "behavior": "base",
+                "product_id": "payment",
+                "variant_id": "card",
+                "payment_method": "card",
+                "label": "Card payment",
+                "unit": "per_transaction",
+                "fee_components": [
+                  {
+                    "type": "percentage",
+                    "value": "2.9"
+                  },
+                  {
+                    "type": "fixed_amount",
+                    "amount": "0.30",
+                    "currency": "USD"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "account_country": "US",
+    "transaction": {
+      "product_id": "payment",
+      "variant_id": "card",
+      "payment_method": "card"
+    }
+  },
+  "expected_result": {
+    "provider": "stripe",
+    "status": "exact_for_public_rate",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "processing_fee": {
+      "value": "3.20",
+      "currency": "USD"
+    },
+    "net_amount": {
+      "value": "96.80",
+      "currency": "USD"
+    },
+    "components": [
+      {
+        "type": "processing",
+        "label": "Card payment",
+        "amount": "3.20",
+        "currency": "USD",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "source_rule_id": "stripe:US:card:base",
+        "rate_percentage": "2.9",
+        "fixed_amount": "0.30",
+        "unit": "per_transaction"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "stripe:US:card:base",
+        "classification_status": "calculable_rule",
+        "confidence": 0,
+        "exactness": "exact"
+      }
+    ],
+    "selected_product_id": "payment",
+    "selected_variant_id": "card",
+    "assumptions": [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+      "Assumed a successful transaction for providers that require success."
+    ],
+    "warnings": [],
+    "data": {
+      "provider": "stripe",
+      "schema_version": 1,
+      "market": "US",
+      "content_sha256": null,
+      "source_urls": [],
+      "source_updated_at": null,
+      "data_ref": "documents"
+    }
+  },
+  "expected_error": null
+}
