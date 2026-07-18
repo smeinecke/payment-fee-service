@@ -5,17 +5,14 @@ declare(strict_types=1);
 namespace Smeinecke\PaymentFee;
 
 use Smeinecke\PaymentFee\Exception\UnknownProvider;
+use Smeinecke\PaymentFee\Model\PayPalQuoteRequest;
 use Smeinecke\PaymentFee\Model\QuoteRequest;
+use Smeinecke\PaymentFee\Providers\PayPal\PayPalProvider;
 
-/**
- * Native PHP payment-fee calculation engine.
- *
- * @todo Implement PayPal and Stripe provider adapters.
- */
 final class PaymentFeeEngine
 {
     /**
-     * @var array<string, object>
+     * @var array<string, PayPalProvider>
      */
     private array $providers = [];
 
@@ -23,7 +20,8 @@ final class PaymentFeeEngine
     {
         $engine = new self();
         if ($paypal !== null) {
-            // TODO: load PayPal provider from filesystem
+            $core = json_decode(file_get_contents($paypal . '/json/core-fees.json'), true);
+            $engine->register('paypal', new PayPalProvider($core));
         }
         if ($stripe !== null) {
             // TODO: load Stripe provider from filesystem
@@ -32,14 +30,15 @@ final class PaymentFeeEngine
     }
 
     /**
-     * @param array<string, mixed> $paypal
-     * @param array<string, mixed> $stripe
+     * @param array<string, mixed>|null $paypal
+     * @param array<string, mixed>|null $stripe
      */
     public static function fromDocuments(?array $paypal = null, ?array $stripe = null, bool $validate = false): self
     {
         $engine = new self();
         if ($paypal !== null) {
-            // TODO: load PayPal provider from documents
+            $core = $paypal['core'] ?? $paypal;
+            $engine->register('paypal', new PayPalProvider($core));
         }
         if ($stripe !== null) {
             // TODO: load Stripe provider from documents
@@ -47,13 +46,51 @@ final class PaymentFeeEngine
         return $engine;
     }
 
+    public function register(string $provider, PayPalProvider $instance): void
+    {
+        $this->providers[$provider] = $instance;
+    }
+
     public function quote(QuoteRequest $request): array
     {
         if (!isset($this->providers[$request->provider])) {
             throw new UnknownProvider($request->provider);
         }
-        // TODO: compile rules and calculate
-        throw new \RuntimeException('Provider adapters are not yet implemented.');
+
+        if ($request instanceof PayPalQuoteRequest) {
+            $provider = $this->providers[$request->provider];
+            $rules = $provider->compileRules($request);
+            $calculator = new Calculator();
+            $result = $calculator->calculate($request->amount, $request->amount->currency, $rules);
+
+            return [
+                'provider' => $request->provider,
+                'status' => 'exact_for_public_rate',
+                'amount' => $result['amount'],
+                'processing_fee' => $result['processing_fee'],
+                'net_amount' => $result['net_amount'],
+                'components' => $result['components'],
+                'matched_rules' => $result['matched_rules'],
+                'selected_product_id' => $request->transaction->productId,
+                'selected_variant_id' => $request->transaction->variantId,
+                'assumptions' => [
+                    'Public standard pricing was used; negotiated merchant pricing is not represented.',
+                    'The published dataset does not encode provider settlement rounding, so standard currency rounding is used.',
+                ],
+                'warnings' => [],
+                'data' => [
+                    'provider' => $request->provider,
+                    'schema_version' => 1,
+                    'market' => $request->accountCountry,
+                    'content_sha256' => null,
+                    'source_urls' => [],
+                    'source_updated_at' => null,
+                    'data_ref' => 'documents',
+                ],
+            ];
+        }
+
+        throw new \RuntimeException('Stripe provider is not yet implemented.');
     }
 
     /**
