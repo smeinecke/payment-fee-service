@@ -13,7 +13,7 @@ final readonly class Money
 
     public function __construct(string $value, string $currency)
     {
-        $this->value = BigDecimal::of($value)->toPlainString();
+        $this->value = (string) BigDecimal::of($value);
         $this->currency = strtoupper($currency);
     }
 

@@ -1,6 +1,4 @@
-export interface PaymentFeeErrorDetails {
-  [key: string]: unknown;
-}
+export type PaymentFeeErrorDetails = Record<string, unknown>;
 
 export abstract class PaymentFeeError extends Error {
   abstract readonly code: string;
@@ -51,10 +49,10 @@ export class QuoteNotAvailable extends PaymentFeeError {
 export class InsufficientTransactionContext extends PaymentFeeError {
   readonly code = "INSUFFICIENT_TRANSACTION_CONTEXT";
   constructor(missingFields: string[], details: PaymentFeeErrorDetails = {}) {
-    super(
-      "Additional transaction context is required to select an applicable fee rule.",
-      { missing_fields: [...new Set(missingFields)].sort(), ...details },
-    );
+    super("Additional transaction context is required to select an applicable fee rule.", {
+      missing_fields: [...new Set(missingFields)].sort(),
+      ...details,
+    });
   }
 }
 

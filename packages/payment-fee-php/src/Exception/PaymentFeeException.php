@@ -15,4 +15,14 @@ abstract class PaymentFeeException extends RuntimeException
     ) {
         parent::__construct($message);
     }
+
+    public function getErrorCode(): string
+    {
+        return $this->errorCode;
+    }
+
+    public function getDetails(): array
+    {
+        return $this->details;
+    }
 }

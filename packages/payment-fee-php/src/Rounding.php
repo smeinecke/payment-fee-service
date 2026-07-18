@@ -30,10 +30,10 @@ final class Rounding
     {
         $minor = Currency::minorUnits($currency);
         if ($minor === 0) {
-            return $value->toBigInteger()->toString();
+            return (string) $value->toBigInteger();
         }
         $scale = $minor;
-        $str = $value->toScale($scale, RoundingMode::HALF_UP)->toPlainString();
+        $str = (string) $value->toScale($scale, RoundingMode::HALF_UP);
         if ($str === '-0' || $str === '-0.' . str_repeat('0', $scale)) {
             return '0' . ($scale > 0 ? '.' . str_repeat('0', $scale) : '');
         }

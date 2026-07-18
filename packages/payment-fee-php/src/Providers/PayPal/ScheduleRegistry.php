@@ -11,9 +11,7 @@ final class ScheduleRegistry
     /**
      * @param array<string, mixed> $derived
      */
-    public function __construct(private readonly array $derived)
-    {
-    }
+    public function __construct(private readonly array $derived) {}
 
     public function fixed(string $scheduleId, string $currency): string
     {

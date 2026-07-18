@@ -21,7 +21,7 @@ final class Calculator
         $rawTotal = BigDecimal::of('0');
 
         foreach ($rules as $rule) {
-            if (in_array($rule['behavior'] ?? 'base', ['free', 'included', 'waived'], true)) {
+            if (\in_array($rule['behavior'] ?? 'base', ['free', 'included', 'waived'], true)) {
                 $components[] = [
                     'type' => 'included',
                     'label' => $rule['label'],
@@ -109,7 +109,7 @@ final class Calculator
         ];
 
         if ($ratePercentage !== null) {
-            $component['rate_percentage'] = $ratePercentage->toPlainString();
+            $component['rate_percentage'] = (string) $ratePercentage;
         }
         if (($rule['fixed_amount'] ?? null) !== null) {
             $component['fixed_amount'] = Rounding::toString(BigDecimal::of($rule['fixed_amount']), $rule['fixed_currency'] ?? $currency);

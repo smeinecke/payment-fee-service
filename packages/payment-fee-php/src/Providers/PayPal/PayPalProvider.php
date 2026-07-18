@@ -8,7 +8,6 @@ use Brick\Math\BigDecimal;
 use Smeinecke\PaymentFee\Exception\AmbiguousFeeRules;
 use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
 use Smeinecke\PaymentFee\Exception\UnsupportedFeeShape;
-use Smeinecke\PaymentFee\Model\Money;
 use Smeinecke\PaymentFee\Model\PayPalQuoteRequest;
 
 final class PayPalProvider
@@ -50,8 +49,8 @@ final class PayPalProvider
             throw new QuoteNotAvailable('No matching PayPal fee rule found.', ['product_id' => $request->transaction->productId, 'variant_id' => $request->transaction->variantId]);
         }
 
-        if (count($candidates) > 1) {
-            throw new AmbiguousFeeRules(array_map(fn ($r) => (string) $r['id'], $candidates));
+        if (\count($candidates) > 1) {
+            throw new AmbiguousFeeRules(array_map(fn($r) => (string) $r['id'], $candidates));
         }
 
         $rule = $candidates[0];
@@ -119,7 +118,7 @@ final class PayPalProvider
             'component_type' => 'processing',
             'behavior' => 'base',
             'percentage' => $percentage,
-            'fixed_amount' => $fixedAmount?->toPlainString(),
+            'fixed_amount' => $fixedAmount === null ? null : (string) $fixedAmount,
             'fixed_currency' => $fixedCurrency,
             'minimum_amount' => null,
             'maximum_amount' => $maximumAmount,

@@ -13,22 +13,18 @@ from payment_fee.errors import PaymentFeeError
 CONFORMANCE_DIR = Path(__file__).resolve().parents[2] / "contracts" / "conformance"
 
 
-def normalize_value(value: object) -> object:
-    if isinstance(value, float):
-        return value
-    if value is None:
-        return None
-    if isinstance(value, list):
-        return [normalize_value(v) for v in value]
+def strip_nulls(value: object) -> object:
     if isinstance(value, dict):
-        return {k: normalize_value(v) for k, v in sorted(value.items()) if v is not None}
+        return {k: strip_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [strip_nulls(v) for v in value]
     return value
 
 
 def normalize(result: dict | None) -> dict | None:
     if result is None:
         return None
-    return normalize_value(result)
+    return strip_nulls(result)
 
 
 def run_case(case: dict) -> dict:
@@ -39,7 +35,7 @@ def run_case(case: dict) -> dict:
             stripe=provider_documents.get("stripe"),
         )
         response = engine.quote(case["request"])
-        actual = response.model_dump(mode="json", by_alias=False)
+        actual = response.model_dump(mode="json", by_alias=False, exclude_none=True)
         actual_error = None
     except PaymentFeeError as exc:
         actual = None

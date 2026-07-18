@@ -12,3 +12,11 @@ build/
 .DS_Store
 docs/openapi.json
 coverage.xml
+packages/payment-fee-php/vendor/
+packages/payment-fee-php/composer.lock
+packages/payment-fee-php/.php-cs-fixer.cache
+packages/payment-fee-php/.phpunit.cache/
+packages/payment-fee-typescript/node_modules/
+packages/payment-fee-typescript/package-lock.json
+packages/payment-fee-typescript/dist-tests/
+packages/payment-fee-typescript/.eslintcache

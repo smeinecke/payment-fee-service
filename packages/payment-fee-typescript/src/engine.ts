@@ -1,40 +1,92 @@
+import { calculate } from "./calculator.js";
 import { UnknownProvider } from "./errors.js";
 import type { QuoteRequest } from "./models.js";
+import { PayPalProvider, type PayPalCore } from "./providers/paypal/provider.js";
 
-/**
- * Native TypeScript payment-fee calculation engine.
- *
- * @todo Implement PayPal and Stripe provider adapters.
- */
 export class PaymentFeeEngine {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly providers = new Map<string, any>();
+  private readonly _providers = new Map<string, PayPalProvider>();
 
-  static async fromPaths(_args: {
+  static async fromPaths(args: {
     paypal?: string;
     stripe?: string;
     validate?: boolean;
   }): Promise<PaymentFeeEngine> {
-    // TODO: load providers from filesystem
-    return new PaymentFeeEngine();
+    const { readFile } = await import("node:fs/promises");
+    const engine = new PaymentFeeEngine();
+    if (args.paypal) {
+      const core = JSON.parse(
+        await readFile(`${args.paypal}/json/core-fees.json`, "utf-8"),
+      ) as PayPalCore;
+      engine.register("paypal", new PayPalProvider(core));
+    }
+    if (args.stripe) {
+      // TODO
+    }
+    return engine;
   }
 
-  static async fromDocuments(_args: {
-    paypal?: unknown;
+  static async fromDocuments(args: {
+    paypal?: PayPalCore | { core?: PayPalCore };
     stripe?: unknown;
     validate?: boolean;
   }): Promise<PaymentFeeEngine> {
-    // TODO: load providers from in-memory documents
-    return new PaymentFeeEngine();
+    await Promise.resolve();
+    const engine = new PaymentFeeEngine();
+    if (args.paypal) {
+      const core = (args.paypal as { core?: PayPalCore }).core ?? (args.paypal as PayPalCore);
+      engine.register("paypal", new PayPalProvider(core));
+    }
+    if (args.stripe) {
+      // TODO
+    }
+    return engine;
   }
 
-  quote(_request: QuoteRequest): Record<string, unknown> {
-    this.requireProvider(_request.provider);
-    throw new Error("Provider adapters are not yet implemented.");
+  register(provider: string, instance: PayPalProvider): void {
+    this._providers.set(provider, instance);
+  }
+
+  quote(request: QuoteRequest): Record<string, unknown> {
+    this.requireProvider(request.provider);
+
+    if (request.provider === "paypal") {
+      const paypalRequest = request;
+      const provider = this._providers.get("paypal")!;
+      const rules = provider.compileRules(paypalRequest);
+      const result = calculate(paypalRequest.amount, paypalRequest.amount.currency, rules);
+
+      return {
+        provider: "paypal",
+        status: "exact_for_public_rate",
+        amount: result.amount,
+        processing_fee: result.processing_fee,
+        net_amount: result.net_amount,
+        components: result.components,
+        matched_rules: result.matched_rules,
+        selected_product_id: paypalRequest.transaction.product_id,
+        selected_variant_id: paypalRequest.transaction.variant_id,
+        assumptions: [
+          "Public standard pricing was used; negotiated merchant pricing is not represented.",
+          "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+        ],
+        warnings: [],
+        data: {
+          provider: "paypal",
+          schema_version: 1,
+          market: paypalRequest.account_country,
+          content_sha256: null,
+          source_urls: [],
+          source_updated_at: null,
+          data_ref: "documents",
+        },
+      };
+    }
+
+    throw new Error("Stripe provider is not yet implemented.");
   }
 
   providers(): string[] {
-    return [...this.providers.keys()];
+    return [...this._providers.keys()];
   }
 
   markets(_provider: string): Record<string, unknown>[] {
@@ -61,7 +113,7 @@ export class PaymentFeeEngine {
   }
 
   private requireProvider(provider: string): void {
-    if (!this.providers.has(provider)) {
+    if (!this._providers.has(provider)) {
       throw new UnknownProvider(provider);
     }
   }

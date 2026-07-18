@@ -1,0 +1,235 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Calculator\:\:calculate\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Calculator.php
+
+		-
+			message: '#^Parameter \#1 \$value of static method Brick\\Math\\BigNumber\:\:of\(\) expects Brick\\Math\\BigNumber\|float\|int\|string, mixed given\.$#'
+			identifier: argument.type
+			count: 10
+			path: src/Calculator.php
+
+		-
+			message: '#^Parameter \#2 \$currency of static method Smeinecke\\PaymentFee\\Rounding\:\:toString\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Calculator.php
+
+		-
+			message: '#^Parameter \#1 \$json of function json_decode expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Currency.php
+
+		-
+			message: '#^Property Smeinecke\\PaymentFee\\Currency\:\:\$currencies type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Currency.php
+
+		-
+			message: '#^Static property Smeinecke\\PaymentFee\\Currency\:\:\$currencies \(array\|null\) does not accept mixed\.$#'
+			identifier: assign.propertyType
+			count: 1
+			path: src/Currency.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\AmbiguousFeeRules\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/AmbiguousFeeRules.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\CurrencyMismatch\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/CurrencyMismatch.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\DatasetValidationException\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/DatasetValidationException.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\InsufficientTransactionContext\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/InsufficientTransactionContext.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\PaymentFeeException\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/PaymentFeeException.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\PaymentFeeException\:\:getDetails\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/PaymentFeeException.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\ProviderDataUnavailable\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/ProviderDataUnavailable.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\QuoteNotAvailable\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/QuoteNotAvailable.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\UnknownMarket\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/UnknownMarket.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\UnknownProvider\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/UnknownProvider.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Exception\\UnsupportedFeeShape\:\:__construct\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Exception/UnsupportedFeeShape.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Model\\Money\:\:toArray\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Model/Money.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\PaymentFeeEngine\:\:quote\(\) has parameter \$request with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/PaymentFeeEngine.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\PaymentFeeEngine\:\:quote\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/PaymentFeeEngine.php
+
+		-
+			message: '#^Parameter \#1 \$core of class Smeinecke\\PaymentFee\\Providers\\PayPal\\PayPalProvider constructor expects array\<string, mixed\>, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/PaymentFeeEngine.php
+
+		-
+			message: '#^Parameter \#1 \$json of function json_decode expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/PaymentFeeEngine.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Cannot access offset ''calculation_status'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Cannot access offset ''id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Cannot access offset ''transaction_fee_rules'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Cannot access offset ''variant_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Providers\\PayPal\\PayPalProvider\:\:compileRule\(\) has parameter \$rule with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Parameter \#1 \$derived of class Smeinecke\\PaymentFee\\Providers\\PayPal\\ScheduleRegistry constructor expects array\<string, mixed\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Parameter \#1 \$rule of method Smeinecke\\PaymentFee\\Providers\\PayPal\\PayPalProvider\:\:compileRule\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Property Smeinecke\\PaymentFee\\Providers\\PayPal\\PayPalProvider\:\:\$core type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Providers/PayPal/PayPalProvider.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Cannot access offset ''entries'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Cannot access offset ''payer_region'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Cannot access offset ''percentage_points'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Cannot access offset string on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 5
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 4
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\QuoteRequestFactory\:\:fromArray\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/QuoteRequestFactory.php

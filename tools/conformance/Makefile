@@ -1,7 +1,16 @@
-.PHONY: test test-python
+.PHONY: test test-python test-typescript test-php
 
 test-python:
-	uv run python tools/conformance/run_python.py
+	uv run python run_python.py
 
-test: test-python
-	@echo "Cross-language conformance runner: Python OK. PHP and TypeScript runners are not yet implemented."
+test-typescript: build-typescript
+	node run_typescript.mjs
+
+test-php:
+	php run_php.php
+
+build-typescript:
+	$(MAKE) -C ../../packages/payment-fee-typescript build
+
+test: test-python test-typescript test-php
+	@echo "All conformance suites passed."

@@ -51,8 +51,11 @@ final class PaymentFeeEngine
         $this->providers[$provider] = $instance;
     }
 
-    public function quote(QuoteRequest $request): array
+    public function quote(QuoteRequest|array $request): array
     {
+        if (\is_array($request)) {
+            $request = QuoteRequestFactory::fromArray($request);
+        }
         if (!isset($this->providers[$request->provider])) {
             throw new UnknownProvider($request->provider);
         }
