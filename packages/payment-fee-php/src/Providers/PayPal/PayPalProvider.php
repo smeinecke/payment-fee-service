@@ -6,6 +6,7 @@ namespace Smeinecke\PaymentFee\Providers\PayPal;
 
 use Brick\Math\BigDecimal;
 use Smeinecke\PaymentFee\Exception\AmbiguousFeeRules;
+use Smeinecke\PaymentFee\Exception\InsufficientTransactionContext;
 use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
 use Smeinecke\PaymentFee\Exception\UnsupportedFeeShape;
 use Smeinecke\PaymentFee\Model\PayPalQuoteRequest;
@@ -57,20 +58,19 @@ final class PayPalProvider implements ProviderInterface
             throw new AmbiguousFeeRules(array_map(fn($r) => (string) $r['id'], $candidates));
         }
 
-        $rule = $candidates[0];
-        return [$this->compileRule($rule, $registry, $paypalRequest)];
+        return $this->compileRule($candidates[0], $registry, $paypalRequest);
     }
 
     /**
-     * @return array<string, mixed>
+     * @return list<array<string, mixed>>
      */
     private function compileRule(array $rule, ScheduleRegistry $registry, PayPalQuoteRequest $request): array
     {
         $currency = $request->amount->currency;
+        $payerRegion = $request->transaction->payerRegion ?? $request->transaction->surchargeRegion;
 
         $fixedAmount = null;
         $fixedCurrency = null;
-        $surcharge = null;
 
         foreach ($rule['fee_components'] ?? [] as $comp) {
             $type = $comp['type'] ?? '';
@@ -86,18 +86,8 @@ final class PayPalProvider implements ProviderInterface
                     $fixedAmount = $fixedAmount === null ? BigDecimal::of($value) : $fixedAmount->plus(BigDecimal::of($value));
                     $fixedCurrency = $currency;
                 }
-            } elseif ($type === 'international_surcharge_schedule') {
-                $scheduleId = $comp['schedule_id'] ?? $rule['international_surcharge_schedule'] ?? null;
-                if ($scheduleId) {
-                    $rate = $registry->surchargeRate($scheduleId, $request->transaction->payerRegion);
-                    if ($rate !== null) {
-                        $surcharge = $rate;
-                    }
-                }
-            } elseif ($type === 'maximum_fee_schedule') {
-                // maximum handled below
-            } elseif ($type === 'percentage') {
-                // percentage handled below
+            } elseif ($type === 'international_surcharge_schedule' || $type === 'maximum_fee_schedule' || $type === 'percentage') {
+                // handled below
             } else {
                 throw new UnsupportedFeeShape("Unsupported PayPal fee component type: {$type}", ['rule_id' => $rule['id']]);
             }
@@ -116,7 +106,7 @@ final class PayPalProvider implements ProviderInterface
             $maximumAmount = $registry->maximum($scheduleId, $currency);
         }
 
-        return [
+        $executable = [
             'rule_id' => "paypal:{$request->accountCountry}:{$rule['id']}:" . ($rule['variant_id'] ?? 'default') . ':base',
             'label' => $rule['label'] ?? $rule['id'],
             'component_type' => 'processing',
@@ -130,8 +120,46 @@ final class PayPalProvider implements ProviderInterface
             'confidence' => 1.0,
             'exactness' => 'exact',
             'source_url' => null,
-            'surcharge' => $surcharge,
         ];
+
+        $surchargeScheduleId = $rule['international_surcharge_schedule'] ?? null;
+        if ($surchargeScheduleId === null) {
+            return [$executable];
+        }
+
+        if ($payerRegion === null && strcasecmp($request->transaction->transactionRegion ?? '', 'domestic') !== 0) {
+            throw new InsufficientTransactionContext(
+                ['transaction.payer_region', 'transaction.surcharge_region'],
+                [
+                    'provider' => 'paypal',
+                    'market' => $request->accountCountry,
+                    'available_surcharge_regions' => array_values(array_unique($registry->surchargeRegions($surchargeScheduleId))),
+                ],
+            );
+        }
+
+        $surcharge = $registry->surcharge($surchargeScheduleId, $payerRegion, $currency);
+        if ($surcharge === null || ($surcharge['percentage'] === null && $surcharge['fixed_amount'] === null)) {
+            return [$executable];
+        }
+
+        $surchargeRule = [
+            'rule_id' => "paypal:{$request->accountCountry}:{$rule['id']}:" . ($rule['variant_id'] ?? 'default') . ':surcharge:' . ($payerRegion ?? 'unknown'),
+            'label' => "International surcharge (" . ($payerRegion ?? 'unknown') . ")",
+            'component_type' => 'surcharge',
+            'behavior' => 'additive',
+            'percentage' => $surcharge['percentage'],
+            'fixed_amount' => $surcharge['fixed_amount'],
+            'fixed_currency' => $surcharge['fixed_amount'] ? ($surcharge['fixed_currency'] ?? $currency) : null,
+            'minimum_amount' => null,
+            'maximum_amount' => null,
+            'classification_status' => $rule['calculation_status'] ?? 'calculable',
+            'confidence' => 1.0,
+            'exactness' => 'exact',
+            'source_url' => null,
+        ];
+
+        return [$executable, $surchargeRule];
     }
 
     /**

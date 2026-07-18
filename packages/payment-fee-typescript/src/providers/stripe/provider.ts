@@ -160,7 +160,7 @@ export class StripeProvider {
     }
 
     const base = baseCandidates[0];
-    const additiveRules = selectAdditiveRules(market.rules ?? [], context, maxSpec);
+    const additiveRules = selectAdditiveRules(market.rules ?? [], context);
 
     const rules = [executableFromRule(base, currency)];
     for (const rule of additiveRules) {
@@ -305,9 +305,15 @@ function conditionStatus(
   }
 
   if (operator === "eq" || operator === "==" || operator === "equals") {
+    if (Array.isArray(expected)) {
+      return asList(expected).some((item) => valuesEqual(actual, item)) ? "match" : "conflict";
+    }
     return valuesEqual(actual, expected) ? "match" : "conflict";
   }
   if (operator === "ne" || operator === "!=" || operator === "not_equals") {
+    if (Array.isArray(expected)) {
+      return asList(expected).every((item) => !valuesEqual(actual, item)) ? "match" : "conflict";
+    }
     return !valuesEqual(actual, expected) ? "match" : "conflict";
   }
   if (operator === "in") {
@@ -383,17 +389,13 @@ function sortBySpecificityDesc(
   return [...matches].sort((a, b) => b.specificity - a.specificity);
 }
 
-function selectAdditiveRules(
-  rules: StripeRule[],
-  context: Record<string, unknown>,
-  maxSpec: number,
-): StripeRule[] {
+function selectAdditiveRules(rules: StripeRule[], context: Record<string, unknown>): StripeRule[] {
   const additive: StripeRule[] = [];
   for (const rule of rules) {
     if ((rule.behavior ?? "base") !== "additive") continue;
     const conditions = normalizeConditions(rule);
     if (conditions.some((c) => conditionStatus(c, context) !== "match")) continue;
-    if (conditions.length >= maxSpec && isEvaluable(rule)) {
+    if (isEvaluable(rule)) {
       additive.push(rule);
     }
   }

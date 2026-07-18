@@ -1,0 +1,539 @@
+{
+  "id": "stripe-us-ach-direct-debit",
+  "description": "US Stripe ach_direct_debit using real rule data.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "US",
+            "calculator_coverage_status": "complete",
+            "coverage_summary": {
+              "ambiguous_entries": 0,
+              "blocking_fee_conflicts": 0,
+              "calculable_rules": 149,
+              "conflicting_rule_identities": 19,
+              "custom_pricing": 4,
+              "dropped_numeric_entries": 0,
+              "free": 3,
+              "ignored_non_fee": 16,
+              "included": 15,
+              "informational": 10,
+              "informational_conflicts": 19,
+              "non_calculable_rules": 0,
+              "numeric_fee_candidates": 0,
+              "numeric_source_entries": 255,
+              "reference_only": 0,
+              "referenced_numeric_entries": 255,
+              "source_entries": 287,
+              "unclassified_fee_candidates": 0,
+              "unsupported_fee_shapes": 1
+            },
+            "derivation_status": "complete",
+            "locale": "en-us",
+            "rules": [
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "ach_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "range",
+                "fee_components": [
+                  {
+                    "amount": "5.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "500",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "maximum_fee",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "80.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "0.8"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "0.8%",
+                    "$5.00 cap"
+                  ],
+                  "source_entry_ids": [
+                    "5b162aaff382ca29",
+                    "4009215ce7097dfa"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "0.8%",
+                "payment_method": "ach_direct_debit",
+                "product_id": "ach_direct_debit",
+                "provider": "stripe",
+                "rule_id": "6dc8814ccf9c3b27",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "ach_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "settlement_timing",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "standard"
+                  },
+                  {
+                    "dimension": "pricing_tier",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "standard"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "range",
+                "fee_components": [
+                  {
+                    "amount": "5.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "500",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "maximum_fee",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "80.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "0.8"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "ACH Direct Debit 0.8% per transaction for standard settlement timing",
+                    "ACH Direct Debit $5.00 cap"
+                  ],
+                  "source_entry_ids": [
+                    "501a267f5f001f98",
+                    "0918522914d84735"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "ACH Direct Debit 0.8% per transaction for standard settlement timing",
+                "payment_method": "ach_direct_debit",
+                "product_id": "ach_direct_debit",
+                "provider": "stripe",
+                "rule_id": "55d48fe5d55817b7",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "ach_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "settlement_timing",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "two_day"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "120.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "1.2"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "ACH Direct Debit 1.2% per transaction for two-day settlement"
+                  ],
+                  "source_entry_ids": [
+                    "e6dd94a9d99bb861"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "ACH Direct Debit 1.2% per transaction for two-day settlement",
+                "payment_method": "ach_direct_debit",
+                "product_id": "ach_direct_debit",
+                "provider": "stripe",
+                "rule_id": "c267b1b7b70f8f48",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "ach_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "bank_account_validation"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "1.50",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "150",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "ACH Direct Debit $1.50 per instant bank account validation"
+                  ],
+                  "source_entry_ids": [
+                    "8e98138053ccb2ce"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "ACH Direct Debit $1.50 per instant bank account validation",
+                "payment_method": "ach_direct_debit",
+                "product_id": "ach_direct_debit",
+                "provider": "stripe",
+                "rule_id": "f9e2bc9c5802d6af",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "ach_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "dispute_state",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "lost"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "dispute"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "15.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "1500",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "ACH Direct Debit $15.00 for disputed payments"
+                  ],
+                  "source_entry_ids": [
+                    "a0b04ba15b8ee5fa"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "ACH Direct Debit $15.00 for disputed payments",
+                "payment_method": "ach_direct_debit",
+                "product_id": "ach_direct_debit",
+                "provider": "stripe",
+                "rule_id": "453ce8ebefa2ed37",
+                "unit": "per_dispute",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "ach_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "failed"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "4.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "400",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "ACH Direct Debit $4.00 for failed payments"
+                  ],
+                  "source_entry_ids": [
+                    "64145d2237b0d924"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "ACH Direct Debit $4.00 for failed payments",
+                "payment_method": "ach_direct_debit",
+                "product_id": "ach_direct_debit",
+                "provider": "stripe",
+                "rule_id": "37b5337b6c058b9d",
+                "unit": "per_attempt",
+                "variant_id": "standard"
+              }
+            ],
+            "stripe_market_code": "us",
+            "unclassified_count": 30
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "account_country": "US",
+    "transaction": {
+      "product_id": "ach_direct_debit",
+      "variant_id": "standard",
+      "payment_method": "ach_direct_debit",
+      "channel": "online",
+      "settlement": {
+        "timing": "standard"
+      },
+      "pricing_tier": "standard"
+    }
+  },
+  "expected_result": {
+    "provider": "stripe",
+    "status": "range",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "processing_fee": {
+      "value": "0.80",
+      "currency": "USD"
+    },
+    "net_amount": {
+      "value": "99.20",
+      "currency": "USD"
+    },
+    "components": [
+      {
+        "type": "processing",
+        "label": "ACH Direct Debit 0.8% per transaction for standard settlement timing",
+        "amount": "0.80",
+        "currency": "USD",
+        "rate_percentage": "0.8",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_transaction",
+        "source_rule_id": "55d48fe5d55817b7"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "55d48fe5d55817b7",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "range"
+      }
+    ],
+    "selected_product_id": "ach_direct_debit",
+    "selected_variant_id": "standard",
+    "assumptions": [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+      "Assumed a successful transaction for providers that require success."
+    ],
+    "warnings": [],
+    "data": {
+      "provider": "stripe",
+      "schema_version": 1,
+      "market": "US",
+      "source_urls": [],
+      "data_ref": "documents"
+    }
+  },
+  "expected_error": null
+}

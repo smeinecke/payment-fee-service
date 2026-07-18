@@ -172,7 +172,9 @@ class FeeCalculator:
             amount=calculated,
             currency=amount.currency,
             rate_percentage=rate_percentage,
-            fixed_amount=rule.fixed_amount,
+            fixed_amount=quantize_money(rule.fixed_amount, rule.fixed_currency or amount.currency)
+            if rule.fixed_amount is not None
+            else None,
             minimum_applied=minimum_applied,
             maximum_applied=maximum_applied,
             payer=rule.payer,

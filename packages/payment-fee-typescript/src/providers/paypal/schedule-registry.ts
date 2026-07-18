@@ -1,14 +1,18 @@
 import { QuoteNotAvailable } from "../../errors.js";
 
+export interface SurchargeEntry {
+  payer_region: string;
+  percentage_points?: string | null;
+  fixed_amount?: string | null;
+  fixed_currency?: string | null;
+}
+
 interface FixedFeeSchedule {
   entries: Record<string, string | undefined>;
 }
 
 interface SurchargeSchedule {
-  entries: {
-    payer_region: string;
-    percentage_points?: string | null;
-  }[];
+  entries: SurchargeEntry[];
 }
 
 interface MaximumFeeSchedule {
@@ -58,13 +62,44 @@ export class ScheduleRegistry {
     return value;
   }
 
-  surchargeRate(scheduleId: string, payerRegion: string | null | undefined): string | null {
+  surchargeRegions(scheduleId: string): string[] {
+    const schedule = this.derived.international_surcharge_schedules?.[scheduleId];
+    if (schedule === undefined) return [];
+    return schedule.entries.map((entry) => entry.payer_region);
+  }
+
+  surcharge(
+    scheduleId: string,
+    payerRegion: string | null | undefined,
+    currency: string,
+  ): {
+    percentage?: string | null;
+    fixed_amount?: string | null;
+    fixed_currency?: string | null;
+  } | null {
     if (!payerRegion) return null;
     const schedule = this.derived.international_surcharge_schedules?.[scheduleId];
     if (schedule === undefined) return null;
     for (const entry of schedule.entries) {
       if (entry.payer_region.toLowerCase() === payerRegion.toLowerCase()) {
-        return entry.percentage_points ?? null;
+        if (
+          entry.fixed_amount &&
+          (entry.fixed_currency ?? currency).toUpperCase() !== currency.toUpperCase()
+        ) {
+          throw new QuoteNotAvailable(
+            "A PayPal international surcharge schedule uses a fixed amount in a different currency.",
+            {
+              schedule_id: scheduleId,
+              currency,
+              fixed_currency: entry.fixed_currency ?? currency,
+            },
+          );
+        }
+        return {
+          percentage: entry.percentage_points ?? null,
+          fixed_amount: entry.fixed_amount ?? null,
+          fixed_currency: entry.fixed_currency ?? currency,
+        };
       }
     }
     return null;

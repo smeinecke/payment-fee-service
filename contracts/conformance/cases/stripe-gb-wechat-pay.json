@@ -1,0 +1,264 @@
+{
+  "id": "stripe-gb-wechat-pay",
+  "description": "GB Stripe wechat_pay using real rule data.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "GB",
+            "calculator_coverage_status": "complete",
+            "coverage_summary": {
+              "ambiguous_entries": 0,
+              "blocking_fee_conflicts": 0,
+              "calculable_rules": 122,
+              "conflicting_rule_identities": 22,
+              "custom_pricing": 3,
+              "dropped_numeric_entries": 0,
+              "free": 3,
+              "ignored_non_fee": 15,
+              "included": 13,
+              "informational": 9,
+              "informational_conflicts": 22,
+              "non_calculable_rules": 0,
+              "numeric_fee_candidates": 0,
+              "numeric_source_entries": 226,
+              "reference_only": 0,
+              "referenced_numeric_entries": 226,
+              "source_entries": 258,
+              "unclassified_fee_candidates": 0,
+              "unsupported_fee_shapes": 0
+            },
+            "derivation_status": "complete",
+            "locale": "en-gb",
+            "rules": [
+              {
+                "account_country": "GB",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "wechat_pay"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "GB"
+                  },
+                  {
+                    "dimension": "success",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "charge"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.2",
+                    "basis_points": null,
+                    "currency": "GBP",
+                    "minor_amount": "20",
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "290.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "2.9"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "WeChat Pay 2.9% + 20p per successful charge"
+                  ],
+                  "source_entry_ids": [
+                    "1d1027f85c141752"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "WeChat Pay 2.9% + 20p per successful charge",
+                "payment_method": "wechat_pay",
+                "product_id": "wechat_pay",
+                "provider": "stripe",
+                "rule_id": "c4154c758a19b726",
+                "unit": "per_charge",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "GB",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "wechat_pay"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "GB"
+                  },
+                  {
+                    "dimension": "currency_conversion_required",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "200",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "2"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "WeChat Pay + 2% if currency conversion is required"
+                  ],
+                  "source_entry_ids": [
+                    "9257732e9e40ef50"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "WeChat Pay + 2% if currency conversion is required",
+                "payment_method": "wechat_pay",
+                "product_id": "wechat_pay",
+                "provider": "stripe",
+                "rule_id": "2b2fe81079c4becb",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              }
+            ],
+            "stripe_market_code": "gb",
+            "unclassified_count": 26
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "GBP"
+    },
+    "account_country": "GB",
+    "transaction": {
+      "product_id": "wechat_pay",
+      "variant_id": "standard",
+      "payment_method": "wechat_pay",
+      "channel": "online",
+      "context": {
+        "success": true,
+        "transaction_type": "charge"
+      }
+    }
+  },
+  "expected_result": {
+    "provider": "stripe",
+    "status": "exact_for_public_rate",
+    "amount": {
+      "value": "100.00",
+      "currency": "GBP"
+    },
+    "processing_fee": {
+      "value": "3.10",
+      "currency": "GBP"
+    },
+    "net_amount": {
+      "value": "96.90",
+      "currency": "GBP"
+    },
+    "components": [
+      {
+        "type": "processing",
+        "label": "WeChat Pay 2.9% + 20p per successful charge",
+        "amount": "3.10",
+        "currency": "GBP",
+        "rate_percentage": "2.9",
+        "fixed_amount": "0.20",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_charge",
+        "source_rule_id": "c4154c758a19b726"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "c4154c758a19b726",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "exact"
+      }
+    ],
+    "selected_product_id": "wechat_pay",
+    "selected_variant_id": "standard",
+    "assumptions": [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+      "Assumed a successful transaction for providers that require success."
+    ],
+    "warnings": [],
+    "data": {
+      "provider": "stripe",
+      "schema_version": 1,
+      "market": "GB",
+      "source_urls": [],
+      "data_ref": "documents"
+    }
+  },
+  "expected_error": null
+}

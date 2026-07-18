@@ -1,5 +1,10 @@
 import { Decimal } from "decimal.js";
-import { AmbiguousFeeRules, QuoteNotAvailable, UnsupportedFeeShape } from "../../errors.js";
+import {
+  AmbiguousFeeRules,
+  InsufficientTransactionContext,
+  QuoteNotAvailable,
+  UnsupportedFeeShape,
+} from "../../errors.js";
 import type { ExecutableRule } from "../../calculator.js";
 import type { PayPalQuoteRequest, QuoteRequest } from "../../models.js";
 import { ScheduleRegistry, type PayPalDerived } from "./schedule-registry.js";
@@ -31,6 +36,15 @@ export interface PayPalCountry {
 export interface PayPalCore {
   schema_version?: number;
   countries?: PayPalCountry[];
+}
+
+function componentScheduleId(rule: PayPalRule, type: string): string | undefined {
+  for (const comp of rule.fee_components ?? []) {
+    if (comp.type === type) {
+      return comp.schedule_id ?? undefined;
+    }
+  }
+  return undefined;
 }
 
 export class PayPalProvider {
@@ -65,16 +79,17 @@ export class PayPalProvider {
       throw new AmbiguousFeeRules(candidates.map((r) => r.id));
     }
 
-    return [this.compileRule(candidates[0], registry, paypalRequest)];
+    return this.compileRule(candidates[0], registry, paypalRequest);
   }
 
   private compileRule(
     rule: PayPalRule,
     registry: ScheduleRegistry,
     request: PayPalQuoteRequest,
-  ): ExecutableRule {
+  ): ExecutableRule[] {
     const currency = request.amount.currency;
     const tx = request.transaction;
+    const payerRegion = tx.payer_region ?? tx.surcharge_region;
 
     let fixedAmount: Decimal | null = null;
     let fixedCurrency: string | undefined;
@@ -112,8 +127,10 @@ export class PayPalProvider {
     }
 
     let maximumAmount: string | undefined;
-    if (rule.maximum_fee_schedule) {
-      maximumAmount = registry.maximum(rule.maximum_fee_schedule, currency);
+    const maxScheduleId =
+      rule.maximum_fee_schedule ?? componentScheduleId(rule, "maximum_fee_schedule");
+    if (maxScheduleId) {
+      maximumAmount = registry.maximum(maxScheduleId, currency);
     }
 
     const executable: ExecutableRule = {
@@ -132,16 +149,47 @@ export class PayPalProvider {
       source_url: null,
     };
 
-    const surcharge = rule.international_surcharge_schedule
-      ? registry.surchargeRate(rule.international_surcharge_schedule, tx.payer_region)
-      : null;
-
-    if (surcharge) {
-      return executable;
-      // A proper implementation would also append an additive surcharge rule.
+    const surchargeScheduleId =
+      rule.international_surcharge_schedule ??
+      componentScheduleId(rule, "international_surcharge_schedule");
+    if (!surchargeScheduleId) {
+      return [executable];
     }
 
-    return executable;
+    if (payerRegion == null && (tx.transaction_region ?? "").toLowerCase() !== "domestic") {
+      const availableRegions = registry.surchargeRegions(surchargeScheduleId);
+      throw new InsufficientTransactionContext(
+        ["transaction.payer_region", "transaction.surcharge_region"],
+        {
+          provider: "paypal",
+          market: request.account_country,
+          available_surcharge_regions: [...new Set(availableRegions)].sort(),
+        },
+      );
+    }
+
+    const surcharge = registry.surcharge(surchargeScheduleId, payerRegion, currency);
+    if (!surcharge || (surcharge.percentage === null && surcharge.fixed_amount === null)) {
+      return [executable];
+    }
+
+    const surchargeRule: ExecutableRule = {
+      rule_id: `paypal:${request.account_country}:${rule.id}:${rule.variant_id ?? "default"}:surcharge:${payerRegion ?? "unknown"}`,
+      label: `International surcharge (${payerRegion ?? "unknown"})`,
+      component_type: "surcharge",
+      behavior: "additive",
+      percentage: surcharge.percentage ?? null,
+      fixed_amount: surcharge.fixed_amount ?? null,
+      fixed_currency: surcharge.fixed_amount ? (surcharge.fixed_currency ?? currency) : null,
+      minimum_amount: null,
+      maximum_amount: null,
+      classification_status: rule.calculation_status ?? "calculable",
+      confidence: 1.0,
+      exactness: "exact",
+      source_url: null,
+    };
+
+    return [executable, surchargeRule];
   }
 
   auditContract(): Record<string, number> {

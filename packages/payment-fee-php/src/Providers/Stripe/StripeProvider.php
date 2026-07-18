@@ -102,7 +102,7 @@ final class StripeProvider implements ProviderInterface
         }
 
         $base = $baseCandidates[0];
-        $additiveRules = $this->selectAdditiveRules($market['rules'] ?? [], $context, $maxSpec);
+        $additiveRules = $this->selectAdditiveRules($market['rules'] ?? [], $context);
 
         $rules = [$this->executableFromRule($base, $currency)];
         foreach ($additiveRules as $rule) {
@@ -224,7 +224,7 @@ final class StripeProvider implements ProviderInterface
         }
 
         foreach ($t->context ?? [] as $key => $value) {
-            if ($context[$key] === null) {
+            if (($context[$key] ?? null) === null) {
                 $context[$key] = $value;
             }
         }
@@ -314,9 +314,25 @@ final class StripeProvider implements ProviderInterface
         }
 
         if (\in_array($operator, ['eq', '==', 'equals'], true)) {
+            if (\is_array($expected)) {
+                foreach ($this->asList($expected) as $item) {
+                    if ($this->valuesEqual($actual, $item)) {
+                        return 'match';
+                    }
+                }
+                return 'conflict';
+            }
             return $this->valuesEqual($actual, $expected) ? 'match' : 'conflict';
         }
         if (\in_array($operator, ['ne', '!=', 'not_equals'], true)) {
+            if (\is_array($expected)) {
+                foreach ($this->asList($expected) as $item) {
+                    if ($this->valuesEqual($actual, $item)) {
+                        return 'conflict';
+                    }
+                }
+                return 'match';
+            }
             return !$this->valuesEqual($actual, $expected) ? 'match' : 'conflict';
         }
         if ($operator === 'in') {
@@ -419,7 +435,7 @@ final class StripeProvider implements ProviderInterface
      * @param array<string, mixed> $context
      * @return list<array<string, mixed>>
      */
-    private function selectAdditiveRules(array $rules, array $context, int $maxSpec): array
+    private function selectAdditiveRules(array $rules, array $context): array
     {
         $selected = [];
         foreach ($rules as $rule) {
@@ -434,7 +450,7 @@ final class StripeProvider implements ProviderInterface
                     break;
                 }
             }
-            if ($match && \count($conditions) >= $maxSpec && $this->isEvaluable($rule)) {
+            if ($match && $this->isEvaluable($rule)) {
                 $selected[] = $rule;
             }
         }

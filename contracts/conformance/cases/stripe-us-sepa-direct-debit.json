@@ -1,0 +1,488 @@
+{
+  "id": "stripe-us-sepa-direct-debit",
+  "description": "US Stripe sepa_direct_debit using real rule data.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "US",
+            "calculator_coverage_status": "complete",
+            "coverage_summary": {
+              "ambiguous_entries": 0,
+              "blocking_fee_conflicts": 0,
+              "calculable_rules": 149,
+              "conflicting_rule_identities": 19,
+              "custom_pricing": 4,
+              "dropped_numeric_entries": 0,
+              "free": 3,
+              "ignored_non_fee": 16,
+              "included": 15,
+              "informational": 10,
+              "informational_conflicts": 19,
+              "non_calculable_rules": 0,
+              "numeric_fee_candidates": 0,
+              "numeric_source_entries": 255,
+              "reference_only": 0,
+              "referenced_numeric_entries": 255,
+              "source_entries": 287,
+              "unclassified_fee_candidates": 0,
+              "unsupported_fee_shapes": 1
+            },
+            "derivation_status": "complete",
+            "locale": "en-us",
+            "rules": [
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "sepa_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "range",
+                "fee_components": [
+                  {
+                    "amount": "0.3",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "30",
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  },
+                  {
+                    "amount": "6.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "600",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "maximum_fee",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "80.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "0.8"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "SEPA Direct Debit 0.8% + 30\u00a2",
+                    "SEPA Direct Debit $6.00 cap"
+                  ],
+                  "source_entry_ids": [
+                    "c9ba805027c225bf",
+                    "2195d7b145a3b104"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "SEPA Direct Debit 0.8% + 30\u00a2",
+                "payment_method": "sepa_direct_debit",
+                "product_id": "sepa_direct_debit",
+                "provider": "stripe",
+                "rule_id": "af4cd1a2c284c85c",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "sepa_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "cross_border",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_region",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "international"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "150.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "1.5"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "SEPA Direct Debit + 1.5% for international transactions"
+                  ],
+                  "source_entry_ids": [
+                    "89ae899cc1d730d2"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "SEPA Direct Debit + 1.5% for international transactions",
+                "payment_method": "sepa_direct_debit",
+                "product_id": "sepa_direct_debit",
+                "provider": "stripe",
+                "rule_id": "dea59bf42a0542f2",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "sepa_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "currency_conversion_required",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "100",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "1"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "SEPA Direct Debit + 1% if currency conversion is required"
+                  ],
+                  "source_entry_ids": [
+                    "5133060bf4d8c1d2"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "SEPA Direct Debit + 1% if currency conversion is required",
+                "payment_method": "sepa_direct_debit",
+                "product_id": "sepa_direct_debit",
+                "provider": "stripe",
+                "rule_id": "c24cb142ab1bff47",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "sepa_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "dispute_state",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "lost"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "dispute"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "15.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "1500",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "SEPA Direct Debit $15.00 for disputed payments"
+                  ],
+                  "source_entry_ids": [
+                    "960bba5a2db4bd34"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "SEPA Direct Debit $15.00 for disputed payments",
+                "payment_method": "sepa_direct_debit",
+                "product_id": "sepa_direct_debit",
+                "provider": "stripe",
+                "rule_id": "ea65b59219a6b433",
+                "unit": "per_dispute",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "sepa_direct_debit"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "failed"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "5.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "500",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "SEPA Direct Debit $5.00 for failed payments"
+                  ],
+                  "source_entry_ids": [
+                    "891ea1d59ba44331"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "SEPA Direct Debit $5.00 for failed payments",
+                "payment_method": "sepa_direct_debit",
+                "product_id": "sepa_direct_debit",
+                "provider": "stripe",
+                "rule_id": "161a714497d5f9b1",
+                "unit": "per_attempt",
+                "variant_id": "standard"
+              }
+            ],
+            "stripe_market_code": "us",
+            "unclassified_count": 30
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "account_country": "US",
+    "transaction": {
+      "product_id": "sepa_direct_debit",
+      "variant_id": "standard",
+      "payment_method": "sepa_direct_debit",
+      "channel": "online",
+      "cross_border": true,
+      "transaction_region": "international"
+    }
+  },
+  "expected_result": {
+    "provider": "stripe",
+    "status": "range",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "processing_fee": {
+      "value": "2.60",
+      "currency": "USD"
+    },
+    "net_amount": {
+      "value": "97.40",
+      "currency": "USD"
+    },
+    "components": [
+      {
+        "type": "processing",
+        "label": "SEPA Direct Debit 0.8% + 30\u00a2",
+        "amount": "1.10",
+        "currency": "USD",
+        "rate_percentage": "0.8",
+        "fixed_amount": "0.30",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_transaction",
+        "source_rule_id": "af4cd1a2c284c85c"
+      },
+      {
+        "type": "surcharge",
+        "label": "SEPA Direct Debit + 1.5% for international transactions",
+        "amount": "1.50",
+        "currency": "USD",
+        "rate_percentage": "1.5",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_transaction",
+        "source_rule_id": "dea59bf42a0542f2"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "af4cd1a2c284c85c",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "range"
+      },
+      {
+        "rule_id": "dea59bf42a0542f2",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "exact"
+      }
+    ],
+    "selected_product_id": "sepa_direct_debit",
+    "selected_variant_id": "standard",
+    "assumptions": [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+      "Assumed a successful transaction for providers that require success."
+    ],
+    "warnings": [],
+    "data": {
+      "provider": "stripe",
+      "schema_version": 1,
+      "market": "US",
+      "source_urls": [],
+      "data_ref": "documents"
+    }
+  },
+  "expected_error": null
+}

@@ -195,19 +195,31 @@ parameters:
 		-
 			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
 			identifier: foreach.nonIterable
-			count: 1
+			count: 2
 			path: src/Providers/PayPal/ScheduleRegistry.php
 
 		-
 			message: '#^Cannot access offset ''entries'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 4
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Cannot access offset ''fixed_amount'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Cannot access offset ''fixed_currency'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
 			path: src/Providers/PayPal/ScheduleRegistry.php
 
 		-
 			message: '#^Cannot access offset ''payer_region'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
+			count: 2
 			path: src/Providers/PayPal/ScheduleRegistry.php
 
 		-
@@ -219,13 +231,25 @@ parameters:
 		-
 			message: '#^Cannot access offset string on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 5
+			count: 6
 			path: src/Providers/PayPal/ScheduleRegistry.php
 
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 4
+			count: 6
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Method Smeinecke\\PaymentFee\\Providers\\PayPal\\ScheduleRegistry\:\:surcharge\(\) should return array\{percentage\: string\|null, fixed_amount\: string\|null, fixed_currency\: string\|null\}\|null but returns array\{percentage\: string\|null, fixed_amount\: string\|null, fixed_currency\: mixed\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Providers/PayPal/ScheduleRegistry.php
+
+		-
+			message: '#^Parameter \#1 \$string of function strtoupper expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
 			path: src/Providers/PayPal/ScheduleRegistry.php
 
 		-

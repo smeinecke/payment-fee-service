@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PaymentFeeEngine } from "../../packages/payment-fee-typescript/dist/index.js";
@@ -41,36 +41,65 @@ function deepEqual(a, b) {
 
 async function runCase(caseData) {
   const providerDocuments = caseData.provider_documents || {};
+  let actual = null;
+  let actualError = null;
   try {
     const engine = await PaymentFeeEngine.fromDocuments({
       paypal: providerDocuments.paypal,
       stripe: providerDocuments.stripe,
     });
-    const actual = engine.quote(caseData.request);
-    const expected = caseData.expected_result;
-    if (!deepEqual(normalize(actual), normalize(expected))) {
-      return { id: caseData.id, status: "mismatch", field: "result", actual: normalize(actual), expected: normalize(expected) };
-    }
-    return { id: caseData.id, status: "ok" };
+    actual = engine.quote(caseData.request);
   } catch (e) {
-    const expectedError = caseData.expected_error;
-    const actualError = { code: e.code, message: e.message, details: e.details || {} };
-    if (!deepEqual(normalize(actualError), normalize(expectedError))) {
-      return { id: caseData.id, status: "mismatch", field: "error", actual: normalize(actualError), expected: expectedError };
-    }
-    return { id: caseData.id, status: "ok" };
+    actualError = { code: e.code, message: e.message, details: e.details || {} };
   }
+  const expected = caseData.expected_result;
+  const expectedError = caseData.expected_error;
+
+  let status = "ok";
+  if (!deepEqual(normalize(actual), normalize(expected))) {
+    status = "mismatch";
+  }
+  if (status === "ok" && !deepEqual(normalize(actualError), normalize(expectedError))) {
+    status = "mismatch";
+  }
+
+  return {
+    id: caseData.id,
+    status,
+    actual: normalize(actual),
+    expected: normalize(expected),
+    actual_error: normalize(actualError),
+    expected_error: normalize(expectedError),
+  };
 }
 
 async function main() {
+  const emitIndex = process.argv.indexOf("--emit");
+  const emitPath = emitIndex >= 0 ? process.argv[emitIndex + 1] : null;
+
   const manifest = JSON.parse(await readFile(join(CONFORMANCE_DIR, "manifest.json"), "utf-8"));
   const failures = [];
+  const emitted = [];
   for (const casePath of manifest.cases) {
     const caseData = JSON.parse(await readFile(join(CONFORMANCE_DIR, casePath), "utf-8"));
     const result = await runCase(caseData);
     console.log(`${result.id}: ${result.status}`);
-    if (result.status !== "ok") failures.push(result);
+    emitted.push({ id: result.id, status: result.status, actual: result.actual, error: result.actual_error });
+    if (result.status !== "ok") {
+      failures.push({
+        id: result.id,
+        status: result.status,
+        field: !deepEqual(result.actual, result.expected) ? "result" : "error",
+        actual: result.actual,
+        expected: result.expected,
+      });
+    }
   }
+
+  if (emitPath) {
+    await writeFile(emitPath, JSON.stringify(emitted, null, 2));
+  }
+
   if (failures.length > 0) {
     console.error("\nFailures:");
     for (const failure of failures) {

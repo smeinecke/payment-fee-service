@@ -1,0 +1,939 @@
+{
+  "id": "stripe-de-klarna",
+  "description": "DE Stripe klarna using real rule data.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "DE",
+            "calculator_coverage_status": "complete",
+            "coverage_summary": {
+              "ambiguous_entries": 0,
+              "blocking_fee_conflicts": 0,
+              "calculable_rules": 115,
+              "conflicting_rule_identities": 20,
+              "custom_pricing": 6,
+              "dropped_numeric_entries": 0,
+              "free": 2,
+              "ignored_non_fee": 15,
+              "included": 13,
+              "informational": 7,
+              "informational_conflicts": 20,
+              "non_calculable_rules": 0,
+              "numeric_fee_candidates": 0,
+              "numeric_source_entries": 208,
+              "reference_only": 0,
+              "referenced_numeric_entries": 208,
+              "source_entries": 236,
+              "unclassified_fee_candidates": 0,
+              "unsupported_fee_shapes": 1
+            },
+            "derivation_status": "complete",
+            "locale": "en-de",
+            "rules": [
+              {
+                "account_country": "DE",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "success",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.35",
+                    "basis_points": null,
+                    "currency": "EUR",
+                    "minor_amount": "35",
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "299.00",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "2.99"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "2.99% + \u20ac0.35 per successful transaction for Klarna"
+                  ],
+                  "source_entry_ids": [
+                    "17d4ea8c9d19c629"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "2.99% + \u20ac0.35 per successful transaction for Klarna",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "e47e46fdb5fe27e9",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "cross_border",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_region",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "international"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "customer_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": [
+                      "CA"
+                    ]
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "150.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "1.5"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna United States, Canada + 1.5% for international transactions"
+                  ],
+                  "source_entry_ids": [
+                    "683b6eaf6404f34e"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna United States, Canada + 1.5% for international transactions",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "8cfb3b8a256cf3c3",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "currency_conversion_required",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "customer_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": [
+                      "CA"
+                    ]
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "200",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "2"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna United States, Canada + 2% if currency conversion is required"
+                  ],
+                  "source_entry_ids": [
+                    "9ec2e6b89c8b7e5f"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna United States, Canada + 2% if currency conversion is required",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "2e303232d978f461",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "customer_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": [
+                      "BE",
+                      "CH",
+                      "DE",
+                      "NL"
+                    ]
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.35",
+                    "basis_points": null,
+                    "currency": "EUR",
+                    "minor_amount": "35",
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "299.00",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "2.99"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna Austria, Belgium, Germany, Netherlands, Switzerland 2.99% + \u20ac0.35"
+                  ],
+                  "source_entry_ids": [
+                    "0c859b2feb6f2f96"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna Austria, Belgium, Germany, Netherlands, Switzerland 2.99% + \u20ac0.35",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "605fd3377adc350d",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "currency_conversion_required",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "customer_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": [
+                      "BE",
+                      "CH",
+                      "DE",
+                      "NL"
+                    ]
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "200",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "2"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna Austria, Belgium, Germany, Netherlands, Switzerland + 2% if currency conversion is required"
+                  ],
+                  "source_entry_ids": [
+                    "dd55589fac3670d7"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna Austria, Belgium, Germany, Netherlands, Switzerland + 2% if currency conversion is required",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "431cf0bb494604ac",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "customer_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": [
+                      "FI",
+                      "NO",
+                      "SE"
+                    ]
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.40",
+                    "basis_points": null,
+                    "currency": "EUR",
+                    "minor_amount": "40",
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "299.00",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "2.99"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna Denmark, Finland, Norway, Sweden 2.99% + \u20ac0.40"
+                  ],
+                  "source_entry_ids": [
+                    "1417aa6f2dcb14a9"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna Denmark, Finland, Norway, Sweden 2.99% + \u20ac0.40",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "0a1defd2dfa850fb",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "currency_conversion_required",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "customer_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": [
+                      "FI",
+                      "NO",
+                      "SE"
+                    ]
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "200",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "2"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna Denmark, Finland, Norway, Sweden + 2% if currency conversion is required"
+                  ],
+                  "source_entry_ids": [
+                    "acd7add67ca71968"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna Denmark, Finland, Norway, Sweden + 2% if currency conversion is required",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "b6d29f5635302a30",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "cross_border",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_region",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "uk"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "customer_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": [
+                      "ES",
+                      "FR",
+                      "GB",
+                      "GR",
+                      "IE",
+                      "IT",
+                      "PL",
+                      "PT",
+                      "RO"
+                    ]
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.40",
+                    "basis_points": null,
+                    "currency": "EUR",
+                    "minor_amount": "40",
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "499.00",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "4.99"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna Czech Republic, France, Greece, Ireland, Italy, Poland, Portugal, Romania, Spain, United Kingdom 4.99% + \u20ac0.40"
+                  ],
+                  "source_entry_ids": [
+                    "2448283723bed681"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna Czech Republic, France, Greece, Ireland, Italy, Poland, Portugal, Romania, Spain, United Kingdom 4.99% + \u20ac0.40",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "22a93dd12db8b0eb",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "cross_border",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_region",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "uk"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "currency_conversion_required",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "customer_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": [
+                      "ES",
+                      "FR",
+                      "GB",
+                      "GR",
+                      "IE",
+                      "IT",
+                      "PL",
+                      "PT",
+                      "RO"
+                    ]
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "200",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "2"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna Czech Republic, France, Greece, Ireland, Italy, Poland, Portugal, Romania, Spain, United Kingdom + 2% if currency conversion is required"
+                  ],
+                  "source_entry_ids": [
+                    "82cb29a125f0c272"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna Czech Republic, France, Greece, Ireland, Italy, Poland, Portugal, Romania, Spain, United Kingdom + 2% if currency conversion is required",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "06e22cc7746b6f51",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "DE",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "klarna"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "DE"
+                  },
+                  {
+                    "dimension": "dispute_state",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "lost"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "dispute"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "20.00",
+                    "basis_points": null,
+                    "currency": "EUR",
+                    "minor_amount": "2000",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Klarna \u20ac20.00 for lost disputes"
+                  ],
+                  "source_entry_ids": [
+                    "3607cf9eb31e8ba1"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Klarna \u20ac20.00 for lost disputes",
+                "payment_method": "klarna",
+                "product_id": "klarna",
+                "provider": "stripe",
+                "rule_id": "d1dc4cd5419d4477",
+                "unit": "per_dispute",
+                "variant_id": "standard"
+              }
+            ],
+            "stripe_market_code": "de",
+            "unclassified_count": 28
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "EUR"
+    },
+    "account_country": "DE",
+    "transaction": {
+      "product_id": "klarna",
+      "variant_id": "standard",
+      "payment_method": "klarna",
+      "channel": "online",
+      "cross_border": true,
+      "transaction_region": "uk",
+      "currency_conversion_required": true
+    },
+    "customer_country": "ES"
+  },
+  "expected_result": {
+    "provider": "stripe",
+    "status": "exact_for_public_rate",
+    "amount": {
+      "value": "100.00",
+      "currency": "EUR"
+    },
+    "processing_fee": {
+      "value": "7.39",
+      "currency": "EUR"
+    },
+    "net_amount": {
+      "value": "92.61",
+      "currency": "EUR"
+    },
+    "components": [
+      {
+        "type": "processing",
+        "label": "Klarna Czech Republic, France, Greece, Ireland, Italy, Poland, Portugal, Romania, Spain, United Kingdom 4.99% + \u20ac0.40",
+        "amount": "5.39",
+        "currency": "EUR",
+        "rate_percentage": "4.99",
+        "fixed_amount": "0.40",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_transaction",
+        "source_rule_id": "22a93dd12db8b0eb"
+      },
+      {
+        "type": "surcharge",
+        "label": "Klarna Czech Republic, France, Greece, Ireland, Italy, Poland, Portugal, Romania, Spain, United Kingdom + 2% if currency conversion is required",
+        "amount": "2.00",
+        "currency": "EUR",
+        "rate_percentage": "2",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_transaction",
+        "source_rule_id": "06e22cc7746b6f51"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "22a93dd12db8b0eb",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "exact"
+      },
+      {
+        "rule_id": "06e22cc7746b6f51",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "exact"
+      }
+    ],
+    "selected_product_id": "klarna",
+    "selected_variant_id": "standard",
+    "assumptions": [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+      "Assumed a successful transaction for providers that require success."
+    ],
+    "warnings": [],
+    "data": {
+      "provider": "stripe",
+      "schema_version": 1,
+      "market": "DE",
+      "source_urls": [],
+      "data_ref": "documents"
+    }
+  },
+  "expected_error": null
+}

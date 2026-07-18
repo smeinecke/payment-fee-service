@@ -50,54 +50,79 @@ function normalize(mixed $result): mixed
 function runCase(array $case): array
 {
     $providerDocuments = $case['provider_documents'] ?? [];
+    $actual = null;
+    $actualError = null;
     try {
         $engine = PaymentFeeEngine::fromDocuments(
             $providerDocuments['paypal'] ?? null,
             $providerDocuments['stripe'] ?? null,
         );
         $actual = $engine->quote($case['request']);
-        $expected = $case['expected_result'] ?? null;
-        if (!deepEqual(normalize($actual), normalize($expected))) {
-            return [
-                'id' => $case['id'],
-                'status' => 'mismatch',
-                'field' => 'result',
-                'actual' => normalize($actual),
-                'expected' => normalize($expected),
-            ];
-        }
-        return ['id' => $case['id'], 'status' => 'ok'];
     } catch (Throwable $e) {
-        $expectedError = $case['expected_error'] ?? null;
         $actualError = [
             'code' => $e instanceof \Smeinecke\PaymentFee\Exception\PaymentFeeException ? $e->getErrorCode() : null,
             'message' => $e->getMessage(),
             'details' => $e instanceof \Smeinecke\PaymentFee\Exception\PaymentFeeException ? $e->getDetails() : [],
         ];
-        if (!deepEqual(normalize($actualError), normalize($expectedError))) {
-            return [
-                'id' => $case['id'],
-                'status' => 'mismatch',
-                'field' => 'error',
-                'actual' => normalize($actualError),
-                'expected' => normalize($expectedError),
-            ];
-        }
-        return ['id' => $case['id'], 'status' => 'ok'];
     }
+
+    $expected = $case['expected_result'] ?? null;
+    $expectedError = $case['expected_error'] ?? null;
+
+    $status = 'ok';
+    if (!deepEqual(normalize($actual), normalize($expected))) {
+        $status = 'mismatch';
+    }
+    if ($status === 'ok' && !deepEqual(normalize($actualError), normalize($expectedError))) {
+        $status = 'mismatch';
+    }
+
+    return [
+        'id' => $case['id'],
+        'status' => $status,
+        'actual' => normalize($actual),
+        'expected' => normalize($expected),
+        'actual_error' => normalize($actualError),
+        'expected_error' => normalize($expectedError),
+    ];
 }
 
 function main(): int
 {
+    $emitPath = null;
+    foreach ($GLOBALS['argv'] ?? [] as $i => $arg) {
+        if ($arg === '--emit' && isset($GLOBALS['argv'][$i + 1])) {
+            $emitPath = $GLOBALS['argv'][$i + 1];
+            break;
+        }
+    }
+
     $manifest = json_decode(file_get_contents(__DIR__ . '/../../contracts/conformance/manifest.json'), true);
     $failures = [];
+    $emitted = [];
     foreach ($manifest['cases'] as $casePath) {
         $case = json_decode(file_get_contents(__DIR__ . '/../../contracts/conformance/' . $casePath), true);
         $result = runCase($case);
         echo "{$result['id']}: {$result['status']}" . PHP_EOL;
+        $emitted[] = [
+            'id' => $result['id'],
+            'status' => $result['status'],
+            'actual' => $result['actual'],
+            'error' => $result['actual_error'],
+        ];
         if ($result['status'] !== 'ok') {
-            $failures[] = $result;
+            $failures[] = [
+                'id' => $result['id'],
+                'status' => $result['status'],
+                'field' => !deepEqual($result['actual'], $result['expected']) ? 'result' : 'error',
+                'actual' => $result['actual'],
+                'expected' => $result['expected'],
+            ];
         }
+    }
+
+    if ($emitPath !== null) {
+        file_put_contents($emitPath, json_encode($emitted, JSON_PRETTY_PRINT));
     }
 
     if ($failures) {

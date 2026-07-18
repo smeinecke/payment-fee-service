@@ -78,10 +78,11 @@ final class PaymentFeeEngine
             $rules = $provider->compileRules($request);
             $calculator = new Calculator();
             $result = $calculator->calculate($request->amount, $request->amount->currency, $rules);
+            $status = $this->deriveStatus($rules);
 
             return [
                 'provider' => $request->provider,
-                'status' => 'exact_for_public_rate',
+                'status' => $status,
                 'amount' => $result['amount'],
                 'processing_fee' => $result['processing_fee'],
                 'net_amount' => $result['net_amount'],
@@ -111,10 +112,11 @@ final class PaymentFeeEngine
             $rules = $provider->compileRules($request);
             $calculator = new Calculator();
             $result = $calculator->calculate($request->amount, $request->amount->currency, $rules);
+            $status = $this->deriveStatus($rules);
 
             return [
                 'provider' => $request->provider,
-                'status' => 'exact_for_public_rate',
+                'status' => $status,
                 'amount' => $result['amount'],
                 'processing_fee' => $result['processing_fee'],
                 'net_amount' => $result['net_amount'],
@@ -199,6 +201,40 @@ final class PaymentFeeEngine
             }
         }
         return $result;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rules
+     */
+    private function deriveStatus(array $rules): string
+    {
+        $nonAdditive = array_filter($rules, fn($r) => ($r['behavior'] ?? 'base') !== 'additive');
+        if (
+            $nonAdditive !== [] &&
+            array_reduce(
+                array_values($nonAdditive),
+                fn($carry, $r) => $carry && \in_array($r['behavior'] ?? 'base', ['free', 'included', 'waived'], true),
+                true,
+            )
+        ) {
+            return 'included';
+        }
+        foreach ($rules as $rule) {
+            if (\in_array($rule['exactness'] ?? '', ['range', 'from', 'up_to'], true)) {
+                return 'range';
+            }
+        }
+        foreach ($rules as $rule) {
+            $exactness = $rule['exactness'] ?? '';
+            if ($exactness !== '' && !\in_array($exactness, ['exact', 'exact_for_public_rate'], true)) {
+                return 'estimated';
+            }
+            $status = $rule['classification_status'] ?? '';
+            if ($status !== '' && !\in_array($status, ['calculable', 'calculable_rule', 'exact', 'exact_for_public_rate'], true)) {
+                return 'estimated';
+            }
+        }
+        return 'exact_for_public_rate';
     }
 
     private function requireProvider(string $provider): void

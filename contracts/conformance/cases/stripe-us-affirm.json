@@ -1,0 +1,308 @@
+{
+  "id": "stripe-us-affirm",
+  "description": "US Stripe affirm using real rule data.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "US",
+            "calculator_coverage_status": "complete",
+            "coverage_summary": {
+              "ambiguous_entries": 0,
+              "blocking_fee_conflicts": 0,
+              "calculable_rules": 149,
+              "conflicting_rule_identities": 19,
+              "custom_pricing": 4,
+              "dropped_numeric_entries": 0,
+              "free": 3,
+              "ignored_non_fee": 16,
+              "included": 15,
+              "informational": 10,
+              "informational_conflicts": 19,
+              "non_calculable_rules": 0,
+              "numeric_fee_candidates": 0,
+              "numeric_source_entries": 255,
+              "reference_only": 0,
+              "referenced_numeric_entries": 255,
+              "source_entries": 287,
+              "unclassified_fee_candidates": 0,
+              "unsupported_fee_shapes": 1
+            },
+            "derivation_status": "complete",
+            "locale": "en-us",
+            "rules": [
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "affirm"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "payment_method_variant",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "standard"
+                  },
+                  {
+                    "dimension": "pricing_tier",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "standard"
+                  },
+                  {
+                    "dimension": "success",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "charge"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.3",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "30",
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "600",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "6"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Affirm Standard 6% + 30\u00a2 per successful charge"
+                  ],
+                  "source_entry_ids": [
+                    "e9b7b62a6c42ce30"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Affirm Standard 6% + 30\u00a2 per successful charge",
+                "payment_method": "affirm",
+                "product_id": "affirm",
+                "provider": "stripe",
+                "rule_id": "747bca31bd6892cd",
+                "unit": "per_charge",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "affirm"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "payment_method_variant",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "enhanced"
+                  },
+                  {
+                    "dimension": "pricing_tier",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "enhanced"
+                  },
+                  {
+                    "dimension": "success",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "charge"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.3",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "30",
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "799.00",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "7.99"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "Affirm Enhanced 7.99% + 30\u00a2 per successful charge"
+                  ],
+                  "source_entry_ids": [
+                    "f4e0fbbcc9e7cca0"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "Affirm Enhanced 7.99% + 30\u00a2 per successful charge",
+                "payment_method": "affirm",
+                "product_id": "affirm",
+                "provider": "stripe",
+                "rule_id": "65dce4a66abf20a9",
+                "unit": "per_charge",
+                "variant_id": "standard"
+              }
+            ],
+            "stripe_market_code": "us",
+            "unclassified_count": 30
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "account_country": "US",
+    "transaction": {
+      "product_id": "affirm",
+      "variant_id": "standard",
+      "payment_method": "affirm",
+      "channel": "online",
+      "payment_method_variant": "standard",
+      "pricing_tier": "standard",
+      "context": {
+        "success": true,
+        "transaction_type": "charge"
+      }
+    }
+  },
+  "expected_result": {
+    "provider": "stripe",
+    "status": "exact_for_public_rate",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "processing_fee": {
+      "value": "6.30",
+      "currency": "USD"
+    },
+    "net_amount": {
+      "value": "93.70",
+      "currency": "USD"
+    },
+    "components": [
+      {
+        "type": "processing",
+        "label": "Affirm Standard 6% + 30\u00a2 per successful charge",
+        "amount": "6.30",
+        "currency": "USD",
+        "rate_percentage": "6",
+        "fixed_amount": "0.30",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_charge",
+        "source_rule_id": "747bca31bd6892cd"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "747bca31bd6892cd",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "exact"
+      }
+    ],
+    "selected_product_id": "affirm",
+    "selected_variant_id": "standard",
+    "assumptions": [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+      "Assumed a successful transaction for providers that require success."
+    ],
+    "warnings": [],
+    "data": {
+      "provider": "stripe",
+      "schema_version": 1,
+      "market": "US",
+      "source_urls": [],
+      "data_ref": "documents"
+    }
+  },
+  "expected_error": null
+}

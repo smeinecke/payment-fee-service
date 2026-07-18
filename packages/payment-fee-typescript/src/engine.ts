@@ -5,6 +5,37 @@ import type { QuoteRequest } from "./models.js";
 import { PayPalProvider, type PayPalCore } from "./providers/paypal/provider.js";
 import { StripeProvider, type StripeCore } from "./providers/stripe/provider.js";
 
+function deriveStatus(rules: ExecutableRule[]): string {
+  const nonAdditive = rules.filter((r) => (r.behavior ?? "base") !== "additive");
+  if (
+    nonAdditive.length > 0 &&
+    nonAdditive.every((r) => ["free", "included", "waived"].includes(r.behavior ?? "base"))
+  ) {
+    return "included";
+  }
+  for (const rule of rules) {
+    if (["range", "from", "up_to"].includes(rule.exactness ?? "")) {
+      return "range";
+    }
+  }
+  for (const rule of rules) {
+    if (
+      (rule.exactness ?? "") !== "" &&
+      !["exact", "exact_for_public_rate"].includes(rule.exactness ?? "")
+    ) {
+      return "estimated";
+    }
+    const status = rule.classification_status ?? "";
+    if (
+      status !== "" &&
+      !["calculable", "calculable_rule", "exact", "exact_for_public_rate"].includes(status)
+    ) {
+      return "estimated";
+    }
+  }
+  return "exact_for_public_rate";
+}
+
 interface Provider {
   compileRules(request: QuoteRequest): ExecutableRule[];
   auditContract(): Record<string, number>;
@@ -64,11 +95,12 @@ export class PaymentFeeEngine {
     const provider = this._providers.get(request.provider)!;
     const rules = provider.compileRules(request);
     const result = calculate(request.amount, request.amount.currency, rules);
+    const status = deriveStatus(rules);
 
     if (request.provider === "paypal") {
       return {
         provider: "paypal",
-        status: "exact_for_public_rate",
+        status,
         amount: result.amount,
         processing_fee: result.processing_fee,
         net_amount: result.net_amount,
@@ -95,7 +127,7 @@ export class PaymentFeeEngine {
 
     return {
       provider: "stripe",
-      status: "exact_for_public_rate",
+      status,
       amount: result.amount,
       processing_fee: result.processing_fee,
       net_amount: result.net_amount,

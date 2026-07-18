@@ -36,12 +36,22 @@ $result = $engine->quote(
 );
 ```
 
+You can also load documents directly from arrays:
+
+```php
+$engine = PaymentFeeEngine::fromDocuments(
+    paypal: ['core' => $paypalCore],
+    stripe: ['core' => $stripeCore],
+);
+```
+
 ## Implementation notes
 
 * Uses `brick/math` for arbitrary-precision decimal arithmetic.
 * Loads canonical currency metadata from `contracts/currencies.json`.
 * Exposes typed exceptions matching the Python hierarchy.
 * Produces normalized JSON matching `contracts/api/quote-response-v1.schema.json`.
+* PayPal schedule lookups and Stripe condition matching follow the same semantics as the Python reference implementation, including `eq` operators that accept a list of candidate values.
 
 ## Development
 
@@ -52,3 +62,5 @@ composer analyse
 composer format-check
 composer audit
 ```
+
+Unit tests live in `packages/payment-fee-php/tests` and cover the engine, calculator, schedule registry, and money model.

@@ -1,0 +1,649 @@
+{
+  "id": "stripe-us-bank-transfer",
+  "description": "US Stripe bank_transfer using real rule data.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "US",
+            "calculator_coverage_status": "complete",
+            "coverage_summary": {
+              "ambiguous_entries": 0,
+              "blocking_fee_conflicts": 0,
+              "calculable_rules": 149,
+              "conflicting_rule_identities": 19,
+              "custom_pricing": 4,
+              "dropped_numeric_entries": 0,
+              "free": 3,
+              "ignored_non_fee": 16,
+              "included": 15,
+              "informational": 10,
+              "informational_conflicts": 19,
+              "non_calculable_rules": 0,
+              "numeric_fee_candidates": 0,
+              "numeric_source_entries": 255,
+              "reference_only": 0,
+              "referenced_numeric_entries": 255,
+              "source_entries": 287,
+              "unclassified_fee_candidates": 0,
+              "unsupported_fee_shapes": 1
+            },
+            "derivation_status": "complete",
+            "locale": "en-us",
+            "rules": [
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "bank_transfer"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "success",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "range",
+                "fee_components": [
+                  {
+                    "amount": "5.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "500",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "maximum_fee",
+                    "value": null
+                  },
+                  {
+                    "amount": null,
+                    "basis_points": "50.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage",
+                    "value": "0.5"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "USD Bank Transfer 0.5% per successful transaction",
+                    "USD Bank Transfer $5.00 cap",
+                    "EUR Bank Transfer 0.5% per successful transaction",
+                    "EUR Bank Transfer $5.00 cap"
+                  ],
+                  "source_entry_ids": [
+                    "ddf8b326348b14c4",
+                    "7a2c2363b1fb7f14",
+                    "ee055788019af712",
+                    "9d5f6c723f6188be"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "USD Bank Transfer 0.5% per successful transaction",
+                "payment_method": "bank_transfer",
+                "product_id": "bank_transfer",
+                "provider": "stripe",
+                "rule_id": "46de78eb9ca9ca61",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "bank_transfer"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "cross_border",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": false
+                  },
+                  {
+                    "dimension": "transaction_region",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "domestic"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "refund"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.50",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "50",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "USD Bank Transfer $0.50 fee per successful domestic refund"
+                  ],
+                  "source_entry_ids": [
+                    "0001d3e0fbd352d3"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "USD Bank Transfer $0.50 fee per successful domestic refund",
+                "payment_method": "bank_transfer",
+                "product_id": "bank_transfer",
+                "provider": "stripe",
+                "rule_id": "a63a13552fa1255d",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "bank_transfer"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "wire"
+                  },
+                  {
+                    "dimension": "payment_method_variant",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "wire"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "15.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "1500",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "USD Bank Transfer $15.00 per wire payment"
+                  ],
+                  "source_entry_ids": [
+                    "35ec40e6eb9f3c6a"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "USD Bank Transfer $15.00 per wire payment",
+                "payment_method": "bank_transfer",
+                "product_id": "bank_transfer",
+                "provider": "stripe",
+                "rule_id": "0c391d498b5db724",
+                "unit": "per_charge",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "bank_transfer"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "currency_conversion_required",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "100",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "1"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "EUR Bank Transfer + 1% if currency conversion is required"
+                  ],
+                  "source_entry_ids": [
+                    "60171625fbe9117d"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "EUR Bank Transfer + 1% if currency conversion is required",
+                "payment_method": "bank_transfer",
+                "product_id": "bank_transfer",
+                "provider": "stripe",
+                "rule_id": "9357832d2caa594c",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "additive",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "bank_transfer"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "cross_border",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_region",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "international"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": null,
+                    "basis_points": "150.0",
+                    "currency": null,
+                    "minor_amount": null,
+                    "operator": "+",
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "percentage_surcharge",
+                    "value": "1.5"
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "EUR Bank Transfer + 1.5% for international transactions"
+                  ],
+                  "source_entry_ids": [
+                    "0b112b2f515112d2"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "EUR Bank Transfer + 1.5% for international transactions",
+                "payment_method": "bank_transfer",
+                "product_id": "bank_transfer",
+                "provider": "stripe",
+                "rule_id": "78d38e2b7ea34d65",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "bank_transfer"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "refund"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "0.50",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "50",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "EUR Bank Transfer $0.50 per successful refund"
+                  ],
+                  "source_entry_ids": [
+                    "c1de8a2f1856fb9d"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "EUR Bank Transfer $0.50 per successful refund",
+                "payment_method": "bank_transfer",
+                "product_id": "bank_transfer",
+                "provider": "stripe",
+                "rule_id": "76bdaabbf422b42f",
+                "unit": "per_transaction",
+                "variant_id": "standard"
+              },
+              {
+                "account_country": "US",
+                "behavior": "conditional",
+                "channel": "online",
+                "classification_status": "calculable_rule",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "bank_transfer"
+                  },
+                  {
+                    "dimension": "channel",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "online"
+                  },
+                  {
+                    "dimension": "cross_border",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": true
+                  },
+                  {
+                    "dimension": "transaction_region",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "international"
+                  },
+                  {
+                    "dimension": "account_country",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "US"
+                  },
+                  {
+                    "dimension": "transaction_type",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "wire"
+                  },
+                  {
+                    "dimension": "payment_method_variant",
+                    "evidence": null,
+                    "operator": "eq",
+                    "value": "wire"
+                  }
+                ],
+                "confidence": 0.85,
+                "exactness": "exact",
+                "fee_components": [
+                  {
+                    "amount": "15.00",
+                    "basis_points": null,
+                    "currency": "USD",
+                    "minor_amount": "1500",
+                    "operator": null,
+                    "schedule_id": null,
+                    "source_entry_id": null,
+                    "source_text": null,
+                    "type": "fixed_amount",
+                    "value": null
+                  }
+                ],
+                "fee_evidence": {
+                  "confidence": 0.85,
+                  "phrases": [
+                    "EUR Bank Transfer $15.00 per international wire payment"
+                  ],
+                  "source_entry_ids": [
+                    "70cddcedf0ec5e4c"
+                  ],
+                  "type": "explicit_fee_phrase"
+                },
+                "label": "EUR Bank Transfer $15.00 per international wire payment",
+                "payment_method": "bank_transfer",
+                "product_id": "bank_transfer",
+                "provider": "stripe",
+                "rule_id": "c77dcc0b7801255c",
+                "unit": "per_charge",
+                "variant_id": "standard"
+              }
+            ],
+            "stripe_market_code": "us",
+            "unclassified_count": 30
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "account_country": "US",
+    "transaction": {
+      "product_id": "bank_transfer",
+      "variant_id": "standard",
+      "payment_method": "bank_transfer",
+      "channel": "online",
+      "cross_border": true,
+      "transaction_region": "international",
+      "context": {
+        "transaction_type": "wire"
+      },
+      "payment_method_variant": "wire"
+    }
+  },
+  "expected_result": {
+    "provider": "stripe",
+    "status": "exact_for_public_rate",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "processing_fee": {
+      "value": "16.50",
+      "currency": "USD"
+    },
+    "net_amount": {
+      "value": "83.50",
+      "currency": "USD"
+    },
+    "components": [
+      {
+        "type": "processing",
+        "label": "EUR Bank Transfer $15.00 per international wire payment",
+        "amount": "15.00",
+        "currency": "USD",
+        "fixed_amount": "15.00",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_charge",
+        "source_rule_id": "c77dcc0b7801255c"
+      },
+      {
+        "type": "surcharge",
+        "label": "EUR Bank Transfer + 1.5% for international transactions",
+        "amount": "1.50",
+        "currency": "USD",
+        "rate_percentage": "1.5",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_transaction",
+        "source_rule_id": "78d38e2b7ea34d65"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "c77dcc0b7801255c",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "exact"
+      },
+      {
+        "rule_id": "78d38e2b7ea34d65",
+        "classification_status": "calculable_rule",
+        "confidence": 0.85,
+        "exactness": "exact"
+      }
+    ],
+    "selected_product_id": "bank_transfer",
+    "selected_variant_id": "standard",
+    "assumptions": [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+      "Assumed a successful transaction for providers that require success."
+    ],
+    "warnings": [],
+    "data": {
+      "provider": "stripe",
+      "schema_version": 1,
+      "market": "US",
+      "source_urls": [],
+      "data_ref": "documents"
+    }
+  },
+  "expected_error": null
+}

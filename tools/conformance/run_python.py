@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -29,6 +30,8 @@ def normalize(result: dict | None) -> dict | None:
 
 def run_case(case: dict) -> dict:
     provider_documents = case.get("provider_documents") or {}
+    actual = None
+    actual_error = None
     try:
         engine = PaymentFeeEngine.from_documents(
             paypal=provider_documents.get("paypal"),
@@ -36,9 +39,7 @@ def run_case(case: dict) -> dict:
         )
         response = engine.quote(case["request"])
         actual = response.model_dump(mode="json", by_alias=False, exclude_none=True)
-        actual_error = None
     except PaymentFeeError as exc:
-        actual = None
         actual_error = {"code": exc.code, "message": str(exc), "details": exc.details}
     except Exception as exc:
         return {
@@ -50,38 +51,58 @@ def run_case(case: dict) -> dict:
     expected = case.get("expected_result")
     expected_error = case.get("expected_error")
 
+    status = "ok"
     if normalize(actual) != normalize(expected):
-        return {
-            "id": case["id"],
-            "status": "mismatch",
-            "field": "result",
-            "actual": actual,
-            "expected": expected,
-        }
+        status = "mismatch"
 
-    if normalize(actual_error) != normalize(expected_error):
-        return {
-            "id": case["id"],
-            "status": "mismatch",
-            "field": "error",
-            "actual": actual_error,
-            "expected": expected_error,
-        }
+    if status == "ok" and normalize(actual_error) != normalize(expected_error):
+        status = "mismatch"
 
-    return {"id": case["id"], "status": "ok"}
+    return {
+        "id": case["id"],
+        "status": status,
+        "actual": normalize(actual),
+        "expected": normalize(expected),
+        "actual_error": normalize(actual_error),
+        "expected_error": normalize(expected_error),
+    }
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Run Python conformance suite.")
+    parser.add_argument("--emit", type=Path, help="Write per-case actual results to this JSON file.")
+    args = parser.parse_args()
+
     manifest_path = CONFORMANCE_DIR / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     failures: list[dict] = []
+    emitted: list[dict] = []
     for case_path in manifest.get("cases", []):
         full_path = CONFORMANCE_DIR / case_path
         case = json.loads(full_path.read_text())
         result = run_case(case)
-        if result["status"] != "ok":
-            failures.append(result)
         print(f"{result['id']}: {result['status']}")
+        emitted.append(
+            {
+                "id": result["id"],
+                "status": result["status"],
+                "actual": result["actual"],
+                "error": result["actual_error"],
+            }
+        )
+        if result["status"] != "ok":
+            failures.append(
+                {
+                    "id": result["id"],
+                    "status": result["status"],
+                    "field": "result" if result["actual"] != result["expected"] else "error",
+                    "actual": result["actual"],
+                    "expected": result["expected"],
+                }
+            )
+
+    if args.emit:
+        args.emit.write_text(json.dumps(emitted, indent=2, sort_keys=True))
 
     if failures:
         print("\nFailures:", file=sys.stderr)

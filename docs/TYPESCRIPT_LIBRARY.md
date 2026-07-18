@@ -32,6 +32,15 @@ const result = engine.quote({
 });
 ```
 
+You can also load documents directly from in-memory objects:
+
+```ts
+const engine = await PaymentFeeEngine.fromDocuments({
+  paypal: { core: paypalCore },
+  stripe: { core: stripeCore },
+});
+```
+
 For Node.js-specific utilities:
 
 ```ts
@@ -44,6 +53,7 @@ import { PaymentFeeEngine } from "@smeinecke/payment-fee/node";
 * The main entry point is runtime-neutral and supports `fromDocuments`.
 * The `node` entry point may add filesystem loading, path handling, and Node streams.
 * Produces normalized JSON matching `contracts/api/quote-response-v1.schema.json`.
+* Stripe condition matching follows the Python reference implementation, including `eq` operators that accept a list of candidate values and additive rules that apply when their conditions are fully satisfied.
 
 ## Development
 
@@ -57,3 +67,5 @@ npm run build
 npm pack --dry-run
 npm audit
 ```
+
+Unit tests live in `packages/payment-fee-typescript/tests` and cover the engine, calculator, and money model.

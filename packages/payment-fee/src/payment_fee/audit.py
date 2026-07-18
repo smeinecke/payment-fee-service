@@ -407,6 +407,8 @@ def _audit_paypal(
         if rule.calculation_status != "calculable":
             continue
         counters.total += 1
+        if rule.conditions:
+            counters.context_required += 1
 
         bad = False
         for comp in rule.fee_components:
@@ -484,7 +486,6 @@ def _audit_paypal(
             provider.compile_rules(request)
             counters.parsed += 1
         except InsufficientTransactionContext:
-            counters.context_required += 1
             counters.parsed += 1
         except QuoteNotAvailable as exc:
             if "No matching PayPal" in str(exc) and "schedule" in str(exc):
@@ -492,7 +493,6 @@ def _audit_paypal(
                 result.failures.append(f"paypal:{country.country_code}:{rule.id}: {exc}")
                 counters.skipped += 1
             else:
-                counters.context_required += 1
                 counters.parsed += 1
         except PaymentFeeError as exc:
             result.failures.append(f"paypal:{country.country_code}:{rule.id}: {exc}")
@@ -541,6 +541,9 @@ def _audit_stripe(market: StripeMarketEntry, result: ContractAuditResult) -> Aud
             continue
 
         counters.total += 1
+        if rule.conditions:
+            counters.context_required += 1
+
         currency = rule.fixed_currency
         if not currency:
             for comp in rule.fee_components:
