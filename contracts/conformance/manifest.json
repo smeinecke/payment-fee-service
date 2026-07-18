@@ -5,6 +5,7 @@
     "cases/unknown-provider.json",
     "cases/paypal-minimal-fixed.json",
     "cases/rounding-jpy-midpoint.json",
-    "cases/stripe-minimal-card-us.json"
+    "cases/stripe-minimal-card-us.json",
+    "cases/stripe-minimum-fee-us.json"
   ]
 }

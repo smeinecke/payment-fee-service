@@ -1,5 +1,9 @@
 import { Decimal } from "decimal.js";
-import { InsufficientTransactionContext, QuoteNotAvailable, UnsupportedFeeShape } from "../../errors.js";
+import {
+  InsufficientTransactionContext,
+  QuoteNotAvailable,
+  UnsupportedFeeShape,
+} from "../../errors.js";
 import type { ExecutableRule } from "../../calculator.js";
 import type { QuoteRequest, StripeQuoteRequest } from "../../models.js";
 import { toDecimal } from "../../rounding.js";
@@ -85,7 +89,9 @@ export class StripeProvider {
     const stripeRequest = request as StripeQuoteRequest;
     const market = this.markets.get(stripeRequest.account_country.toUpperCase());
     if (!market) {
-      throw new QuoteNotAvailable("Stripe market not found.", { market: stripeRequest.account_country });
+      throw new QuoteNotAvailable("Stripe market not found.", {
+        market: stripeRequest.account_country,
+      });
     }
 
     const currency = stripeRequest.amount.currency;
@@ -120,7 +126,10 @@ export class StripeProvider {
     if (fullMatches.length === 0) {
       if (missingMatches.length > 0) {
         const allMissing = [...new Set(missingMatches.flatMap((m) => m.missing))].sort();
-        throw new InsufficientTransactionContext(allMissing, { provider: "stripe", market: stripeRequest.account_country });
+        throw new InsufficientTransactionContext(allMissing, {
+          provider: "stripe",
+          market: stripeRequest.account_country,
+        });
       }
       throw new QuoteNotAvailable("No Stripe fee rule matched the supplied context.", {
         provider: "stripe",
@@ -255,7 +264,9 @@ function buildContext(request: StripeQuoteRequest): Record<string, unknown> {
   return context;
 }
 
-function normalizeConditions(rule: StripeRule): { dimension: string; operator: string; value: unknown }[] {
+function normalizeConditions(
+  rule: StripeRule,
+): { dimension: string; operator: string; value: unknown }[] {
   const conditions: { dimension: string; operator: string; value: unknown }[] = [];
   const topLevel: [string, unknown][] = [
     ["account_country", rule.account_country],
@@ -281,7 +292,10 @@ function normalizeConditions(rule: StripeRule): { dimension: string; operator: s
   return conditions;
 }
 
-function conditionStatus(condition: { dimension: string; operator: string; value: unknown }, context: Record<string, unknown>): string {
+function conditionStatus(
+  condition: { dimension: string; operator: string; value: unknown },
+  context: Record<string, unknown>,
+): string {
   const actual = context[condition.dimension];
   const expected = condition.value;
   const operator = condition.operator;
@@ -303,7 +317,9 @@ function conditionStatus(condition: { dimension: string; operator: string; value
     return asList(expected).every((item) => !valuesEqual(actual, item)) ? "match" : "conflict";
   }
   if (operator === "gt" || operator === "gte" || operator === "lt" || operator === "lte") {
-    return numericCompare(toNumericString(actual), toNumericString(expected), operator) ? "match" : "conflict";
+    return numericCompare(toNumericString(actual), toNumericString(expected), operator)
+      ? "match"
+      : "conflict";
   }
   throw new UnsupportedFeeShape(`Unsupported condition operator: ${operator}`, { operator });
 }
@@ -361,11 +377,17 @@ function isEvaluable(rule: StripeRule): boolean {
   return EVALUABLE_CLASSIFICATION_STATUSES.has(rule.classification_status ?? "unclassified");
 }
 
-function sortBySpecificityDesc(matches: { rule: StripeRule; specificity: number }[]): { rule: StripeRule; specificity: number }[] {
+function sortBySpecificityDesc(
+  matches: { rule: StripeRule; specificity: number }[],
+): { rule: StripeRule; specificity: number }[] {
   return [...matches].sort((a, b) => b.specificity - a.specificity);
 }
 
-function selectAdditiveRules(rules: StripeRule[], context: Record<string, unknown>, maxSpec: number): StripeRule[] {
+function selectAdditiveRules(
+  rules: StripeRule[],
+  context: Record<string, unknown>,
+  maxSpec: number,
+): StripeRule[] {
   const additive: StripeRule[] = [];
   for (const rule of rules) {
     if ((rule.behavior ?? "base") !== "additive") continue;
@@ -378,7 +400,16 @@ function selectAdditiveRules(rules: StripeRule[], context: Record<string, unknow
   return additive;
 }
 
-function compileStripeComponents(rule: StripeRule, currency: string): { percentage: string | null; fixed_amount: string | null; minimum_amount: string | null; maximum_amount: string | null; behavior: string } {
+function compileStripeComponents(
+  rule: StripeRule,
+  currency: string,
+): {
+  percentage: string | null;
+  fixed_amount: string | null;
+  minimum_amount: string | null;
+  maximum_amount: string | null;
+  behavior: string;
+} {
   let basePercentage = new Decimal("0");
   let baseFixed = new Decimal("0");
   let additivePercentage = new Decimal("0");
@@ -391,13 +422,25 @@ function compileStripeComponents(rule: StripeRule, currency: string): { percenta
     components.push({ type: "percentage", basis_points: rule.basis_points });
   }
   if (components.length === 0 && rule.fixed_amount) {
-    components.push({ type: "fixed_amount", amount: rule.fixed_amount, currency: rule.fixed_currency ?? currency });
+    components.push({
+      type: "fixed_amount",
+      amount: rule.fixed_amount,
+      currency: rule.fixed_currency ?? currency,
+    });
   }
   if (rule.minimum_amount) {
-    components.push({ type: "minimum_fee", amount: rule.minimum_amount, currency: rule.fixed_currency ?? currency });
+    components.push({
+      type: "minimum_fee",
+      amount: rule.minimum_amount,
+      currency: rule.fixed_currency ?? currency,
+    });
   }
   if (rule.maximum_amount) {
-    components.push({ type: "maximum_fee", amount: rule.maximum_amount, currency: rule.fixed_currency ?? currency });
+    components.push({
+      type: "maximum_fee",
+      amount: rule.maximum_amount,
+      currency: rule.fixed_currency ?? currency,
+    });
   }
 
   for (const comp of components) {
@@ -423,11 +466,17 @@ function compileStripeComponents(rule: StripeRule, currency: string): { percenta
     } else if (comp.type === "percentage_surcharge") {
       additivePercentage = additivePercentage.plus(componentRate(comp));
     } else {
-      throw new UnsupportedFeeShape("Unsupported Stripe fee component type.", { rule_id: rule.rule_id, type: comp.type });
+      throw new UnsupportedFeeShape("Unsupported Stripe fee component type.", {
+        rule_id: rule.rule_id,
+        type: comp.type,
+      });
     }
   }
 
-  const behavior = rule.classification_status && ["free", "included"].includes(rule.classification_status) ? "included" : rule.behavior ?? "base";
+  const behavior =
+    rule.classification_status && ["free", "included"].includes(rule.classification_status)
+      ? "included"
+      : (rule.behavior ?? "base");
 
   if (behavior === "additive") {
     return {
@@ -440,7 +489,13 @@ function compileStripeComponents(rule: StripeRule, currency: string): { percenta
   }
 
   if (behavior === "included") {
-    return { percentage: null, fixed_amount: null, minimum_amount: null, maximum_amount: null, behavior };
+    return {
+      percentage: null,
+      fixed_amount: null,
+      minimum_amount: null,
+      maximum_amount: null,
+      behavior,
+    };
   }
 
   return {
@@ -459,20 +514,28 @@ function componentRate(comp: StripeFeeComponent): Decimal {
   if (comp.value) {
     return toDecimal(comp.value);
   }
-  throw new UnsupportedFeeShape("Percentage component missing basis_points and value.", { component: comp.type });
+  throw new UnsupportedFeeShape("Percentage component missing basis_points and value.", {
+    component: comp.type,
+  });
 }
 
 function componentFixed(comp: StripeFeeComponent, currency: string, ruleId: string): Decimal {
   if (!comp.amount) {
-    throw new UnsupportedFeeShape("Fixed component missing amount.", { component: comp.type, rule_id: ruleId });
+    throw new UnsupportedFeeShape("Fixed component missing amount.", {
+      component: comp.type,
+      rule_id: ruleId,
+    });
   }
   const compCurrency = (comp.currency ?? currency).toUpperCase();
   if (compCurrency !== currency.toUpperCase()) {
-    throw new QuoteNotAvailable("A selected Stripe fee rule uses a fixed amount in a different currency.", {
-      rule_id: ruleId,
-      component_currency: compCurrency,
-      transaction_currency: currency,
-    });
+    throw new QuoteNotAvailable(
+      "A selected Stripe fee rule uses a fixed amount in a different currency.",
+      {
+        rule_id: ruleId,
+        component_currency: compCurrency,
+        transaction_currency: currency,
+      },
+    );
   }
   return toDecimal(comp.amount);
 }
