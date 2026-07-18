@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from payment_fee.calculator import FeeCalculator
 from payment_fee.models import (
+    BaseQuoteRequest,
     CapabilityInfo,
     MarketInfo,
     PayPalQuoteRequest,
@@ -16,6 +19,8 @@ from payment_fee.models import (
 from payment_fee.providers import PayPalProvider, StripeProvider
 from payment_fee.registry import ProviderRegistry
 from payment_fee.rules import CompiledFeePlan
+
+_QUOTE_REQUEST_ADAPTER: TypeAdapter[BaseQuoteRequest] = TypeAdapter(QuoteRequest)
 
 
 class PaymentFeeEngine:
@@ -75,7 +80,9 @@ class PaymentFeeEngine:
                 )
         return cls(registry)
 
-    def quote(self, request: QuoteRequest) -> QuoteResponse:
+    def quote(self, request: BaseQuoteRequest | dict[str, Any]) -> QuoteResponse:
+        if isinstance(request, dict):
+            request = _QUOTE_REQUEST_ADAPTER.validate_python(request)
         provider = self._registry.get(request.provider)
         plan = provider.compile_rules(request)
         return self._calculator.calculate(request.amount, plan)

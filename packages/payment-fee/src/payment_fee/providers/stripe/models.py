@@ -39,7 +39,7 @@ class StripeFeeEvidence(BaseModel):
 
 
 class StripeRule(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     rule_id: str
     provider: str = "stripe"
@@ -96,22 +96,25 @@ class StripeRule(BaseModel):
     transaction_amount_min: str | None = None
     transaction_region: str | None = None
     transaction_type: str | None = None
+    payment_method_variant: str | None = None
+    bank_account_validation: str | None = None
 
 
 class StripeMarketEntry(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     account_country: str
     stripe_market_code: str | None = None
     locale: str | None = None
     derivation_status: str = "unclassified"
     calculator_coverage_status: str | None = None
+    coverage_summary: dict[str, Any] | None = None
     unclassified_count: int = 0
     rules: list[StripeRule] = Field(default_factory=list)
 
 
 class StripeCoreFees(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: int = 1
     generated_at: str | None = None
@@ -119,7 +122,7 @@ class StripeCoreFees(BaseModel):
 
 
 class StripeIndexMarket(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     account_country: str
     stripe_market_code: str | None = None
@@ -133,7 +136,7 @@ class StripeIndexMarket(BaseModel):
 
 
 class StripeIndex(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: int = 1
     generated_at: str | None = None

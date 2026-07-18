@@ -10,13 +10,14 @@ from payment_fee.models import (
     ProviderInfo,
     QuoteRequest,
     QuoteResponse,
+    QuoteSchema,
 )
 
-from payment_fee_service.bootstrap import refresh_engine
 from payment_fee_service.domain.models import (
     PayPalQuoteRequest,
     StripeQuoteRequest,
 )
+from payment_fee_service.engine_holder import EngineHolder
 from payment_fee_service.service import QuoteService
 from payment_fee_service.settings import Settings
 
@@ -27,12 +28,16 @@ def get_settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
+def get_engine_holder(request: Request) -> EngineHolder:
+    return request.app.state.engine_holder
+
+
 def get_engine(request: Request) -> PaymentFeeEngine:
-    return request.app.state.engine
+    return request.app.state.engine_holder.current()
 
 
 def get_quote_service(request: Request) -> QuoteService:
-    return request.app.state.quote_service
+    return QuoteService(request.app.state.engine_holder)
 
 
 @router.post("/v1/quotes", response_model=QuoteResponse)
@@ -56,7 +61,7 @@ def calculate_quote_v2(
 def providers_v1(
     engine: Annotated[PaymentFeeEngine, Depends(get_engine)],
 ) -> list[ProviderInfo]:
-    return [info for pid in engine.providers() for info in engine.data_status() if info.provider == pid]
+    return engine.data_status()
 
 
 @router.get("/v1/providers/{provider}/markets", response_model=list[MarketInfo])
@@ -84,6 +89,18 @@ def capabilities(
     return engine.capabilities(provider, account_country)
 
 
+@router.get(
+    "/v2/providers/{provider}/markets/{account_country}/quote-schema",
+    response_model=QuoteSchema,
+)
+def quote_schema(
+    provider: str,
+    account_country: str,
+    engine: Annotated[PaymentFeeEngine, Depends(get_engine)],
+) -> QuoteSchema:
+    return engine.quote_schema(provider, account_country)
+
+
 @router.get("/v1/data/status", response_model=list[ProviderInfo])
 @router.get("/v2/data/status", response_model=list[ProviderInfo])
 def data_status(
@@ -105,5 +122,5 @@ async def refresh_data(
     if authorization != f"Bearer {settings.admin_token}":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
-    engine = await refresh_engine(request.app, settings)
-    return engine.data_status()
+    holder: EngineHolder = request.app.state.engine_holder
+    return await holder.refresh(settings, raise_on_error=True)

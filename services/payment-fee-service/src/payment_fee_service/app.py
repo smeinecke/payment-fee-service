@@ -1,18 +1,60 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager, suppress
+import contextlib
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from payment_fee import PaymentFeeEngine
+from payment_fee.errors import (
+    AmbiguousFeeRules,
+    CurrencyMismatch,
+    DatasetValidationError,
+    InsufficientTransactionContext,
+    PaymentFeeError,
+    ProviderDataUnavailable,
+    QuoteNotAvailable,
+    UnknownMarket,
+    UnknownProvider,
+    UnsupportedFeeShape,
+)
 
 from payment_fee_service import __version__
 from payment_fee_service.api.routes import router
-from payment_fee_service.bootstrap import build_engine, refresh_engine
 from payment_fee_service.domain.errors import ServiceError
-from payment_fee_service.service import QuoteService
+from payment_fee_service.engine_holder import EngineHolder
 from payment_fee_service.settings import Settings
+
+logger = logging.getLogger(__name__)
+
+
+def _error_response(exc: PaymentFeeError, status_code: int) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+            }
+        },
+    )
+
+
+def _payment_fee_error_status(exc: PaymentFeeError) -> int:
+    if isinstance(exc, UnknownProvider):
+        return 404
+    if isinstance(exc, UnknownMarket):
+        return 404
+    if isinstance(exc, (InsufficientTransactionContext, CurrencyMismatch, QuoteNotAvailable, UnsupportedFeeShape)):
+        return 422
+    if isinstance(exc, AmbiguousFeeRules):
+        return 409
+    if isinstance(exc, (DatasetValidationError, ProviderDataUnavailable)):
+        return 503
+    return 500
 
 
 def create_app(
@@ -24,11 +66,13 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = resolved_settings
+        app.state.engine_holder = EngineHolder(engine)
+
         if engine is None:
-            app.state.engine = await asyncio.to_thread(build_engine, resolved_settings)
-        else:
-            app.state.engine = engine
-        app.state.quote_service = QuoteService(app.state.engine)
+            try:
+                await app.state.engine_holder.refresh(resolved_settings)
+            except Exception as exc:
+                logger.warning("Startup engine build failed: %s", exc)
 
         refresh_task: asyncio.Task[None] | None = None
         if resolved_settings.refresh_interval_seconds > 0:
@@ -36,7 +80,10 @@ def create_app(
             async def _refresh_loop() -> None:
                 while True:
                     await asyncio.sleep(resolved_settings.refresh_interval_seconds)
-                    await refresh_engine(app, resolved_settings)
+                    try:
+                        await app.state.engine_holder.refresh(resolved_settings)
+                    except Exception:
+                        logger.exception("Background refresh failed.")
 
             refresh_task = asyncio.create_task(_refresh_loop())
 
@@ -45,7 +92,7 @@ def create_app(
         finally:
             if refresh_task is not None:
                 refresh_task.cancel()
-                with suppress(asyncio.CancelledError):
+                with contextlib.suppress(asyncio.CancelledError):
                     await refresh_task
 
     app = FastAPI(
@@ -68,13 +115,21 @@ def create_app(
             content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
         )
 
+    @app.exception_handler(PaymentFeeError)
+    async def payment_fee_error_handler(_: Request, exc: PaymentFeeError) -> JSONResponse:
+        return _error_response(exc, _payment_fee_error_status(exc))
+
     @app.get("/health/live")
     async def liveness() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/health/ready")
     async def readiness(request: Request) -> JSONResponse:
-        ready = request.app.state.engine is not None
+        try:
+            request.app.state.engine_holder.current()
+            ready = True
+        except ProviderDataUnavailable:
+            ready = False
         return JSONResponse(
             status_code=200 if ready else 503,
             content={"status": "ready" if ready else "not_ready"},

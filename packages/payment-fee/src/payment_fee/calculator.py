@@ -200,15 +200,26 @@ class FeeCalculator:
                 str(plan.metadata["status"]),
             )
 
-        estimated = bool(plan.assumptions or plan.warnings)
+        if all(rule.behavior in ("free", "included", "waived") for rule in plan.rules):
+            return "included"
+
+        for rule in plan.rules:
+            if rule.exactness in ("range", "from", "up_to"):
+                return cast(
+                    Literal["exact_for_public_rate", "estimated", "range", "included", "not_calculable"],
+                    "range",
+                )
+
+        estimated = False
         for rule in plan.rules:
             if rule.exactness and rule.exactness not in ("exact", "exact_for_public_rate"):
                 estimated = True
-            if rule.confidence is not None and rule.confidence < 1.0:
-                estimated = True
-
-        for component in components:
-            if component.minimum_applied or component.maximum_applied:
+            if rule.classification_status and rule.classification_status not in (
+                "calculable",
+                "calculable_rule",
+                "exact",
+                "exact_for_public_rate",
+            ):
                 estimated = True
 
         return cast(

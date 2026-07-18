@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
-
-from fastapi import FastAPI
 from payment_fee import PaymentFeeEngine
+from payment_fee.errors import PaymentFeeError, ProviderDataUnavailable
 
 from payment_fee_service.data.source import DataLocation, JsonDataSource
 from payment_fee_service.settings import Settings
@@ -54,9 +52,16 @@ def build_engine(settings: Settings, fail_on_error: bool | None = None) -> Payme
             else:
                 raise ValueError(f"Unsupported provider: {provider_id}")
         except Exception as exc:
-            if fail_on_error:
-                raise
             errors.append((provider_id, exc))
+
+    if errors and fail_on_error:
+        provider_id, exc = errors[0]
+        if isinstance(exc, PaymentFeeError):
+            raise exc
+        raise ProviderDataUnavailable(
+            provider_id,
+            str(exc),
+        ) from exc
 
     engine = PaymentFeeEngine.from_documents(
         paypal=paypal_docs,
@@ -64,10 +69,4 @@ def build_engine(settings: Settings, fail_on_error: bool | None = None) -> Payme
     )
     for provider_id, exc in errors:
         engine._registry.register_error(provider_id, exc)
-    return engine
-
-
-async def refresh_engine(app: FastAPI, settings: Settings) -> PaymentFeeEngine:
-    engine = await asyncio.to_thread(build_engine, settings, False)
-    app.state.engine = engine
     return engine

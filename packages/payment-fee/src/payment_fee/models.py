@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 class Money(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(ge=0)
     currency: str = Field(min_length=3, max_length=3)
 
     @field_validator("currency")
@@ -270,6 +270,10 @@ class CapabilityInfo(BaseModel):
     allowed_values: dict[str, list[Any]] = Field(default_factory=dict)
     required_context: list[str] = Field(default_factory=list)
     calculable_products: dict[str, list[str]] = Field(default_factory=dict)
+    included_products: dict[str, list[str]] = Field(default_factory=dict)
+    custom_pricing_products: dict[str, list[str]] = Field(default_factory=dict)
+    unsupported_products: dict[str, list[str]] = Field(default_factory=dict)
+    non_calculable_products: dict[str, list[str]] = Field(default_factory=dict)
     dataset_status: str = "unknown"
     source_revision: str | None = None
 

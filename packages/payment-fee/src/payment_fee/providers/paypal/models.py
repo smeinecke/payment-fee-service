@@ -33,7 +33,7 @@ class PayPalSource(BaseModel):
 
 
 class PayPalTransactionFeeRule(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     variant_id: str | None = None
@@ -81,7 +81,7 @@ class PayPalCurrencyConversion(BaseModel):
 
 
 class PayPalDerivedData(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     status: str = "unclassified"
     transaction_fee_rules: list[PayPalTransactionFeeRule] = Field(default_factory=list)
@@ -92,7 +92,7 @@ class PayPalDerivedData(BaseModel):
 
 
 class PayPalCountryEntry(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     country_code: str
     iso_country_code: str | None = None
@@ -102,7 +102,7 @@ class PayPalCountryEntry(BaseModel):
 
 
 class PayPalCoreFees(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: int = 1
     generated_at: str | None = None
@@ -110,7 +110,7 @@ class PayPalCoreFees(BaseModel):
 
 
 class PayPalIndexCountry(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     country_code: str
     iso_country_code: str | None = None
@@ -121,10 +121,11 @@ class PayPalIndexCountry(BaseModel):
     content_sha256: str | None = None
     source_url: str | None = None
     source_updated_at: str | None = None
+    crawled_at: str | None = None
 
 
 class PayPalIndex(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: int = 1
     generated_at: str | None = None

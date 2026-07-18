@@ -10,6 +10,7 @@ from payment_fee.data import load_json
 from payment_fee.errors import (
     AmbiguousFeeRules,
     InsufficientTransactionContext,
+    ProviderDataUnavailable,
     QuoteNotAvailable,
     UnknownMarket,
     UnsupportedFeeShape,
@@ -27,6 +28,17 @@ from payment_fee.rules import CompiledFeePlan, ExecutableFeeRule
 
 SUPPORTED_SCHEMA_VERSIONS = {1}
 
+SUPPORTED_COMPONENT_TYPES = {
+    "fixed_amount",
+    "percentage",
+    "percentage_surcharge",
+    "fixed_surcharge",
+    "minimum_fee",
+    "maximum_fee",
+}
+
+EVALUABLE_CLASSIFICATION_STATUSES = {"calculable_rule", "free", "included"}
+
 
 @dataclass
 class NormalizedCondition:
@@ -41,12 +53,12 @@ SUPPORTED_OPERATORS = {"eq", "==", "equals", "ne", "!=", "not_equals", "in", "no
 def _build_stripe_context(request: StripeQuoteRequest) -> dict[str, Any]:
     t = request.transaction
     context: dict[str, Any] = {
-        "account_country": request.account_country,
-        "customer_country": request.customer_country,
-        "amount_currency": request.amount.currency,
+        "account_country": request.account_country.upper(),
+        "customer_country": request.customer_country.upper() if request.customer_country else None,
+        "amount_currency": request.amount.currency.upper(),
         "transaction_amount": request.amount.value,
-        "settlement_currency": request.settlement_currency or (t.settlement.currency if t.settlement else None),
-        "presentment_currency": request.amount.currency,
+        "presentment_currency": request.amount.currency.upper(),
+        "settlement_currency": request.settlement_currency,
         "product_id": t.product_id,
         "variant_id": t.variant_id,
         "payment_method": t.payment_method,
@@ -66,28 +78,31 @@ def _build_stripe_context(request: StripeQuoteRequest) -> dict[str, Any]:
         "contract_length": t.contract_length,
         "feature_enabled": t.feature_enabled,
         "dispute_state": t.dispute_state,
-        "settlement_timing": t.settlement_timing,
-        "bank_account_validation": t.bank_account_validation,
         "fee_type": None,
-        "success": True,
     }
 
     if t.card:
-        context["card_origin"] = t.card.origin
-        context["card_region"] = t.card.region
-        context["card_type"] = t.card.type
-        context["card_network"] = t.card.network
-        context["card_tier"] = t.card.tier
-        context["card_entry_mode"] = t.card.entry_mode
+        for attr in ("origin", "region", "type", "network", "tier", "entry_mode"):
+            value = getattr(t.card, attr)
+            if value is not None:
+                context[f"card_{attr}"] = value
 
     if t.settlement:
         if t.settlement.currency:
-            context["settlement_currency"] = t.settlement.currency
+            context["settlement_currency"] = t.settlement.currency.upper()
         if t.settlement.timing:
             context["settlement_timing"] = t.settlement.timing
 
-    if t.bank and t.bank.validation:
-        context["bank_account_validation"] = t.bank.validation
+    if t.bank:
+        if t.bank.validation:
+            context["bank_account_validation"] = t.bank.validation
+        if t.bank.transfer_type:
+            context["bank_transfer_type"] = t.bank.transfer_type
+
+    # Default to successful transactions; allow transaction.context to override.
+    context["success"] = True
+    if "success" in t.context:
+        context["success"] = t.context["success"]
 
     for key, value in t.context.items():
         if key in context:
@@ -110,6 +125,7 @@ def _normalize_conditions(rule: StripeRule) -> list[NormalizedCondition]:
     top_level_fields = [
         ("account_country", rule.account_country),
         ("payment_method", rule.payment_method),
+        ("payment_method_variant", getattr(rule, "payment_method_variant", None)),
         ("product_id", rule.product_id),
         ("variant_id", rule.variant_id),
         ("channel", rule.channel),
@@ -122,6 +138,7 @@ def _normalize_conditions(rule: StripeRule) -> list[NormalizedCondition]:
         ("customer_country", rule.customer_country),
         ("presentment_currency", rule.presentment_currency),
         ("settlement_currency", rule.settlement_currency),
+        ("settlement_timing", rule.settlement_timing),
         ("currency_conversion_required", rule.currency_conversion_required),
         ("recurring", rule.recurring),
         ("billing_type", rule.billing_type),
@@ -131,13 +148,13 @@ def _normalize_conditions(rule: StripeRule) -> list[NormalizedCondition]:
         ("integration_type", rule.integration_type),
         ("contract_length", rule.contract_length),
         ("dispute_state", rule.dispute_state),
-        ("settlement_timing", rule.settlement_timing),
         ("transaction_region", rule.transaction_region),
         ("transaction_type", rule.transaction_type),
         ("cross_border", rule.cross_border),
         ("feature_enabled", rule.feature_enabled),
         ("payer", rule.payer),
         ("success", rule.success),
+        ("bank_account_validation", getattr(rule, "bank_account_validation", None)),
         ("fee_type", rule.fee_type),
     ]
 
@@ -151,7 +168,8 @@ def _normalize_conditions(rule: StripeRule) -> list[NormalizedCondition]:
         conditions.append(NormalizedCondition("transaction_amount", "lte", rule.transaction_amount_max))
 
     for condition in rule.conditions:
-        conditions.append(NormalizedCondition(condition.dimension, str(condition.operator).lower(), condition.value))
+        op = str(condition.operator).lower() if condition.operator else "eq"
+        conditions.append(NormalizedCondition(condition.dimension, op, condition.value))
 
     return conditions
 
@@ -161,21 +179,20 @@ def _condition_matches(condition: NormalizedCondition, context: dict[str, Any]) 
     expected = condition.value
     operator = condition.operator
 
+    if actual is None and expected is not None:
+        return False
+
     if operator in {"eq", "==", "equals"}:
-        if actual is None and expected is not None:
-            return False
+        if isinstance(expected, list):
+            return any(_values_equal(actual, item) for item in expected)
         return _values_equal(actual, expected)
     if operator in {"ne", "!=", "not_equals"}:
-        if actual is None:
-            return False
+        if isinstance(expected, list):
+            return all(not _values_equal(actual, item) for item in expected)
         return not _values_equal(actual, expected)
     if operator == "in":
-        if actual is None:
-            return False
         return any(_values_equal(actual, item) for item in _as_list(expected))
     if operator in {"not_in", "nin"}:
-        if actual is None:
-            return False
         return all(not _values_equal(actual, item) for item in _as_list(expected))
     if operator in {"gt", "gte", "lt", "lte"}:
         return _numeric_compare(actual, expected, operator)
@@ -195,8 +212,12 @@ def _condition_status(condition: NormalizedCondition, context: dict[str, Any]) -
         return "missing"
 
     if operator in {"eq", "==", "equals"}:
+        if isinstance(expected, list):
+            return "match" if any(_values_equal(actual, item) for item in expected) else "conflict"
         return "match" if _values_equal(actual, expected) else "conflict"
     if operator in {"ne", "!=", "not_equals"}:
+        if isinstance(expected, list):
+            return "match" if all(not _values_equal(actual, item) for item in expected) else "conflict"
         return "match" if not _values_equal(actual, expected) else "conflict"
     if operator == "in":
         return "match" if any(_values_equal(actual, item) for item in _as_list(expected)) else "conflict"
@@ -263,15 +284,6 @@ def _rule_financial_signature(rule: StripeRule, currency: str) -> tuple[Any, ...
     )
 
 
-def _missing_fields(rule: StripeRule, context: dict[str, Any]) -> list[str]:
-    missing: list[str] = []
-    for condition in _normalize_conditions(rule):
-        actual = context.get(condition.dimension)
-        if actual is None and condition.dimension not in {"transaction_amount"}:
-            missing.append(_api_field_name(condition.dimension))
-    return missing
-
-
 def _api_field_name(dimension: str) -> str:
     mapping = {
         "payment_method": "transaction.payment_method",
@@ -305,13 +317,15 @@ def _api_field_name(dimension: str) -> str:
         "payer": "transaction.payer",
         "success": "transaction.context.success",
         "bank_account_validation": "transaction.bank.validation",
+        "bank_transfer_type": "transaction.bank.transfer_type",
         "fee_type": "transaction.context.fee_type",
+        "transaction_amount": "amount.value",
     }
     return mapping.get(dimension, f"transaction.context.{dimension}")
 
 
-def _is_calculable_status(status: str) -> bool:
-    return status in {"calculable_rule", "free", "included"}
+def _is_evaluable(rule: StripeRule) -> bool:
+    return rule.classification_status in EVALUABLE_CLASSIFICATION_STATUSES
 
 
 def _compile_stripe_components(rule: StripeRule, currency: str) -> dict[str, Any]:
@@ -352,18 +366,14 @@ def _compile_stripe_components(rule: StripeRule, currency: str) -> dict[str, Any
         )
 
     for comp in components:
-        if comp.type in {"percentage", "percentage_surcharge"}:
-            rate = _component_rate(comp)
-            if comp.type == "percentage_surcharge":
-                additive_percentage += rate
-            else:
-                base_percentage += rate
-        elif comp.type in {"fixed_amount", "fixed_surcharge"}:
-            amount = _component_fixed(comp, currency, rule.rule_id)
-            if comp.type == "fixed_surcharge":
-                additive_fixed += amount
-            else:
-                base_fixed += amount
+        if comp.type == "percentage":
+            base_percentage += _component_rate(comp)
+        elif comp.type == "percentage_surcharge":
+            additive_percentage += _component_rate(comp)
+        elif comp.type == "fixed_amount":
+            base_fixed += _component_fixed(comp, currency, rule.rule_id)
+        elif comp.type == "fixed_surcharge":
+            additive_fixed += _component_fixed(comp, currency, rule.rule_id)
         elif comp.type == "minimum_fee":
             minimum_amount = _component_fixed(comp, currency, rule.rule_id)
         elif comp.type == "maximum_fee":
@@ -379,9 +389,13 @@ def _compile_stripe_components(rule: StripeRule, currency: str) -> dict[str, Any
         )
 
     behavior = "included" if rule.classification_status in {"free", "included"} else rule.behavior
+
     if behavior == "additive":
         percentage = additive_percentage or None
         fixed_amount = additive_fixed or None
+    elif behavior == "included":
+        percentage = None
+        fixed_amount = None
     else:
         percentage = base_percentage or None
         fixed_amount = base_fixed or None
@@ -395,7 +409,7 @@ def _compile_stripe_components(rule: StripeRule, currency: str) -> dict[str, Any
     }
 
 
-def _component_rate(comp: Any) -> Decimal:
+def _component_rate(comp: StripeFeeComponent) -> Decimal:
     if comp.basis_points is not None:
         return to_decimal(comp.basis_points, "basis points") / Decimal("100")
     if comp.value is not None:
@@ -406,7 +420,7 @@ def _component_rate(comp: Any) -> Decimal:
     )
 
 
-def _component_fixed(comp: Any, currency: str, rule_id: str) -> Decimal:
+def _component_fixed(comp: StripeFeeComponent, currency: str, rule_id: str) -> Decimal:
     if comp.amount is None:
         raise UnsupportedFeeShape(
             "Fixed component missing amount.",
@@ -443,6 +457,8 @@ def _executable_from_rule(rule: StripeRule, currency: str) -> ExecutableFeeRule:
         minimum_amount=compiled.get("minimum_amount"),
         maximum_amount=compiled.get("maximum_amount"),
         currency=currency,
+        payer=rule.payer,
+        unit=rule.unit,
         classification_status=rule.classification_status,
         confidence=rule.confidence,
         exactness=rule.exactness,
@@ -452,6 +468,14 @@ def _executable_from_rule(rule: StripeRule, currency: str) -> ExecutableFeeRule:
             "variant_id": rule.variant_id,
         },
     )
+
+
+def _sanitize_index_document(index: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not index:
+        return index
+    for market in index.get("markets", []):
+        market.pop("schema_version", None)
+    return index
 
 
 class StripeProvider:
@@ -482,6 +506,7 @@ class StripeProvider:
     ) -> StripeProvider:
         core_path = load_json(f"{path}/json/core-fees.json")
         index_path = load_json(f"{path}/json/index.json")
+        index_path = _sanitize_index_document(index_path)
         payment_methods_path = None
         with contextlib.suppress(Exception):
             payment_methods_path = load_json(f"{path}/json/payment-methods.json")
@@ -489,6 +514,8 @@ class StripeProvider:
             from payment_fee.data import validate_json_schema
 
             validate_json_schema(core_path, f"{path}/schemas/core-fees-v1.schema.json", "stripe-core")
+            if index_path is None:
+                raise ProviderDataUnavailable("stripe", "index.json is missing or empty")
             validate_json_schema(index_path, f"{path}/schemas/index-v1.schema.json", "stripe-index")
             if payment_methods_path:
                 validate_json_schema(
@@ -520,6 +547,7 @@ class StripeProvider:
         data_ref: str | None = None,
     ) -> StripeProvider:
         core_model = StripeCoreFees.model_validate(core)
+        index = _sanitize_index_document(index)
         index_model = StripeIndex.model_validate(index) if index else None
         payment_methods_model = StripePaymentMethods.model_validate(payment_methods) if payment_methods else None
         if core_model.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
@@ -548,47 +576,31 @@ class StripeProvider:
         context = _build_stripe_context(request)
         currency = request.amount.currency
 
-        rule_evaluations: list[tuple[StripeRule, list[str], bool]] = []
+        full_matches: list[tuple[StripeRule, int]] = []
+        missing_matches: list[tuple[StripeRule, list[str], int]] = []
+
         for rule in market.rules:
-            if not _is_calculable_status(rule.classification_status):
+            conditions = _normalize_conditions(rule)
+            conflict = False
+            missing: list[str] = []
+            for condition in conditions:
+                status = _condition_status(condition, context)
+                if status == "conflict":
+                    conflict = True
+                    break
+                if status == "missing":
+                    missing.append(_api_field_name(condition.dimension))
+            if conflict:
                 continue
-            try:
-                statuses: list[str] = []
-                for condition in _normalize_conditions(rule):
-                    statuses.append(_condition_status(condition, context))
-                if "conflict" in statuses:
-                    continue
-                missing = sorted(
-                    {
-                        _api_field_name(condition.dimension)
-                        for condition, status in zip(_normalize_conditions(rule), statuses, strict=False)
-                        if status == "missing"
-                    }
-                )
-                rule_evaluations.append((rule, missing, not bool(missing)))
-            except UnsupportedFeeShape:
-                continue
-
-        full_matches = [(r, m) for r, m, full in rule_evaluations if full]
-        missing_evaluations = [(r, m) for r, m, full in rule_evaluations if not full and m]
-
-        if missing_evaluations:
-            max_full_spec = max((0,)) if not full_matches else max(_specificity(r) for r, _ in full_matches)
-            blocker_missing: list[str] = []
-            for rule, missing in missing_evaluations:
-                if _specificity(rule) > max_full_spec:
-                    blocker_missing.extend(missing)
-            if blocker_missing:
-                raise InsufficientTransactionContext(
-                    sorted(set(blocker_missing)),
-                    provider=self.provider_id,
-                    market=request.account_country,
-                    candidate_rule_ids=[r.rule_id for r, _ in missing_evaluations if _specificity(r) > max_full_spec],
-                )
+            specificity = len(conditions)
+            if missing:
+                missing_matches.append((rule, sorted(set(missing)), specificity))
+            else:
+                full_matches.append((rule, specificity))
 
         if not full_matches:
-            if missing_evaluations:
-                all_missing = sorted({m for _, missing in missing_evaluations for m in missing})
+            if missing_matches:
+                all_missing = sorted({m for _, missing, _ in missing_matches for m in missing})
                 raise InsufficientTransactionContext(
                     all_missing,
                     provider=self.provider_id,
@@ -600,37 +612,70 @@ class StripeProvider:
                 market=request.account_country,
             )
 
-        max_spec = max(_specificity(r) for r, _ in full_matches)
-        most_specific = [r for r, _ in full_matches if _specificity(r) == max_spec]
+        max_full_spec = max(spec for _, spec in full_matches)
+        most_specific_full = [r for r, spec in full_matches if spec == max_full_spec]
 
-        if len(most_specific) > 1:
-            signatures = {_rule_financial_signature(r, currency) for r in most_specific}
+        if not any(_is_evaluable(r) for r in most_specific_full):
+            rule_statuses = {r.classification_status for r in most_specific_full}
+            if "unsupported" in rule_statuses:
+                raise UnsupportedFeeShape(
+                    "The most specific matching Stripe fee rule is unsupported.",
+                    provider=self.provider_id,
+                    market=request.account_country,
+                    rule_ids=[r.rule_id for r in most_specific_full],
+                )
+            raise QuoteNotAvailable(
+                "The most specific matching Stripe fee rule cannot be quoted.",
+                provider=self.provider_id,
+                market=request.account_country,
+                rule_ids=[r.rule_id for r in most_specific_full],
+            )
+
+        if missing_matches:
+            more_specific_missing = [
+                (rule, missing, spec)
+                for rule, missing, spec in missing_matches
+                if spec > max_full_spec and _is_evaluable(rule)
+            ]
+            if more_specific_missing:
+                blocker_missing = sorted({m for _, missing, _ in more_specific_missing for m in missing})
+                raise InsufficientTransactionContext(
+                    blocker_missing,
+                    provider=self.provider_id,
+                    market=request.account_country,
+                    candidate_rule_ids=[r.rule_id for r, _, _ in more_specific_missing],
+                )
+
+        base_candidates: list[StripeRule] = []
+        for spec in sorted({spec for _, spec in full_matches}, reverse=True):
+            candidates = [r for r, s in full_matches if s == spec and _is_evaluable(r) and r.behavior != "additive"]
+            if candidates:
+                base_candidates = candidates
+                break
+
+        if not base_candidates:
+            raise QuoteNotAvailable(
+                "No evaluable base Stripe fee rule matched the supplied context.",
+                provider=self.provider_id,
+                market=request.account_country,
+            )
+
+        if len(base_candidates) > 1:
+            signatures = {_rule_financial_signature(r, currency) for r in base_candidates}
             if len(signatures) > 1:
                 raise AmbiguousFeeRules(
-                    [r.rule_id for r in most_specific],
+                    [r.rule_id for r in base_candidates],
                     provider=self.provider_id,
                     market=request.account_country,
                 )
 
-        base_rules = [r for r in most_specific if r.behavior != "additive"]
-        additive_rules = [r for r in market.rules if r.behavior == "additive"]
+        selected_base = sorted(base_candidates, key=lambda r: r.rule_id)[0]
 
-        if not base_rules:
-            base_rules = most_specific[:1]
-
-        selected_base = sorted(base_rules, key=lambda r: r.rule_id)[0]
-        additive_selected = [
-            r
-            for r in additive_rules
-            if _rule_matches_additive(r, context) and _is_calculable_status(r.classification_status)
-        ]
+        additive_rules = self._select_additive_rules(market.rules, context, request.account_country)
 
         rules = [_executable_from_rule(selected_base, currency)]
-        for r in additive_selected:
-            try:
-                rules.append(_executable_from_rule(r, currency))
-            except (QuoteNotAvailable, UnsupportedFeeShape):
-                continue
+        for rule in additive_rules:
+            rules.append(_executable_from_rule(rule, currency))
 
         index_entry = self._index_map.get(request.account_country.upper())
         source_urls = list(index_entry.source_urls) if index_entry else []
@@ -659,6 +704,44 @@ class StripeProvider:
             product_id=selected_base.product_id,
             variant_id=selected_base.variant_id,
         )
+
+    def _select_additive_rules(
+        self,
+        rules: list[StripeRule],
+        context: dict[str, Any],
+        account_country: str,
+    ) -> list[StripeRule]:
+        selected: list[StripeRule] = []
+        for rule in rules:
+            if rule.behavior != "additive":
+                continue
+            conditions = _normalize_conditions(rule)
+            statuses: list[str] = []
+            payment_method_missing = False
+            conflict = False
+            for condition in conditions:
+                status = _condition_status(condition, context)
+                if status == "conflict":
+                    conflict = True
+                    break
+                if condition.dimension == "payment_method" and status == "missing":
+                    payment_method_missing = True
+                statuses.append(status)
+            if conflict:
+                continue
+            if payment_method_missing:
+                raise InsufficientTransactionContext(
+                    [_api_field_name("payment_method")],
+                    provider=self.provider_id,
+                    market=account_country,
+                    candidate_rule_ids=[rule.rule_id],
+                )
+            if any(s == "missing" for s in statuses):
+                continue
+            if not _is_evaluable(rule):
+                continue
+            selected.append(rule)
+        return selected
 
     def markets(self) -> list[MarketInfo]:
         result: list[MarketInfo] = []
@@ -690,26 +773,47 @@ class StripeProvider:
         dimensions: set[str] = set()
         allowed: dict[str, set[Any]] = {}
         calculable: dict[str, set[str]] = {}
+        included: dict[str, set[str]] = {}
+        custom_pricing: dict[str, set[str]] = {}
+        unsupported: dict[str, set[str]] = {}
+        non_calculable: dict[str, set[str]] = {}
 
         for rule in market.rules:
-            if not _is_calculable_status(rule.classification_status):
-                continue
-            if rule.product_id:
-                products.add(rule.product_id)
-                if rule.variant_id:
-                    variants.add(rule.variant_id)
-                    calculable.setdefault(rule.product_id, set()).add(rule.variant_id)
+            product_id = rule.product_id
+            variant_id = rule.variant_id
+            if product_id:
+                products.add(product_id)
+            if variant_id:
+                variants.add(variant_id)
             if rule.payment_method:
                 payment_methods.add(rule.payment_method)
             for comp in rule.fee_components:
                 fee_shapes.add(comp.type)
+                if comp.currency:
+                    currencies.add(comp.currency.upper())
+            if rule.fixed_currency:
+                currencies.add(rule.fixed_currency.upper())
+
+            bucket = _classify_rule(rule)
+            target = {
+                "calculable": calculable,
+                "included": included,
+                "custom_pricing": custom_pricing,
+                "unsupported": unsupported,
+                "non_calculable": non_calculable,
+            }.get(bucket)
+            if target is not None and product_id and variant_id:
+                target.setdefault(product_id, set()).add(variant_id)
+
             for condition in _normalize_conditions(rule):
                 dimensions.add(condition.dimension)
                 if condition.dimension not in allowed:
                     allowed[condition.dimension] = set()
                 if isinstance(condition.value, list):
-                    allowed[condition.dimension].update(str(v) for v in condition.value)
-                else:
+                    for item in condition.value:
+                        if item is not None:
+                            allowed[condition.dimension].add(str(item))
+                elif condition.value is not None:
                     allowed[condition.dimension].add(str(condition.value))
 
         index_entry = self._index_map.get(account_country.upper())
@@ -726,6 +830,10 @@ class StripeProvider:
             allowed_values={k: sorted(v) for k, v in allowed.items()},
             required_context=sorted(_required_context(market)),
             calculable_products={k: sorted(v) for k, v in calculable.items()},
+            included_products={k: sorted(v) for k, v in included.items()},
+            custom_pricing_products={k: sorted(v) for k, v in custom_pricing.items()},
+            unsupported_products={k: sorted(v) for k, v in unsupported.items()},
+            non_calculable_products={k: sorted(v) for k, v in non_calculable.items()},
             dataset_status=market.derivation_status or (index_entry.derivation_status if index_entry else "unknown"),
             source_revision=index_entry.content_sha256 if index_entry else None,
         )
@@ -750,32 +858,49 @@ class StripeProvider:
         }
 
 
-def _rule_matches_additive(rule: StripeRule, context: dict[str, Any]) -> bool:
-    if rule.behavior != "additive":
-        return False
-    for condition in _normalize_conditions(rule):
-        if condition.dimension == "payment_method" and context.get("payment_method") is None:
-            continue
-        if _condition_status(condition, context) != "match":
-            return False
-    return True
+def _classify_rule(rule: StripeRule) -> str:
+    status = rule.classification_status
+    if status in {"free", "included"}:
+        return "included"
+    if status == "custom_pricing":
+        return "custom_pricing"
+    if status == "unsupported":
+        return "unsupported"
+    if status == "non_calculable":
+        return "non_calculable"
+    if status == "calculable_rule":
+        for comp in rule.fee_components:
+            if comp.type not in SUPPORTED_COMPONENT_TYPES:
+                return "non_calculable"
+        return "calculable"
+    return "non_calculable"
 
 
 def _required_context(market: Any) -> set[str]:
     required: set[str] = set()
     for rule in market.rules:
-        if not _is_calculable_status(rule.classification_status):
+        if not _is_evaluable(rule):
             continue
         for condition in _normalize_conditions(rule):
             if condition.dimension == "account_country":
                 continue
-            actual = getattr(rule, condition.dimension, None)
-            if actual is not None:
-                required.add(_api_field_name(condition.dimension))
+            required.add(_api_field_name(condition.dimension))
     return required
 
 
 def _stripe_request_schema(cap: CapabilityInfo) -> dict[str, Any]:
+    context_properties: dict[str, Any] = {}
+    for dimension in cap.condition_dimensions:
+        values = cap.allowed_values.get(dimension)
+        if values:
+            context_properties[dimension] = {"enum": values}
+        else:
+            context_properties[dimension] = {"type": ["string", "number", "boolean", "null", "array"]}
+
+    product_enum = {"enum": cap.product_ids} if cap.product_ids else {"type": "string"}
+    variant_enum = {"enum": cap.variants} if cap.variants else {"type": "string"}
+    payment_method_enum = {"enum": cap.payment_methods} if cap.payment_methods else {"type": "string"}
+
     return {
         "type": "object",
         "properties": {
@@ -794,10 +919,25 @@ def _stripe_request_schema(cap: CapabilityInfo) -> dict[str, Any]:
             "transaction": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"enum": cap.product_ids} if cap.product_ids else {"type": "string"},
-                    "variant_id": {"enum": cap.variants} if cap.variants else {"type": "string"},
-                    "payment_method": {"enum": cap.payment_methods} if cap.payment_methods else {"type": "string"},
-                    "channel": {"enum": ["online", "in_person"]},
+                    "product_id": product_enum,
+                    "variant_id": variant_enum,
+                    "payment_method": payment_method_enum,
+                    "payment_method_variant": {"type": "string"},
+                    "channel": {"type": "string"},
+                    "pricing_plan": {"type": "string"},
+                    "pricing_tier": {"type": "string"},
+                    "payer": {"type": "string"},
+                    "unit": {"type": "string"},
+                    "currency_conversion_required": {"type": "boolean"},
+                    "recurring": {"type": "boolean"},
+                    "billing_type": {"type": "string"},
+                    "transaction_region": {"type": "string"},
+                    "cross_border": {"type": "boolean"},
+                    "integration_type": {"type": "string"},
+                    "product_feature": {"type": "string"},
+                    "contract_length": {"type": "string"},
+                    "feature_enabled": {"type": "string"},
+                    "dispute_state": {"type": "string"},
                     "card": {
                         "type": "object",
                         "properties": {
@@ -825,6 +965,7 @@ def _stripe_request_schema(cap: CapabilityInfo) -> dict[str, Any]:
                     },
                     "context": {
                         "type": "object",
+                        "properties": context_properties,
                         "additionalProperties": {"type": ["string", "number", "boolean", "null", "array"]},
                     },
                 },

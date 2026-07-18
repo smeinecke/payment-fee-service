@@ -33,3 +33,112 @@ jobs:
         env:
           PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
           STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
+
+  wheels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv build --package payment-fee
+      - run: uv build --package payment-fee-service
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*.whl
+      - name: Inspect wheels
+        run: |
+          python - <<'PY'
+          import zipfile, json, glob, os
+          from pathlib import Path
+          for whl in sorted(glob.glob('dist/*.whl')):
+              print(f"=== {whl} ===")
+              with zipfile.ZipFile(whl) as z:
+                  names = z.namelist()
+                  print("top-level:", sorted({n.split('/')[0] for n in names}))
+                  for meta in [n for n in names if n.endswith('METADATA')]:
+                      with z.open(meta) as f:
+                          for line in f.read().decode().splitlines():
+                              if line.startswith('Name:') or line.startswith('Requires-Dist:') or line.startswith('Version:'):
+                                  print(line)
+              print()
+          PY
+
+  isolated-install:
+    runs-on: ubuntu-latest
+    needs: wheels
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: smeinecke/paypal-fee-data
+          path: paypal-fee-data
+      - uses: actions/checkout@v4
+        with:
+          repository: smeinecke/stripe-fee-data
+          path: stripe-fee-data
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+        continue-on-error: true
+      - name: Build wheels (fallback)
+        run: uv build --package payment-fee && uv build --package payment-fee-service
+      - name: Library-only isolated install
+        run: |
+          uv venv /tmp/lib-venv --seed
+          uv pip install --python /tmp/lib-venv/bin/python dist/payment_fee-*.whl
+          /tmp/lib-venv/bin/python - <<'PY'
+          import sys, subprocess
+          # Ensure service dependencies are absent
+          for pkg in ['fastapi', 'uvicorn', 'pydantic_settings']:
+              try:
+                  __import__(pkg)
+              except ImportError:
+                  continue
+              raise AssertionError(f'{pkg} should not be installed')
+          from payment_fee import PaymentFeeEngine
+          e = PaymentFeeEngine.from_paths(paypal='${{ github.workspace }}/paypal-fee-data')
+          q = e.quote({
+              'provider': 'paypal',
+              'amount': {'value': '100', 'currency': 'USD'},
+              'account_country': 'US',
+              'transaction': {
+                  'product_id': 'goods_and_services',
+                  'variant_id': 'standard',
+                  'transaction_region': 'domestic',
+              },
+          })
+          assert q.processing_fee.value > 0, q
+          print('library direct quote ok')
+          PY
+          /tmp/lib-venv/bin/payment-fee --help
+      - name: Service isolated install and smoke test
+        run: |
+          uv venv /tmp/svc-venv --seed
+          uv pip install --python /tmp/svc-venv/bin/python dist/payment_fee-*.whl dist/payment_fee_service-*.whl
+          /tmp/svc-venv/bin/payment-fee-service --help
+          cat > /tmp/config.json <<'JSON'
+          {
+            "refresh_interval_seconds": 0,
+            "admin_token": "test-token",
+            "providers": {
+              "paypal": {"data_path": "${{ github.workspace }}/paypal-fee-data", "data_ref": "ci"},
+              "stripe": {"data_path": "${{ github.workspace }}/stripe-fee-data", "data_ref": "ci"}
+            }
+          }
+          JSON
+          PAYMENT_FEE_CONFIG_FILE=/tmp/config.json /tmp/svc-venv/bin/uvicorn payment_fee_service.app:app --host 127.0.0.1 --port 8000 &
+          PID=$!
+          for i in $(seq 1 30); do
+            curl -fs http://127.0.0.1:8000/health/ready >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fs http://127.0.0.1:8000/v2/providers
+          curl -fs http://127.0.0.1:8000/health/ready
+          kill $PID || true
+
