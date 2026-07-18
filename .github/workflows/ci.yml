@@ -12,10 +12,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: smeinecke/paypal-fee-data
+          path: paypal-fee-data
+      - uses: actions/checkout@v4
+        with:
+          repository: smeinecke/stripe-fee-data
+          path: stripe-fee-data
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --group dev
+      - run: uv sync --all-packages --extra dev
+        env:
+          PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
+          STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
       - run: make validate
       - run: make test-unit
       - run: make test-e2e
+        env:
+          PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
+          STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data

@@ -14,12 +14,14 @@ The service never crawls provider websites during a quote request. It loads vali
 ## Architecture
 
 ```text
-paypal-fee-data ──► PayPal adapter ──┐
-                                    ├──► shared Decimal calculator ──► REST API
-stripe-fee-data ──► Stripe adapter ──┘
+                    packages/payment-fee
+paypal-fee-data ──►  ┌──────────────┐  ──┐
+                     │ PayPal rules │    │
+stripe-fee-data ──►  │ Stripe rules │    ▼  Decimal calculator, schemas, provenance
+                     └──────────────┘  ───►  services/payment-fee-service  ──►  FastAPI
 ```
 
-The public request and response contracts are stable across providers. Storage schemas and rule matching remain provider-specific, so future adapters do not require either source repository to adopt a common schema.
+`payment-fee` is a reusable Python library with minimal dependencies (Pydantic, jsonschema, ISO currency metadata). It owns all provider parsing, rule compilation, and fee calculation. `payment-fee-service` is a thin FastAPI wrapper that handles HTTP concerns, snapshot loading, and refresh. The public request and response contracts are stable across providers. Storage schemas and rule matching remain provider-specific, so future adapters do not require either source repository to adopt a common schema.
 
 ## Features
 
@@ -38,19 +40,23 @@ The public request and response contracts are stable across providers. Storage s
 ## Requirements
 
 - Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
 
 ## Installation
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
+uv sync --all-packages --extra dev
 cp .env.example .env
 ```
 
+The repository is a `uv` workspace with two packages:
+
+- `packages/payment-fee` — reusable calculation library
+- `services/payment-fee-service` — FastAPI service
+
 ## Data configuration
 
-Providers are configured as a dynamic `providers` dictionary. Each key is a provider ID that maps to a provider module (`payment_fee_service.providers.<id>`), and each value contains `data_url`, `data_path`, `data_ref`, and `enabled`.
+Providers are configured as a dynamic `providers` dictionary. Each value contains `data_url`, `data_path`, `data_ref`, and `enabled`.
 
 ### Configuration file
 
@@ -165,6 +171,35 @@ sudo systemctl enable --now payment-fee-service
 ```
 
 OpenAPI documentation is available at `/docs` and `/redoc`.
+
+## Library usage
+
+`payment-fee` can be used directly without the service:
+
+```python
+from payment_fee import PaymentFeeEngine
+
+engine = PaymentFeeEngine.from_paths(
+    paypal="/path/to/paypal-fee-data",
+    stripe="/path/to/stripe-fee-data",
+)
+quote = engine.quote({
+    "provider": "stripe",
+    "amount": {"value": "100.00", "currency": "EUR"},
+    "account_country": "DE",
+    "customer_country": "DE",
+    "settlement_currency": "EUR",
+    "transaction": {
+        "product_id": "payments",
+        "variant_id": "online_domestic_cards",
+        "payment_method": "card",
+        "channel": "online",
+        "pricing_tier": "standard",
+        "card": {"origin": "domestic", "region": "domestic", "tier": "standard"},
+    },
+})
+print(quote.processing_fee.value)
+```
 
 ## Docker image
 

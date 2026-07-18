@@ -1,5 +1,4 @@
 from fastapi.testclient import TestClient
-
 from payment_fee_service.app import create_app
 from payment_fee_service.settings import Settings
 
@@ -24,7 +23,7 @@ def test_provider_and_market_discovery(client) -> None:
 
     markets = client.get("/v1/providers/stripe/markets")
     assert markets.status_code == 200
-    assert markets.json()[0]["account_country"] == "DE"
+    assert any(item["account_country"] == "DE" for item in markets.json())
 
     capabilities = client.get("/v1/providers/stripe/markets/DE/capabilities")
     assert capabilities.status_code == 200
@@ -51,7 +50,7 @@ def test_structured_error(client) -> None:
         "/v1/quotes",
         json={
             "provider": "paypal",
-            "amount": {"value": "100.00", "currency": "CHF"},
+            "amount": {"value": "100.00", "currency": "XXX"},
             "account_country": "DE",
             "payment": {"transaction_type": "standard_commercial"},
         },
@@ -60,13 +59,13 @@ def test_structured_error(client) -> None:
     assert response.json()["error"]["code"] == "QUOTE_NOT_AVAILABLE"
 
 
-def test_refresh_endpoint_disabled_without_admin_token(registry) -> None:
+def test_refresh_endpoint_disabled_without_admin_token(engine) -> None:
     settings = Settings(
         refresh_interval_seconds=0,
         admin_token=None,
         providers={},
     )
-    with TestClient(create_app(settings=settings, registry=registry)) as client:
+    with TestClient(create_app(settings=settings, engine=engine)) as client:
         response = client.post("/v1/data/refresh")
         assert response.status_code == 404
 

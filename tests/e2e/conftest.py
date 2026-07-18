@@ -10,8 +10,11 @@ from pathlib import Path
 import httpx
 import pytest
 
+REPO_ROOT = Path(__file__).parent.parent.parent.resolve()
+PAYPAL_DATA = Path(os.environ.get("PAYPAL_FEE_DATA", REPO_ROOT.parent / "paypal-fee-data")).resolve()
+STRIPE_DATA = Path(os.environ.get("STRIPE_FEE_DATA", REPO_ROOT.parent / "stripe-fee-data")).resolve()
+
 _PORT = 18000
-_FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 pytestmark = pytest.mark.e2e
 
@@ -26,12 +29,12 @@ def server_url(tmp_path_factory: pytest.TempPathFactory) -> str:
         "validate_json_schema": False,
         "providers": {
             "paypal": {
-                "data_path": str(_FIXTURES / "paypal"),
-                "data_ref": "fixture-paypal",
+                "data_path": str(PAYPAL_DATA),
+                "data_ref": "e2e-paypal",
             },
             "stripe": {
-                "data_path": str(_FIXTURES / "stripe"),
-                "data_ref": "fixture-stripe",
+                "data_path": str(STRIPE_DATA),
+                "data_ref": "e2e-stripe",
             },
         },
     }

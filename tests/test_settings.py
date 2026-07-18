@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from payment_fee_service.settings import Settings
 
 
@@ -58,9 +57,7 @@ def test_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_env_overrides_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config_file = tmp_path / "config.json"
-    config_file.write_text(
-        json.dumps({"refresh_interval_seconds": 3600, "admin_token": "from-file"})
-    )
+    config_file.write_text(json.dumps({"refresh_interval_seconds": 3600, "admin_token": "from-file"}))
     monkeypatch.setenv("PAYMENT_FEE_CONFIG_FILE", str(config_file))
     monkeypatch.setenv("PAYMENT_FEE_ADMIN_TOKEN", "from-env")
     settings = Settings()

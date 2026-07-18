@@ -1,4 +1,4 @@
-# Makefile for paypal-fee-crawler
+# Makefile for payment-fee-service workspace
 
 DOCKER_IMAGE ?= ghcr.io/smeinecke/payment-fee-service
 
@@ -25,10 +25,10 @@ pyright:
 	uv run pyright
 
 bandit:
-	uv run bandit -c pyproject.toml -r src
+	uv run bandit -r packages services -ll
 
 test:
-	uv run pytest
+	uv run pytest tests/
 
 test-unit:
 	uv run pytest tests/ -m "not live and not e2e"

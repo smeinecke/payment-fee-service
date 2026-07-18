@@ -1,16 +1,18 @@
 # Adding a Provider
 
-A provider adapter owns source loading, provider-specific request context, rule matching, and compilation into shared executable fee rules.
+A provider adapter lives in `packages/payment-fee/src/payment_fee/providers/<name>/`. It owns source loading, provider-specific request context, rule matching, and compilation into shared executable fee rules.
 
 ## Required work
 
-1. Add a request model with a literal `provider` discriminator.
-2. Add the model to `QuoteRequest`.
-3. Implement a repository that loads and validates the provider's published snapshot.
-4. Implement `FeeProvider`.
-5. Compile provider data into `CompiledFeePlan` and `ExecutableFeeRule` objects.
-6. Register the provider in `bootstrap.build_registry`.
-7. Add shared contract tests and provider-specific edge cases.
+1. Add a Pydantic request model with a literal `provider` discriminator.
+2. Add the model to `QuoteRequest` in `packages/payment-fee/src/payment_fee/models.py`.
+3. Add a transaction context model if needed.
+4. Implement a provider module that loads and validates the published snapshot.
+5. Implement `FeeProvider` (`compile_rules`, `markets`, `capabilities`, `quote_schema`, `data_status`).
+6. Compile provider data into `CompiledFeePlan` and `ExecutableFeeRule` objects.
+7. Export the provider from `packages/payment-fee/src/payment_fee/providers/__init__.py`.
+8. Wire the provider into `PaymentFeeEngine.from_paths` and `from_documents` in `packages/payment-fee/src/payment_fee/engine.py`.
+9. Add shared contract tests and provider-specific edge cases.
 
 ## Boundary
 

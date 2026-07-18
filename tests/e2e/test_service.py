@@ -27,7 +27,7 @@ def test_providers(client: httpx.Client) -> None:
 def test_markets_and_capabilities(client: httpx.Client) -> None:
     response = client.get("/v1/providers/stripe/markets")
     assert response.status_code == 200
-    assert response.json()[0]["account_country"] == "DE"
+    assert any(item["account_country"] == "DE" for item in response.json())
 
     response = client.get("/v1/providers/stripe/markets/DE/capabilities")
     assert response.status_code == 200
@@ -64,7 +64,6 @@ def test_stripe_quote(client: httpx.Client) -> None:
             "payment": {
                 "method": "card",
                 "channel": "online",
-                "recurring": False,
                 "card": {
                     "origin": "domestic",
                     "region": "eea",

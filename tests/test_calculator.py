@@ -1,8 +1,8 @@
 from decimal import Decimal
 
-from payment_fee_service.domain.calculator import FeeCalculator
-from payment_fee_service.domain.models import Money
-from payment_fee_service.domain.rules import CompiledFeePlan, ExecutableFeeRule
+from payment_fee.calculator import FeeCalculator
+from payment_fee.models import Money
+from payment_fee.rules import CompiledFeePlan, ExecutableFeeRule
 
 
 def test_calculates_percentage_fixed_minimum_and_rounding() -> None:
@@ -20,7 +20,7 @@ def test_calculates_percentage_fixed_minimum_and_rounding() -> None:
             )
         ],
     )
-    quote = FeeCalculator().calculate(Money(value="100", currency="EUR"), plan)
+    quote = FeeCalculator().calculate(Money(value=Decimal("100"), currency="EUR"), plan)
     assert quote.processing_fee.value == Decimal("1.75")
     assert quote.net_amount.value == Decimal("98.25")
 
@@ -32,5 +32,5 @@ def test_zero_decimal_currency_rounding() -> None:
         currency="JPY",
         rules=[ExecutableFeeRule(rule_id="rule-1", label="Fee", percentage=Decimal("3.4"))],
     )
-    quote = FeeCalculator().calculate(Money(value="101", currency="JPY"), plan)
+    quote = FeeCalculator().calculate(Money(value=Decimal("101"), currency="JPY"), plan)
     assert quote.processing_fee.value == Decimal("3")

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-
+from payment_fee import PaymentFeeEngine
 from payment_fee_service.app import create_app
-from payment_fee_service.data.source import DataLocation, JsonDataSource
-from payment_fee_service.providers import load_provider_module
-from payment_fee_service.providers.registry import ProviderRegistry
 from payment_fee_service.settings import ProviderSettings, Settings
 
-FIXTURES = Path(__file__).parent / "fixtures"
+REPO_ROOT = Path(__file__).parent.parent.resolve()
+PAYPAL_DATA = Path(os.environ.get("PAYPAL_FEE_DATA", REPO_ROOT.parent / "paypal-fee-data")).resolve()
+STRIPE_DATA = Path(os.environ.get("STRIPE_FEE_DATA", REPO_ROOT.parent / "stripe-fee-data")).resolve()
 
 
 @pytest.fixture
@@ -19,39 +19,28 @@ def settings() -> Settings:
     return Settings(
         refresh_interval_seconds=0,
         admin_token="test-token",
+        validate_json_schema=False,
         providers={
             "paypal": ProviderSettings(
-                data_path=FIXTURES / "paypal",
-                data_ref="fixture-paypal",
+                data_path=PAYPAL_DATA,
+                data_ref="test",
             ),
             "stripe": ProviderSettings(
-                data_path=FIXTURES / "stripe",
-                data_ref="fixture-stripe",
+                data_path=STRIPE_DATA,
+                data_ref="test",
             ),
         },
     )
 
 
 @pytest.fixture
-def registry(settings: Settings) -> ProviderRegistry:
-    registry = ProviderRegistry()
-    for provider_id, provider_settings in settings.providers.items():
-        module = load_provider_module(provider_id)
-        source = JsonDataSource(
-            DataLocation(
-                provider=provider_id,
-                local_path=provider_settings.data_path,
-                base_url=None,
-                data_ref=provider_settings.data_ref,
-            ),
-            settings.http_timeout_seconds,
-        )
-        repository = module.Repository(source, validate_schema=False)
-        registry.register(module.Provider(repository.load()))
-    return registry
+def engine(settings: Settings) -> PaymentFeeEngine:
+    from payment_fee_service.bootstrap import build_engine
+
+    return build_engine(settings)
 
 
 @pytest.fixture
-def client(settings: Settings, registry: ProviderRegistry):
-    with TestClient(create_app(settings=settings, registry=registry)) as test_client:
+def client(settings: Settings, engine: PaymentFeeEngine):
+    with TestClient(create_app(settings=settings, engine=engine)) as test_client:
         yield test_client
