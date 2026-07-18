@@ -1,19 +1,21 @@
 .PHONY: test analyse format-check format audit install
 
+COMPOSER_BIN ?= composer
+
 install:
-	composer install
+	$(COMPOSER_BIN) install
 
 test:
-	composer test
+	$(COMPOSER_BIN) test
 
 analyse:
-	composer analyse
+	$(COMPOSER_BIN) analyse
 
 format-check:
-	composer format-check
+	$(COMPOSER_BIN) format-check
 
 format:
-	composer format
+	$(COMPOSER_BIN) format
 
 audit:
-	composer audit
+	$(COMPOSER_BIN) audit

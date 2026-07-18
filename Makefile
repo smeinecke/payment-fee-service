@@ -1,8 +1,9 @@
 # Makefile for payment-fee-service workspace
 
 DOCKER_IMAGE ?= ghcr.io/smeinecke/payment-fee-service
+COMPOSER_BIN ?= $(shell command -v composer 2>/dev/null || echo /tmp/composer)
 
-.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-unit test-e2e test-live build audit-contract docker-build docker-push help
+.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-push help
 
 all: validate test-unit
 
@@ -43,13 +44,17 @@ test-python:
 	uv run pytest tests/ -m "not live and not e2e"
 
 test-php:
-	$(MAKE) -C packages/payment-fee-php test
+	$(MAKE) -C packages/payment-fee-php test COMPOSER_BIN=$(COMPOSER_BIN)
 
 test-typescript:
 	$(MAKE) -C packages/payment-fee-typescript test
 
 test-conformance:
 	$(MAKE) -C tools/conformance test
+
+test-isolated:
+	COMPOSER_BIN=$(COMPOSER_BIN) tools/isolated-install/test_php.sh
+	tools/isolated-install/test_typescript.sh
 
 audit-contract:
 	uv run python tools/audit_contract_runner.py
@@ -80,6 +85,7 @@ help:
 	@echo "  test-php        - Run PHP tests"
 	@echo "  test-typescript - Run TypeScript tests"
 	@echo "  test-conformance- Run cross-language conformance tests"
+	@echo "  test-isolated   - Run isolated package installation tests for PHP and TypeScript"
 	@echo "  test-unit       - Run Python unit tests (no live network, no e2e)"
 	@echo "  test-e2e        - Run end-to-end tests against a real server"
 	@echo "  test-live       - Run live integration tests"
