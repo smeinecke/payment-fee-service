@@ -444,3 +444,69 @@ def build_regional_pilot_plan(
             summary["no_distinct_schedule_candidates"].append(merchant)
 
     return plan, summary
+
+
+def build_diagnostic_plan(
+    run_id: str,
+    merchant_country: str,
+    diagnostic_amounts: list[str],
+    control_buyers: list[str],
+    currency: str,
+    adapter: QuoteAdapter,
+    max_new_captures: int = 5,
+) -> list[Case]:
+    """Build a bounded diagnostic plan for a specific merchant.
+
+    Generates cases for the requested amounts against the primary buyer, plus
+    a single-amount control case for each listed buyer country.  The total
+    number of captures is capped at ``max_new_captures``.
+    """
+    plan: list[Case] = []
+    index = 0
+
+    # Try to infer the primary diagnostic buyer from the adapter; default to AU.
+    primary_buyer = control_buyers[0] if control_buyers else "AU"
+
+    for amount in diagnostic_amounts:
+        if len(plan) >= max_new_captures:
+            break
+        index += 1
+        case_id = f"diag-{merchant_country}-{primary_buyer}-{index}"
+        try:
+            quote = adapter.build_quote(merchant_country, primary_buyer, amount, currency)
+        except Exception:
+            quote = None
+        case = _case_from_quote(
+            run_id=run_id,
+            case_id=case_id,
+            merchant_country=merchant_country,
+            buyer_country=primary_buyer,
+            quote=quote or {},
+            rationale="diagnostic_amount_series",
+        )
+        plan.append(case)
+
+    # Use the first amount for control buyers; skip the primary buyer to avoid duplicates.
+    control_amount = diagnostic_amounts[0] if diagnostic_amounts else "10.00"
+    for buyer in control_buyers:
+        if len(plan) >= max_new_captures:
+            break
+        if buyer == primary_buyer:
+            continue
+        index += 1
+        case_id = f"diag-{merchant_country}-{buyer}-{index}"
+        try:
+            quote = adapter.build_quote(merchant_country, buyer, control_amount, currency)
+        except Exception:
+            quote = None
+        case = _case_from_quote(
+            run_id=run_id,
+            case_id=case_id,
+            merchant_country=merchant_country,
+            buyer_country=buyer,
+            quote=quote or {},
+            rationale="diagnostic_control",
+        )
+        plan.append(case)
+
+    return plan

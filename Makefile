@@ -60,7 +60,10 @@ test-isolated:
 	tools/isolated-install/test_typescript.sh
 
 audit-contract:
-	uv run python tools/audit_contract_runner.py
+	PAYPAL_FEE_DATA=$(PAYPAL_FEE_DATA) STRIPE_FEE_DATA=$(STRIPE_FEE_DATA) uv run python tools/audit_contract_runner.py
+
+PAYPAL_FEE_DATA ?= paypal-fee-data
+STRIPE_FEE_DATA ?= stripe-fee-data
 
 build: docker-build
 
