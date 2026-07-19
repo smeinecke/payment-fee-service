@@ -138,6 +138,7 @@ class ReconciliationStatus(StrEnum):
     BUYER_INTERACTION_BLOCKED = "buyer_interaction_blocked"
     BUYER_CANCELLED = "buyer_cancelled"
     PAYPAL_API_FAILURE = "paypal_api_failure"
+    AUTHENTICATION_FAILED = "authentication_failed"
     ACCOUNT_CAPABILITY_UNAVAILABLE = "account_capability_unavailable"
     ACCOUNT_CONFIGURATION_DIFFERENCE = "account_configuration_difference"
     EXCLUDED_FX_CASE = "excluded_fx_case"

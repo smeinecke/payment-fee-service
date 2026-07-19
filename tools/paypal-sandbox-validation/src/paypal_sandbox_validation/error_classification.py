@@ -16,6 +16,9 @@ def classify_paypal_api_error(exc: PayPalAPIError) -> tuple[ReconciliationStatus
     if issue and "COMPLIANCE" in issue:
         status = ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE
         detail = f"PayPal compliance violation during {safe.get('operation')}"
+    elif issue == "INVALID_CLIENT" or safe.get("error") == "invalid_client":
+        status = ReconciliationStatus.AUTHENTICATION_FAILED
+        detail = f"PayPal client authentication failed during {safe.get('operation')}"
     elif issue in {"CURRENCY_NOT_SUPPORTED", "PAYMENT_METHOD_NOT_SUPPORTED", "PAYEE_ACCOUNT_RESTRICTED"}:
         status = ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE
         detail = f"PayPal account/payment restriction during {safe.get('operation')}"

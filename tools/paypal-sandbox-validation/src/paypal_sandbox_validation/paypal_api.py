@@ -169,9 +169,10 @@ def build_order_payload(
 def extract_paypal_issue(body: dict[str, Any]) -> str | None:
     if not isinstance(body, dict):
         return None
-    name = body.get("name") or ""
-    if isinstance(name, str):
-        return name.upper()
+    for key in ("error", "name"):
+        value = body.get(key)
+        if isinstance(value, str) and value:
+            return value.upper()
     details = body.get("details") or []
     if isinstance(details, list) and details:
         issue = details[0].get("issue") or ""
@@ -188,6 +189,7 @@ def extract_paypal_error_fields(exc: PayPalAPIError) -> dict[str, Any]:
     return {
         "http_status": exc.status_code,
         "operation": exc.operation,
+        "error": body.get("error"),
         "name": body.get("name"),
         "issue": first_detail.get("issue") if isinstance(first_detail, dict) else None,
         "description": first_detail.get("description") if isinstance(first_detail, dict) else body.get("message"),

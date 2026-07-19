@@ -22,6 +22,8 @@ SENSITIVE_KEYS = {
     "payer_id",
     "merchant_id",
     "account_id",
+    "capture_id",
+    "order_id",
     "email",
     "email_address",
     "primary_email_alias",
@@ -98,6 +100,8 @@ def mask_value(key: str, value: Any) -> Any:
         "bic",
     }:
         return "***"
+    if key_lower in {"payer_id", "merchant_id", "account_id", "capture_id"}:
+        return mask_token(value)
     if "link" in key_lower and ("href" in key_lower or value.startswith("http")):
         return mask_url(value)
     return value

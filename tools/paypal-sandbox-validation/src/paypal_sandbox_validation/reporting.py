@@ -149,7 +149,7 @@ def build_summary(run_id: str) -> dict[str, Any]:
             summary["library_not_calculable"] += 1
         elif rec_status in {"buyer_interaction_blocked", "buyer_cancelled", "callback_token_mismatch"}:
             summary["blocked_buyer_interactions"] += 1
-        elif rec_status in {"paypal_api_failure", "paypal_fee_unavailable"}:
+        elif rec_status in {"paypal_api_failure", "paypal_fee_unavailable", "authentication_failed"}:
             summary["api_failures"] += 1
         elif rec_status == "account_capability_unavailable":
             summary["capability_exclusions"] += 1
@@ -157,6 +157,8 @@ def build_summary(run_id: str) -> dict[str, Any]:
             summary["configuration_exclusions"] += 1
         elif status in {"planned", "prediction_ready"}:
             summary["pending"] += 1
+        elif status == "failed":
+            summary["api_failures"] += 1
 
         schedule_fields = _quote_schedule_fields(case.get("quote"))
         case_summary = {
@@ -274,7 +276,7 @@ def save_summary_markdown(run_id: str, summary: dict[str, Any], csv_path: str | 
 # JUnit status classification -------------------------------------------------
 
 _JUNIT_FAILURES = {"fee_mismatch", "currency_mismatch", "net_amount_mismatch"}
-_JUNIT_ERRORS = {"paypal_api_failure", "paypal_fee_unavailable", "buyer_country_mismatch"}
+_JUNIT_ERRORS = {"paypal_api_failure", "paypal_fee_unavailable", "buyer_country_mismatch", "authentication_failed"}
 _JUNIT_SKIPPED = {
     "account_configuration_difference",
     "account_capability_unavailable",
@@ -297,6 +299,8 @@ def _junit_category(rec_status: str | None, case_status: str | None) -> str | No
     if rec_status in _JUNIT_SKIPPED:
         return "skipped"
     if rec_status and rec_status != "match":
+        return "error"
+    if case_status == "failed":
         return "error"
     return None
 

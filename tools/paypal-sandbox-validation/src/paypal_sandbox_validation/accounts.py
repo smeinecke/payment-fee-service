@@ -142,7 +142,7 @@ def _row_to_account(row: dict[str, str]) -> Account:
     )
 
 
-def validate_accounts(accounts: list[Account]) -> dict[str, Any]:
+def validate_accounts(accounts: list[Account], *, require_complete: bool = False) -> dict[str, Any]:
     merchants = [a for a in accounts if a.is_business()]
     buyers = [a for a in accounts if a.is_personal()]
 
@@ -183,6 +183,18 @@ def validate_accounts(accounts: list[Account]) -> dict[str, Any]:
         if a.primary_email_alias in dup_emails:
             invalid_buyer_countries.add(a.country_code)
 
+    invalid_account_reasons = [
+        duplicates,
+        dup_emails,
+        dup_client_ids,
+        invalid_business,
+        missing_business,
+        missing_personal,
+        unsupported,
+    ]
+    if require_complete:
+        invalid_account_reasons.extend([missing_merchants, missing_buyers])
+
     return {
         "merchant_count": len(merchants),
         "buyer_count": len(buyers),
@@ -199,19 +211,7 @@ def validate_accounts(accounts: list[Account]) -> dict[str, Any]:
         "unsupported_countries": sorted(unsupported),
         "missing_merchants": sorted(missing_merchants),
         "missing_buyers": sorted(missing_buyers),
-        "valid": not any(
-            [
-                duplicates,
-                dup_emails,
-                dup_client_ids,
-                invalid_business,
-                missing_business,
-                missing_personal,
-                unsupported,
-                missing_merchants,
-                missing_buyers,
-            ]
-        ),
+        "valid": not any(invalid_account_reasons),
     }
 
 

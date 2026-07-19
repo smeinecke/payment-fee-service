@@ -22,9 +22,10 @@ from paypal_sandbox_validation.models import (
     Account,
     Case,
     CaseStatus,
+    ReconciliationStatus,
     RunConfig,
 )
-from paypal_sandbox_validation.oauth import OAuthCache, fetch_token, probe_credentials
+from paypal_sandbox_validation.oauth import OAuthCache, OAuthError, OAuthProbeStatus, fetch_token, probe_credentials
 from paypal_sandbox_validation.paypal_api import (
     PayPalAPIError,
     PayPalClient,
@@ -52,7 +53,7 @@ from paypal_sandbox_validation.planner import (
 )
 from paypal_sandbox_validation.quote_adapter import QuoteAdapter, QuoteResolutionError
 from paypal_sandbox_validation.reconciliation import reconcile
-from paypal_sandbox_validation.redaction import redact_path, sanitize_dict
+from paypal_sandbox_validation.redaction import mask_value, redact_path, sanitize_dict
 from paypal_sandbox_validation.reporting import build_summary, save_junit, save_summary, save_summary_markdown
 
 
@@ -281,7 +282,8 @@ def run_cmd(
 ) -> None:
     """Execute the validation plan against PayPal Sandbox."""
     accounts = parse_accounts_csv(accounts_csv)
-    validation = validate_accounts(accounts)
+    require_complete = confirm_full_matrix or profile == "full"
+    validation = validate_accounts(accounts, require_complete=require_complete)
 
     if not validation["valid"]:
         click.echo("Account configuration is invalid; cannot run.", err=True)
@@ -485,6 +487,7 @@ def _run_case(
     if case.status == CaseStatus.RECONCILED:
         return _case_dict(case)
 
+    case.status = CaseStatus.FAILED
     return _case_dict(case, error=f"Unhandled case status: {case.status}")
 
 
@@ -533,6 +536,22 @@ def _create_order(
     try:
         assert merchant.client_id and merchant.secret
         token = fetch_token(oauth_cache, merchant.client_id, merchant.secret, merchant.country_code)
+    except OAuthError as exc:
+        case.status = CaseStatus.FAILED
+        case.paypal_error = {"oauth_status": exc.status.value}
+        if exc.status in {OAuthProbeStatus.INVALID_CLIENT, OAuthProbeStatus.AUTHENTICATION_FAILED}:
+            case.reconciliation = {
+                "status": ReconciliationStatus.AUTHENTICATION_FAILED.value,
+                "delta_minor_units": None,
+                "root_cause": f"OAuth failed: {exc.status.value}",
+            }
+        else:
+            case.reconciliation = {
+                "status": ReconciliationStatus.PAYPAL_API_FAILURE.value,
+                "delta_minor_units": None,
+                "root_cause": f"OAuth failed: {exc.status.value}",
+            }
+        return _case_dict(case, error=f"OAuth failed: {exc}")
     except Exception as exc:
         case.status = CaseStatus.FAILED
         return _case_dict(case, error=f"OAuth failed: {exc}")
@@ -601,6 +620,8 @@ def _approve_order(
     )
     if approval_result["status"] != "approved":
         case.status = CaseStatus.FAILED
+        case.paypal_issue = approval_result.get("issue")
+        case.paypal_operation = approval_result.get("operation")
         return _case_dict(
             case,
             error=approval_result.get("error"),
@@ -623,6 +644,22 @@ def _capture(
     try:
         assert merchant.client_id and merchant.secret
         token = fetch_token(oauth_cache, merchant.client_id, merchant.secret, merchant.country_code)
+    except OAuthError as exc:
+        case.status = CaseStatus.FAILED
+        case.paypal_error = {"oauth_status": exc.status.value}
+        if exc.status in {OAuthProbeStatus.INVALID_CLIENT, OAuthProbeStatus.AUTHENTICATION_FAILED}:
+            case.reconciliation = {
+                "status": ReconciliationStatus.AUTHENTICATION_FAILED.value,
+                "delta_minor_units": None,
+                "root_cause": f"OAuth failed: {exc.status.value}",
+            }
+        else:
+            case.reconciliation = {
+                "status": ReconciliationStatus.PAYPAL_API_FAILURE.value,
+                "delta_minor_units": None,
+                "root_cause": f"OAuth failed: {exc.status.value}",
+            }
+        return _case_dict(case, error=f"OAuth failed: {exc}")
     except Exception as exc:
         case.status = CaseStatus.FAILED
         return _case_dict(case, error=f"OAuth failed: {exc}")
@@ -640,8 +677,8 @@ def _capture(
         case.status = CaseStatus.FAILED
         return _case_dict(case, error=f"Capture failed: {exc}")
 
-    case.capture_id = evidence.get("capture_id")
-    case.paypal_evidence = evidence
+    case.capture_id = mask_value("capture_id", evidence.get("capture_id"))
+    case.paypal_evidence = sanitize_dict(evidence)
     case.payer_id = evidence.get("payer_id")
     case.observed_payer_country = evidence.get("payer_country")
     case.capture_attempts += 1
@@ -678,7 +715,7 @@ def _record_paypal_error(case: Case, exc: PayPalAPIError) -> None:
 
     status, safe, detail = classify_paypal_api_error(exc)
     case.paypal_error = safe
-    case.paypal_issue = safe.get("issue") or safe.get("name")
+    case.paypal_issue = safe.get("issue") or safe.get("error") or safe.get("name")
     case.paypal_operation = safe.get("operation")
     case.paypal_debug_id = safe.get("debug_id")
     case.status = CaseStatus.FAILED
@@ -700,6 +737,14 @@ def _case_dict(
     if reconciliation_status:
         rec = data.get("reconciliation") or {}
         rec["status"] = reconciliation_status
+        data["reconciliation"] = rec
+    if (
+        error
+        and data.get("status") == CaseStatus.FAILED.value
+        and (not data.get("reconciliation") or not data["reconciliation"].get("status"))
+    ):
+        rec = data.get("reconciliation") or {}
+        rec["status"] = ReconciliationStatus.PAYPAL_API_FAILURE.value
         data["reconciliation"] = rec
     return data
 

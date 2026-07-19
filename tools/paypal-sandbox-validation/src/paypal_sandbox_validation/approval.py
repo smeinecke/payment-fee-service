@@ -47,17 +47,23 @@ def approve_order(
                 return {
                     "status": ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE.value,
                     "error": "PayPal Sandbox compliance violation; the account configuration may be incomplete.",
+                    "issue": "COMPLIANCE_VIOLATION",
+                    "operation": "buyer approval",
                 }
             callback_state = callback_server.wait_for_state(timeout=120.0)
             if callback_state == "cancelled":
                 return {
                     "status": ReconciliationStatus.BUYER_CANCELLED.value,
                     "error": "Buyer cancelled the payment.",
+                    "issue": "BUYER_CANCELLED",
+                    "operation": "buyer approval",
                 }
             if callback_state == "token_mismatch":
                 return {
                     "status": "callback_token_mismatch",
                     "error": "Callback token did not match the order token.",
+                    "issue": "CALLBACK_TOKEN_MISMATCH",
+                    "operation": "callback",
                 }
             if callback_state == "timeout":
                 if result == "approved":
@@ -67,10 +73,17 @@ def approve_order(
                 return {
                     "status": ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value,
                     "error": "Timeout waiting for return callback.",
+                    "issue": "BUYER_INTERACTION_BLOCKED",
+                    "operation": "buyer approval",
                 }
             return {"status": "approved"}
     except BrowserError as exc:
-        return {"status": ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value, "error": str(exc)}
+        return {
+            "status": ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value,
+            "error": str(exc),
+            "issue": "BUYER_INTERACTION_BLOCKED",
+            "operation": "buyer approval",
+        }
     finally:
         if manage_callback:
             callback_server.stop()
