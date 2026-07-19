@@ -3,7 +3,7 @@
 DOCKER_IMAGE ?= ghcr.io/smeinecke/payment-fee-service
 COMPOSER_BIN ?= $(shell command -v composer 2>/dev/null || echo /tmp/composer)
 
-.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-push help
+.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-push help paypal-sandbox-validate-config paypal-sandbox-probe paypal-sandbox-plan paypal-sandbox-smoke paypal-sandbox-report paypal-sandbox-install-playwright
 
 all: validate test-unit
 
@@ -69,6 +69,36 @@ docker-push:
 
 validate: format check pyright bandit
 	@echo "Python validation passed."
+
+# -----------------------------------------------------------------------------
+# PayPal Sandbox validation harness targets
+# -----------------------------------------------------------------------------
+
+PAYPAL_SANDBOX_ACCOUNTS_CSV ?= $(HOME)/paypal-sandbox-accounts.csv
+PAYPAL_SANDBOX_VALIDATION_RUN ?= $(shell ls -t artifacts/paypal-sandbox 2>/dev/null | head -1)
+
+paypal-sandbox-validate-config:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation validate-config
+
+paypal-sandbox-probe:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation probe
+
+paypal-sandbox-plan:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation plan --profile smoke
+
+paypal-sandbox-smoke:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation run --profile smoke --continue-after-mismatch
+
+paypal-sandbox-report:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation report --run-id $(PAYPAL_SANDBOX_VALIDATION_RUN)
+
+paypal-sandbox-install-playwright:
+	uv run python -m playwright install chromium
 
 help:
 	@echo "Available targets:"

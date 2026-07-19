@@ -21,3 +21,11 @@ packages/payment-fee-php/.phpunit.cache/
 packages/payment-fee-typescript/node_modules/
 packages/payment-fee-typescript/dist-tests/
 packages/payment-fee-typescript/.eslintcache
+
+# PayPal Sandbox validation harness
+*.paypal-sandbox.local.csv
+*.paypal-sandbox.local.tsv
+*.paypal-sandbox-secrets.local.json
+artifacts/paypal-sandbox/
+.playwright/paypal-sandbox/
+

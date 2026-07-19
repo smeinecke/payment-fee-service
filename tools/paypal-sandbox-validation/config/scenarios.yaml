@@ -1,0 +1,92 @@
+standard_wallet_checkout:
+  provider: paypal
+  channel: online
+  payment_method: paypal_wallet
+  user_action: PAY_NOW
+  shipping_preference: NO_SHIPPING
+  intent: CAPTURE
+  default:
+    product_id: other_commercial
+    variant_id: standard
+  per_country:
+    DE:
+      product_id: paypal_checkout
+      variant_id: standard
+    US:
+      product_id: paypal_checkout
+      variant_id: standard
+
+profiles:
+  smoke:
+    description: Two-case smoke profile
+    merchants:
+      - DE
+    buyers_per_merchant:
+      - DE
+      - US
+    amount: "10.00"
+    currencies:
+      DE: EUR
+  de-pilot:
+    description: German pilot profile
+    merchants:
+      - DE
+    buyers_per_merchant:
+      - DE
+      - ES
+      - GB
+      - US
+      - JP
+    amounts:
+      - "1.00"
+      - "3.33"
+      - "10.00"
+      - "100.00"
+    currencies:
+      DE: EUR
+  full:
+    description: Full standard-wallet matrix
+    merchants:
+      - DE
+      - ES
+      - GB
+      - US
+      - JP
+      - CA
+      - AU
+      - CH
+      - BR
+      - HK
+      - CZ
+      - IL
+      - ZA
+    buyers_per_merchant:
+      - same
+      - DE
+      - GB
+      - US
+      - JP
+    amounts:
+      - "1.00"
+      - "3.33"
+      - "10.00"
+      - "100.00"
+    jpy_amounts:
+      - "100"
+      - "333"
+      - "1000"
+      - "10000"
+    currencies:
+      DE: EUR
+      ES: EUR
+      GB: GBP
+      US: USD
+      JP: JPY
+      CA: CAD
+      AU: AUD
+      CH: CHF
+      BR: BRL
+      HK: HKD
+      CZ: CZK
+      IL: ILS
+      ZA: ZAR

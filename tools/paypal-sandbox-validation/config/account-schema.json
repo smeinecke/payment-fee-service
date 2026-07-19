@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "country_code",
+    "account_type",
+    "primary_email_alias",
+    "password",
+    "first_name",
+    "last_name"
+  ],
+  "properties": {
+    "country_code": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$"
+    },
+    "account_type": {
+      "type": "string",
+      "enum": ["BUSINESS", "PERSONAL"]
+    },
+    "primary_email_alias": {
+      "type": "string",
+      "format": "email"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1
+    },
+    "first_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "last_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ppBalance": {
+      "type": "string"
+    },
+    "addBank": {
+      "type": "string"
+    },
+    "ccType": {
+      "type": "string"
+    },
+    "payment_card": {
+      "type": "string"
+    },
+    "client_id": {
+      "type": "string"
+    },
+    "secret": {
+      "type": "string"
+    }
+  },
+  "if": {
+    "properties": {
+      "account_type": { "const": "BUSINESS" }
+    }
+  },
+  "then": {
+    "required": ["client_id", "secret"]
+  },
+  "else": {
+    "properties": {
+      "client_id": { "type": ["string", "null"] },
+      "secret": { "type": ["string", "null"] }
+    }
+  }
+}
