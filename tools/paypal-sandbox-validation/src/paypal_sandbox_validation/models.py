@@ -48,6 +48,12 @@ class QualificationStatus(StrEnum):
     DATASET_NOT_CALCULABLE = "dataset_not_calculable"
     CAPABILITY_UNAVAILABLE = "capability_unavailable"
     INCONCLUSIVE = "inconclusive"
+    UNDER_INVESTIGATION = "under_investigation"
+    SANDBOX_CHECKOUT_LIMITATION = "sandbox_checkout_limitation"
+    ORDERS_V2_PAYLOAD_DEFECT = "orders_v2_payload_defect"
+    PLAYWRIGHT_AUTOMATION_DEFECT = "playwright_automation_defect"
+    REST_CREDENTIALS_MISMATCH = "rest_credentials_merchant_mismatch"
+    TRANSIENT_SANDBOX_ERROR = "transient_sandbox_error"
 
 
 class RunConfig(BaseModel):
@@ -69,6 +75,7 @@ class RunConfig(BaseModel):
     retry_failed: bool = False
     dry_run: bool = False
     confirm_full_matrix: bool = False
+    payload_variant: str = "application_context"
 
 
 class CaseStatus(StrEnum):

@@ -41,15 +41,14 @@ def approve_order(
             if screenshot_dir and case_id:
                 screenshot_path = screenshot_dir / f"{case_id}-checkout.png"
             result = browser.confirm_and_approve(amount, currency, screenshot_path=screenshot_path)
-            if result == ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value:
-                return {"status": result, "error": "PayPal presented a security challenge."}
-            if result == "compliance_violation":
-                return {
-                    "status": ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE.value,
-                    "error": "PayPal Sandbox compliance violation; the account configuration may be incomplete.",
-                    "issue": "COMPLIANCE_VIOLATION",
-                    "operation": "buyer approval",
-                }
+            if result["status"] == ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value:
+                return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
+            if result["status"] == ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE.value:
+                return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
+            if result["status"] == "buyer_checkout_unknown_error":
+                return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
+            if result["status"] != "approved":
+                return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
             callback_state = callback_server.wait_for_state(timeout=120.0)
             if callback_state == "cancelled":
                 return {
@@ -66,7 +65,7 @@ def approve_order(
                     "operation": "callback",
                 }
             if callback_state == "timeout":
-                if result == "approved":
+                if result["status"] == "approved":
                     return {"status": "approved"}
                 if screenshot_dir and case_id:
                     browser.capture_failure_screenshot(screenshot_dir / f"{case_id}-failure.png")

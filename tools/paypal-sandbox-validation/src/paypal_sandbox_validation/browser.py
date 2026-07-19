@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import re
 from pathlib import Path
+from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import Page, Playwright, sync_playwright
@@ -93,23 +94,39 @@ class PayPalBrowser:
         amount: str,
         currency: str,
         screenshot_path: Path | None = None,
-    ) -> str:
+    ) -> dict[str, Any]:
         page = self._require_page()
         try:
             self._verify_amount(page, amount, currency)
             self._select_balance_if_available(page)
             self._click_pay_now(page)
             page.wait_for_url("**/paypal/return**", timeout=60000)
-            return "approved"
-        except PlaywrightTimeoutError as exc:
+            return {"status": "approved"}
+        except PlaywrightTimeoutError:
             if screenshot_path:
                 self._safe_screenshot(screenshot_path)
+            evidence = self.capture_checkout_evidence(
+                api_issue=self._extract_url_issue(page.url),
+                operation="buyer approval",
+            )
             if self._is_challenge_present(page):
-                return ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value
+                return {
+                    "status": ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value,
+                    "issue": "BUYER_INTERACTION_BLOCKED",
+                    "operation": "buyer approval",
+                    "evidence": evidence,
+                    "error": "PayPal presented a security challenge.",
+                }
             generic_error = self._detect_generic_error(page)
             if generic_error:
-                return generic_error
-            raise BrowserError("Timed out waiting for buyer approval", exc) from exc
+                return {**generic_error, "evidence": evidence}
+            return {
+                "status": "buyer_checkout_unknown_error",
+                "issue": "BUYER_CHECKOUT_UNKNOWN_ERROR",
+                "operation": "buyer approval",
+                "evidence": evidence,
+                "error": "Timed out waiting for buyer approval",
+            }
 
     def _verify_amount(self, page: Page, amount: str, currency: str) -> None:
         # Allow localized decimal separators and minor formatting differences.
@@ -166,29 +183,153 @@ class PayPalBrowser:
             pass
         raise BrowserError("No Pay Now/Approve button found on checkout page")
 
+    _KNOWN_COMPLIANCE_MESSAGES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "this transaction cannot be completed due to a compliance violation",
+            "your account is restricted",
+            "we're unable to complete this transaction",
+            "payment cannot be processed due to a compliance issue",
+        }
+    )
+
     def _is_challenge_present(self, page: Page) -> bool:
         challenge_terms = ["captcha", "security challenge", "verify", "2-step", "mfa", "sicherheitsprüfung"]
         text = page.content().lower()
         return any(term in text for term in challenge_terms)
 
-    def _detect_generic_error(self, page: Page) -> str | None:
-        url = page.url
+    def _extract_url_issue(self, url: str) -> str | None:
+        """Extract a structured PayPal API issue from a genericError URL code."""
         if "genericError" not in url:
             return None
         parsed = urlparse(url)
         code_list = parse_qs(parsed.query).get("code")
         if not code_list:
-            return ReconciliationStatus.PAYPAL_API_FAILURE.value
+            return None
         code = code_list[0]
         try:
             decoded = base64.b64decode(code).decode("ascii", errors="replace")
         except Exception:
-            return ReconciliationStatus.PAYPAL_API_FAILURE.value
-        if "COMPLIANCE" in decoded.upper():
-            return "compliance_violation"
-        if "DENIED" in decoded.upper():
-            return ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value
-        return ReconciliationStatus.PAYPAL_API_FAILURE.value
+            return None
+        decoded_upper = decoded.upper()
+        if "COMPLIANCE" in decoded_upper:
+            return "COMPLIANCE_VIOLATION"
+        if "DENIED" in decoded_upper:
+            return "BUYER_INTERACTION_BLOCKED"
+        if "CANCEL" in decoded_upper:
+            return "BUYER_CANCELLED"
+        return None
+
+    def _is_compliance_message(self, text: str) -> bool:
+        """Require an exact known compliance phrase before classifying compliance."""
+        text_lower = text.lower()
+        return any(phrase in text_lower for phrase in self._KNOWN_COMPLIANCE_MESSAGES)
+
+    def _detect_generic_error(self, page: Page) -> dict[str, Any] | None:
+        url = page.url
+        if "genericError" not in url:
+            return None
+        api_issue = self._extract_url_issue(url)
+        evidence = self.capture_checkout_evidence(api_issue=api_issue, operation="buyer approval")
+
+        if api_issue == "COMPLIANCE_VIOLATION":
+            return {
+                "status": ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE.value,
+                "issue": "COMPLIANCE_VIOLATION",
+                "operation": "buyer approval",
+                "error": "PayPal Sandbox compliance violation detected.",
+                "evidence": evidence,
+            }
+        if api_issue == "BUYER_INTERACTION_BLOCKED":
+            return {
+                "status": ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value,
+                "issue": "BUYER_INTERACTION_BLOCKED",
+                "operation": "buyer approval",
+                "error": "PayPal denied the transaction.",
+                "evidence": evidence,
+            }
+
+        # Visible error text is a secondary signal; never classify compliance from a broad substring.
+        visible_text = evidence.get("error_message", "")
+        if self._is_compliance_message(visible_text):
+            return {
+                "status": ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE.value,
+                "issue": "COMPLIANCE_VIOLATION",
+                "operation": "buyer approval",
+                "error": "PayPal Sandbox compliance violation detected from visible error text.",
+                "evidence": evidence,
+            }
+        return {
+            "status": "buyer_checkout_unknown_error",
+            "issue": "BUYER_CHECKOUT_UNKNOWN_ERROR",
+            "operation": "buyer approval",
+            "error": "PayPal returned a generic checkout error.",
+            "evidence": evidence,
+        }
+
+    def capture_checkout_evidence(
+        self,
+        api_issue: str | None = None,
+        operation: str | None = None,
+    ) -> dict[str, Any]:
+        """Collect sanitized checkout-page evidence for diagnostic reports."""
+        page = self._require_page()
+        from urllib.parse import urlparse
+
+        url = page.url
+        parsed = urlparse(url)
+        title = self._safe_text(page.title())
+        heading = self._safe_text(self._extract_visible_error_heading(page))
+        message = self._safe_text(self._extract_visible_error_message(page))
+
+        return {
+            "hostname": parsed.hostname,
+            "pathname": parsed.path,
+            "page_title": title,
+            "error_heading": heading,
+            "error_message": message,
+            "checkout_step": self._checkout_step(parsed.path, page.content().lower()),
+            "paypal_api_issue": api_issue,
+            "operation": operation,
+        }
+
+    def _extract_visible_error_heading(self, page: Page) -> str:
+        selectors = ["h1", "h2", "h3", "[data-testid='error-heading']", ".error-heading"]
+        for selector in selectors:
+            try:
+                return page.locator(selector).first.inner_text(timeout=3000).strip()
+            except PlaywrightTimeoutError:
+                continue
+        return ""
+
+    def _extract_visible_error_message(self, page: Page) -> str:
+        selectors = ["[role='alert']", ".alert", ".error-message", ".error", ".message", "p"]
+        for selector in selectors:
+            try:
+                text = page.locator(selector).first.inner_text(timeout=3000).strip()
+                if text:
+                    return text
+            except PlaywrightTimeoutError:
+                continue
+        return ""
+
+    def _checkout_step(self, pathname: str, content_lower: str) -> str:
+        if "login" in pathname or "signin" in pathname or "input[name='login" in content_lower:
+            return "login"
+        if "review" in pathname or "checkout" in pathname or "payment" in content_lower:
+            return "review_payment"
+        if "genericError" in pathname:
+            return "generic_error"
+        if "return" in pathname:
+            return "return"
+        return "unknown"
+
+    def _safe_text(self, text: str | None) -> str:
+        if not text:
+            return ""
+        # Redact any email addresses or long tokens that appear in page text.
+        from paypal_sandbox_validation.redaction import redact_text
+
+        return redact_text(text)
 
     def _safe_screenshot(self, path: Path) -> None:
         page = self._require_page()

@@ -31,6 +31,9 @@ from paypal_sandbox_validation.paypal_api import (
     PayPalClient,
     build_order_payload,
     extract_approval_url,
+    extract_payee_info,
+    extract_paypal_error_fields,
+    order_payload_signature,
 )
 from paypal_sandbox_validation.persistence import (
     artifact_root,
@@ -69,7 +72,7 @@ from paypal_sandbox_validation.qualification import (
 )
 from paypal_sandbox_validation.quote_adapter import QuoteAdapter, QuoteResolutionError
 from paypal_sandbox_validation.reconciliation import reconcile
-from paypal_sandbox_validation.redaction import mask_value, redact_path, sanitize_dict
+from paypal_sandbox_validation.redaction import mask_value, redact_path, sanitize_dict, sanitize_paypal_order
 from paypal_sandbox_validation.reporting import build_summary, save_junit, save_summary, save_summary_markdown
 
 
@@ -278,6 +281,11 @@ def plan_cmd(
 @click.option("--retry-failed", is_flag=True, default=False)
 @click.option("--dry-run", is_flag=True, default=False)
 @click.option("--confirm-full-matrix", is_flag=True, default=False)
+@click.option(
+    "--payload-variant",
+    type=click.Choice(["application_context", "payment_source"], case_sensitive=False),
+    default="application_context",
+)
 def run_cmd(
     accounts_csv: str,
     profile: str,
@@ -295,6 +303,7 @@ def run_cmd(
     retry_failed: bool,
     dry_run: bool,
     confirm_full_matrix: bool,
+    payload_variant: str,
 ) -> None:
     """Execute the validation plan against PayPal Sandbox."""
     accounts = parse_accounts_csv(accounts_csv)
@@ -327,6 +336,7 @@ def run_cmd(
         retry_failed=retry_failed,
         dry_run=dry_run,
         confirm_full_matrix=confirm_full_matrix,
+        payload_variant=payload_variant,
     )
 
     if resume:
@@ -932,7 +942,7 @@ def _run_case(
         callback.start()
     try:
         if not case.order_id:
-            create_result = _create_order(case, merchant, oauth_cache, callback)
+            create_result = _create_order(case, merchant, oauth_cache, callback, payload_variant=config.payload_variant)
             if create_result:
                 return create_result
 
@@ -1001,6 +1011,7 @@ def _create_order(
     merchant: Account,
     oauth_cache: OAuthCache,
     callback: CallbackServer | None,
+    payload_variant: str = "application_context",
 ) -> dict[str, Any] | None:
     if not case.request_id_create:
         case.request_id_create = generate_request_id(case.run_id, case.case_id, "create", case.create_attempts)
@@ -1044,6 +1055,7 @@ def _create_order(
             invoice_id=invoice_id,
             custom_id=case.case_id,
             brand_name="PayPal Sandbox Validation",
+            form=payload_variant,
         )
     except Exception as exc:
         case.status = CaseStatus.FAILED
@@ -1094,6 +1106,14 @@ def _approve_order(
         case.status = CaseStatus.FAILED
         case.paypal_issue = approval_result.get("issue")
         case.paypal_operation = approval_result.get("operation")
+        if approval_result.get("evidence"):
+            case.pilot_metadata = {**case.pilot_metadata, "checkout_evidence": approval_result["evidence"]}
+            case.paypal_error = {
+                "message": approval_result.get("error"),
+                "checkout_evidence": approval_result["evidence"],
+            }
+        else:
+            case.paypal_error = {"message": approval_result.get("error")}
         return _case_dict(
             case,
             error=approval_result.get("error"),
@@ -1410,6 +1430,107 @@ def diagnose_cmd(
     )
 
 
+def _default_currency(merchant_country: str) -> str:
+    from paypal_sandbox_validation.configuration import currency_for_country
+
+    try:
+        return currency_for_country(merchant_country)
+    except Exception:
+        return "USD"
+
+
+def _create_and_associate_order(
+    merchant: Account,
+    amount: str,
+    currency: str,
+    oauth_cache: OAuthCache,
+    callback: CallbackServer,
+    payload_variant: str = "application_context",
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    """Create an order, retrieve it, and return order, payload, and payee info.
+
+    Returns (order, payload, error). On success error is None.
+    """
+    if not merchant.client_id or not merchant.secret:
+        return None, None, {"error": "missing client_id or secret", "association_status": "missing_credentials"}
+
+    try:
+        token = fetch_token(oauth_cache, merchant.client_id, merchant.secret, merchant.country_code)
+    except OAuthError as exc:
+        return None, None, {"error": f"OAuth failed: {exc.status.value}", "association_status": "oauth_failed"}
+
+    client = PayPalClient(token=token)
+    run_id = generate_run_id()
+    reference_id = f"verify-{merchant.country_code}-{run_id}"
+
+    try:
+        payload = build_order_payload(
+            amount=amount,
+            currency=currency,
+            return_url=callback.return_url,
+            cancel_url=callback.cancel_url,
+            reference_id=reference_id,
+            invoice_id=reference_id,
+            custom_id=reference_id,
+            brand_name="PayPal Sandbox Validation",
+            form=payload_variant,
+        )
+    except Exception as exc:
+        return None, None, {"error": f"Failed to build order payload: {exc}", "association_status": "payload_error"}
+
+    request_id = generate_request_id(run_id, reference_id, "create", 0)
+    try:
+        order = client.create_order(payload, request_id=request_id)
+    except PayPalAPIError as exc:
+        return (
+            None,
+            payload,
+            {
+                "error": f"PayPal API create order failed: {exc}",
+                "paypal_error": extract_paypal_error_fields(exc),
+                "association_status": "paypal_api_error",
+            },
+        )
+
+    order_id = order.get("id")
+    if not order_id:
+        return None, payload, {"error": "Order response missing id", "association_status": "malformed_response"}
+
+    try:
+        order = client.get_order(order_id)
+    except PayPalAPIError as exc:
+        return (
+            order,
+            payload,
+            {
+                "error": f"PayPal API get order failed: {exc}",
+                "paypal_error": extract_paypal_error_fields(exc),
+                "association_status": "paypal_api_error",
+            },
+        )
+
+    return order, payload, None
+
+
+def _order_payee_association(order: dict[str, Any], merchant: Account) -> tuple[bool, dict[str, Any]]:
+    """Compare order payee with configured merchant email.
+
+    Returns (verified, sanitized_evidence). Does not log emails.
+    """
+    payee = extract_payee_info(order)
+    payee_email = payee.get("email_address")
+    payee_merchant_id = payee.get("merchant_id")
+    configured_email = merchant.primary_email_alias
+    payee_present = bool(payee_email or payee_merchant_id)
+    payee_email_matches = bool(payee_email and configured_email and payee_email.lower() == configured_email.lower())
+
+    # Sanitize the order for any artifact: keep only presence booleans, no addresses or IDs.
+    sanitized_order = sanitize_paypal_order(order)
+    sanitized_order["payee_present"] = payee_present
+    sanitized_order["payee_email_matches"] = payee_email_matches
+    return payee_email_matches, sanitized_order
+
+
 def _merchant_account_config(accounts_csv: str, merchant_country: str) -> dict[str, Any] | None:
     """Return non-secret configuration hints from the account CSV."""
     accounts = parse_accounts_csv(accounts_csv)
@@ -1467,6 +1588,328 @@ def _write_observation_fixture(
     }
     fixture_path = fixture_dir / f"{original.run_id}-{original.case_id}.json"
     fixture_path.write_text(json.dumps(fixture, indent=2, sort_keys=True))
+
+
+@cli.command("verify-merchant-association")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+)
+@click.option("--merchant", type=str, default="DE")
+@click.option("--amount", type=str, default="1.00")
+@click.option("--currency", type=str, default=None)
+@click.option(
+    "--payload-variant",
+    type=click.Choice(["application_context", "payment_source"], case_sensitive=False),
+    default="application_context",
+)
+def verify_merchant_association_cmd(
+    accounts_csv: str,
+    merchant: str,
+    amount: str,
+    currency: str | None,
+    payload_variant: str,
+) -> None:
+    """Create a DE order, retrieve it, and verify the payee belongs to the configured merchant."""
+    accounts = parse_accounts_csv(accounts_csv)
+    merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
+    merchant_account = merchant_accounts.get(merchant.upper())
+    if not merchant_account:
+        click.echo(json.dumps({"merchant_country": merchant, "association_status": "merchant_not_found"}, indent=2))
+        sys.exit(1)
+
+    currency = currency or _default_currency(merchant_account.country_code)
+    oauth_cache = OAuthCache()
+    with CallbackServer(expected_token="") as callback:
+        order, payload, error = _create_and_associate_order(
+            merchant_account,
+            amount=amount,
+            currency=currency,
+            oauth_cache=oauth_cache,
+            callback=callback,
+            payload_variant=payload_variant,
+        )
+
+    if error:
+        result = {
+            "merchant_country": merchant_account.country_code,
+            "oauth_valid": error["association_status"] != "oauth_failed",
+            "payee_present": False,
+            "payee_email_matches": False,
+            "association_status": error["association_status"],
+            "payload_variant": payload_variant,
+            "payload_signature": order_payload_signature(payload) if payload else None,
+        }
+        click.echo(json.dumps(result, indent=2))
+        sys.exit(1)
+
+    assert order is not None
+    payee_email_matches, sanitized_order = _order_payee_association(order, merchant_account)
+    run_id = generate_run_id()
+    artifact_dir = artifact_root() / run_id / "merchant-association"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    save_json(
+        artifact_dir / f"{merchant_account.country_code}-{payload_variant}.json",
+        {
+            "merchant_country": merchant_account.country_code,
+            "payee_present": sanitized_order.get("payee_present"),
+            "payee_email_matches": payee_email_matches,
+            "association_status": "associated" if payee_email_matches else "mismatch",
+            "payload_signature": order_payload_signature(payload if payload is not None else {}),
+            "order": sanitized_order,
+        },
+    )
+
+    result = {
+        "merchant_country": merchant_account.country_code,
+        "oauth_valid": True,
+        "payee_present": sanitized_order.get("payee_present"),
+        "payee_email_matches": payee_email_matches,
+        "association_status": "associated" if payee_email_matches else "mismatch",
+        "payload_variant": payload_variant,
+    }
+    click.echo(json.dumps(result, indent=2))
+
+
+@cli.command("create-manual-approval-case")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+)
+@click.option("--merchant", type=str, default="DE")
+@click.option("--buyer", type=str, default="DE")
+@click.option("--amount", type=str, default="1.00")
+@click.option("--currency", type=str, default=None)
+@click.option(
+    "--payload-variant",
+    type=click.Choice(["application_context", "payment_source"], case_sensitive=False),
+    default="application_context",
+)
+@click.option("--wait-seconds", type=int, default=300)
+@click.option("--poll-interval", type=int, default=5)
+@click.option("--show-approval-url", is_flag=True, default=True)
+def create_manual_approval_case_cmd(
+    accounts_csv: str,
+    merchant: str,
+    buyer: str,
+    amount: str,
+    currency: str | None,
+    payload_variant: str,
+    wait_seconds: int,
+    poll_interval: int,
+    show_approval_url: bool,
+) -> None:
+    """Create an order and wait for manual browser approval before capturing.
+
+    The approval URL is printed for the user; it is not persisted.
+    """
+    import time
+
+    accounts = parse_accounts_csv(accounts_csv)
+    merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
+    buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
+    merchant_account = merchant_accounts.get(merchant.upper())
+    buyer_account = buyer_accounts.get(buyer.upper())
+    if not merchant_account:
+        click.echo(json.dumps({"error": "merchant not found"}, indent=2), err=True)
+        sys.exit(1)
+    if not buyer_account:
+        click.echo(json.dumps({"error": "buyer not found"}, indent=2), err=True)
+        sys.exit(1)
+
+    currency = currency or _default_currency(merchant_account.country_code)
+    run_id = generate_run_id()
+    case_id = f"manual-{merchant_account.country_code}-{buyer_account.country_code}-{run_id}"
+    artifact_dir = artifact_root() / run_id
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    oauth_cache = OAuthCache()
+    callback = CallbackServer(expected_token="")
+    callback.start()
+    try:
+        order, payload, error = _create_and_associate_order(
+            merchant_account,
+            amount=amount,
+            currency=currency,
+            oauth_cache=oauth_cache,
+            callback=callback,
+            payload_variant=payload_variant,
+        )
+    finally:
+        pass  # keep callback alive during polling; stopped below
+    if error:
+        click.echo(json.dumps({"error": error, "payload_variant": payload_variant}, indent=2))
+        callback.stop()
+        sys.exit(1)
+
+    assert order is not None
+    order_id = order.get("id")
+    if not order_id:
+        click.echo(json.dumps({"error": "Order response missing id", "payload_variant": payload_variant}, indent=2))
+        callback.stop()
+        sys.exit(1)
+    if not merchant_account.client_id or not merchant_account.secret:
+        click.echo(json.dumps({"error": "missing client_id or secret"}, indent=2), err=True)
+        callback.stop()
+        sys.exit(1)
+
+    callback.update_expected_token(order_id)
+    approval_url = extract_approval_url(order)
+    payload_signature = order_payload_signature(payload if payload is not None else {})
+
+    sanitized_order = sanitize_paypal_order(order)
+    save_json(artifact_dir / "order-created.json", sanitized_order)
+    save_json(artifact_dir / "payload-signature.json", payload_signature)
+
+    if show_approval_url:
+        click.echo("Approve this order in a normal browser:")
+        click.echo(approval_url)
+        click.echo(f"Waiting up to {wait_seconds}s for the order to be manually approved...")
+
+    token = fetch_token(oauth_cache, merchant_account.client_id, merchant_account.secret, merchant_account.country_code)
+    client = PayPalClient(token=token)
+
+    deadline = time.time() + wait_seconds
+    status = "CREATED"
+    final_order: dict[str, Any] | None = None
+    while time.time() < deadline:
+        try:
+            final_order = client.get_order(order_id)
+        except PayPalAPIError as exc:
+            click.echo(f"Warning: get_order failed: {exc}", err=True)
+            time.sleep(poll_interval)
+            continue
+        status = final_order.get("status", status)
+        if status == "APPROVED":
+            break
+        time.sleep(poll_interval)
+
+    if status != "APPROVED":
+        result = {
+            "merchant_country": merchant_account.country_code,
+            "buyer_country": buyer_account.country_code,
+            "amount": amount,
+            "currency": currency,
+            "payload_variant": payload_variant,
+            "order_status": status,
+            "manual_approval": "timeout",
+            "payload_signature": payload_signature,
+        }
+        save_json(artifact_dir / "manual-approval-timeout.json", result)
+        click.echo(json.dumps(result, indent=2))
+        callback.stop()
+        return
+
+    # Capture the approved order.
+    request_id = generate_request_id(run_id, case_id, "capture", 0)
+    try:
+        capture = client.capture_order(order_id, request_id=request_id)
+    except PayPalAPIError as exc:
+        result = {
+            "merchant_country": merchant_account.country_code,
+            "buyer_country": buyer_account.country_code,
+            "amount": amount,
+            "currency": currency,
+            "payload_variant": payload_variant,
+            "order_status": status,
+            "manual_approval": "approved",
+            "capture_status": "failed",
+            "paypal_error": extract_paypal_error_fields(exc),
+            "payload_signature": payload_signature,
+        }
+        save_json(artifact_dir / "capture-failed.json", result)
+        click.echo(json.dumps(result, indent=2))
+        callback.stop()
+        return
+
+    # Build evidence and reconcile.
+    from paypal_sandbox_validation.diagnostics import validate_case_constraints
+
+    capture_details = (capture.get("purchase_units") or [{}])[0].get("payments", {}).get("captures") or [{}]
+    capture_detail = capture_details[0] if capture_details else {}
+    capture_id = capture_detail.get("id")
+    breakdown = capture_detail.get("seller_receivable_breakdown", {}) or {}
+    payer = capture.get("payer", {}) or {}
+    payer_country = (payer.get("address") or {}).get("country_code")
+    if not payer_country:
+        payer_country = (payer.get("payer_info") or {}).get("country_code")
+
+    paypal_evidence = {
+        "status": "COMPLETED",
+        "gross_amount": breakdown.get("gross_amount"),
+        "paypal_fee": breakdown.get("paypal_fee"),
+        "net_amount": breakdown.get("net_amount"),
+        "payer_country": payer_country,
+    }
+
+    adapter = QuoteAdapter()
+    try:
+        quote = adapter.build_quote(
+            merchant_account.country_code,
+            buyer_account.country_code,
+            amount,
+            currency,
+        )
+    except Exception as exc:
+        quote = None
+        click.echo(f"Warning: library quote failed: {exc}", err=True)
+
+    case = Case(
+        case_id=case_id,
+        run_id=run_id,
+        merchant_country=merchant_account.country_code,
+        buyer_country=buyer_account.country_code,
+        amount=amount,
+        currency=currency,
+        product_id=quote.get("_scenario", {}).get("product_id") if quote else "",
+        variant_id=quote.get("_scenario", {}).get("variant_id") if quote else "",
+        status=CaseStatus.CAPTURED,
+        order_id=order_id,
+        capture_id=capture_id,
+        paypal_evidence=paypal_evidence,
+        quote=quote,
+    )
+
+    if quote:
+        result = reconcile(
+            paypal_evidence=paypal_evidence,
+            quote=quote,
+            merchant_country=merchant_account.country_code,
+            buyer_country=buyer_account.country_code,
+            observed_payer_country=payer_country,
+        )
+        case.reconciliation = result.model_dump(exclude_none=True)
+        case.status = CaseStatus.RECONCILED
+
+    validation = (
+        validate_case_constraints(case) if quote else {"valid": False, "classification": "library_not_calculable"}
+    )
+    if not validation["valid"]:
+        case.status = CaseStatus.FAILED
+        case.paypal_issue = validation["classification"]
+
+    # Persist a secret-free report.
+    report = {
+        "run_id": run_id,
+        "case_id": case_id,
+        "merchant_country": merchant_account.country_code,
+        "buyer_country": buyer_account.country_code,
+        "amount": amount,
+        "currency": currency,
+        "payload_variant": payload_variant,
+        "manual_approval": "approved",
+        "capture_status": "completed",
+        "paypal_fee": paypal_evidence.get("paypal_fee"),
+        "library_fee": quote.get("processing_fee") if quote else None,
+        "reconciliation": case.reconciliation,
+        "validation": validation,
+        "payload_signature": payload_signature,
+    }
+    save_json(artifact_dir / "manual-approval-capture.json", report)
+    click.echo(json.dumps(report, indent=2))
+    callback.stop()
 
 
 def main() -> None:

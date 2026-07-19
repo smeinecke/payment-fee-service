@@ -640,5 +640,83 @@ def _render_markdown(diag: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def classify_de_checkout_outcome(
+    association_verified: bool,
+    manual_send_money: dict[str, Any],
+    manual_order: dict[str, Any],
+    playwright_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Classify the DE checkout failure layer from controlled path evidence.
+
+    Paths:
+    * A: manual Send Money (DE Personal -> DE Business)
+    * B: Orders v2 manual browser approval
+    * C: Orders v2 Playwright approval
+    """
+    if not association_verified:
+        return {
+            "status": "rest_credentials_merchant_mismatch",
+            "reason": "REST order payee does not match the configured DE Business account.",
+        }
+
+    playwright_issues = {r.get("issue") for r in playwright_results if r.get("status") != "approved"}
+    variants_tested = {r.get("payload_variant", "application_context") for r in playwright_results}
+    variants_failed = {
+        r.get("payload_variant", "application_context") for r in playwright_results if r.get("status") != "approved"
+    }
+    all_variants_failed = variants_tested and variants_tested == variants_failed
+    some_variant_passed = any(r.get("status") == "approved" for r in playwright_results)
+
+    # If one payload variant works and the other does not, the payload form is the differentiator.
+    if len(playwright_results) > 1 and some_variant_passed and not all_variants_failed:
+        return {
+            "status": "orders_v2_payload_defect",
+            "reason": "One Orders v2 payload variant succeeded while another failed.",
+        }
+
+    manual_order_status = manual_order.get("status")
+    playwright_approved = any(r.get("status") == "approved" for r in playwright_results)
+
+    if manual_order_status == "approved" and playwright_approved:
+        return {
+            "status": "transient_sandbox_error",
+            "reason": "Manual and Playwright Orders v2 approvals both succeeded; previous failure was transient.",
+        }
+
+    if manual_order_status == "approved" and not playwright_approved:
+        return {
+            "status": "playwright_automation_defect",
+            "reason": "Manual Orders v2 approval succeeded, but Playwright approval failed.",
+        }
+
+    send_money_succeeded = manual_send_money.get("succeeded", False)
+    send_money_type = manual_send_money.get("transaction_type", "unknown")
+
+    # If both Orders v2 paths fail and at least one shows a structured PayPal
+    # compliance issue, the failure is at PayPal's checkout layer.
+    compliance_issue = "COMPLIANCE_VIOLATION" in playwright_issues
+
+    if all_variants_failed or manual_order_status in {"failed", "timeout"}:
+        if send_money_succeeded and send_money_type != "friends/family" and compliance_issue:
+            return {
+                "status": "sandbox_checkout_limitation",
+                "reason": "Send Money works, but Orders v2 checkout is blocked by a PayPal compliance restriction.",
+            }
+        if compliance_issue:
+            return {
+                "status": "account_configuration_difference",
+                "reason": "PayPal returned a compliance violation on Orders v2 checkout.",
+            }
+        return {
+            "status": "sandbox_checkout_limitation",
+            "reason": "Orders v2 checkout failed and no payload or automation layer explains it.",
+        }
+
+    return {
+        "status": "under_investigation",
+        "reason": "Insufficient evidence to finalize DE checkout classification.",
+    }
+
+
 # expose alias
 render_markdown = _render_markdown

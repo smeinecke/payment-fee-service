@@ -123,6 +123,18 @@ def extract_approval_url(order: dict[str, Any]) -> str:
     raise PayPalAPIError("No approval link found in order response", operation="extract approval url")
 
 
+def extract_payee_info(order: dict[str, Any]) -> dict[str, str | None]:
+    """Extract payee email and merchant id from an order response."""
+    for unit in order.get("purchase_units", []) or []:
+        payee = unit.get("payee") or {}
+        if payee:
+            return {
+                "email_address": payee.get("email_address"),
+                "merchant_id": payee.get("merchant_id"),
+            }
+    return {"email_address": None, "merchant_id": None}
+
+
 def build_order_payload(
     amount: str,
     currency: str,
@@ -132,6 +144,7 @@ def build_order_payload(
     invoice_id: str,
     custom_id: str,
     brand_name: str = "PayPal Sandbox Validation",
+    form: str = "application_context",
 ) -> dict[str, Any]:
     from paypal_sandbox_validation.quote_adapter import validate_amount_for_currency
     from paypal_sandbox_validation.url_validation import validate_callback_url
@@ -140,31 +153,67 @@ def build_order_payload(
     validate_callback_url(return_url)
     validate_callback_url(cancel_url)
 
-    # PayPal's current Sandbox checkout flow returns a classic `approve`
-    # link when application_context is supplied.  The newer
-    # payment_source.paypal.experience_context shape triggers the
-    # checkoutweb generic error page for several sandbox merchants, so we
-    # fall back to the still-supported application_context contract.
+    purchase_unit = {
+        "reference_id": reference_id,
+        "invoice_id": invoice_id,
+        "custom_id": custom_id,
+        "amount": {
+            "currency_code": currency,
+            "value": amount,
+        },
+    }
+    experience_context = {
+        "user_action": "PAY_NOW",
+        "shipping_preference": "NO_SHIPPING",
+        "return_url": return_url,
+        "cancel_url": cancel_url,
+        "brand_name": brand_name,
+    }
+
+    if form == "payment_source":
+        # Current documented Orders v2 form with payment_source.paypal.experience_context.
+        return {
+            "intent": "CAPTURE",
+            "purchase_units": [purchase_unit],
+            "payment_source": {
+                "paypal": {
+                    "experience_context": experience_context,
+                }
+            },
+        }
+
+    # Classic application_context form. Still supported by PayPal Sandbox.
     return {
         "intent": "CAPTURE",
-        "purchase_units": [
-            {
-                "reference_id": reference_id,
-                "invoice_id": invoice_id,
-                "custom_id": custom_id,
-                "amount": {
-                    "currency_code": currency,
-                    "value": amount,
-                },
-            }
-        ],
-        "application_context": {
-            "user_action": "PAY_NOW",
-            "shipping_preference": "NO_SHIPPING",
-            "return_url": return_url,
-            "cancel_url": cancel_url,
-            "brand_name": brand_name,
-        },
+        "purchase_units": [purchase_unit],
+        "application_context": experience_context,
+    }
+
+
+def order_payload_signature(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a secret-free, normalized summary of an order create payload."""
+    intent = payload.get("intent")
+    purchase_units = payload.get("purchase_units") or []
+    unit = purchase_units[0] if purchase_units else {}
+    amount = unit.get("amount", {})
+    app_ctx = payload.get("application_context") or {}
+    payment_source = payload.get("payment_source", {}).get("paypal", {}).get("experience_context") or {}
+    experience = payment_source if payment_source else app_ctx
+
+    return {
+        "intent": intent,
+        "currency": amount.get("currency_code"),
+        "amount": amount.get("value"),
+        "purchase_unit_count": len(purchase_units),
+        "shipping_preference": experience.get("shipping_preference"),
+        "user_action": experience.get("user_action"),
+        "form": "payment_source" if "payment_source" in payload else "application_context",
+        "return_url_present": bool(experience.get("return_url")),
+        "cancel_url_present": bool(experience.get("cancel_url")),
+        "brand_name_present": bool(experience.get("brand_name")),
+        "invoice_id_present": bool(unit.get("invoice_id")),
+        "custom_id_present": bool(unit.get("custom_id")),
+        "reference_id_present": bool(unit.get("reference_id")),
     }
 
 

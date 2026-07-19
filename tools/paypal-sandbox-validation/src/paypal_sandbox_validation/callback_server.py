@@ -100,6 +100,13 @@ class CallbackServer:
             self._thread.join(timeout=5)
             self._thread = None
 
+    def __enter__(self) -> CallbackServer:
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.stop()
+
     def wait_for_state(self, timeout: float = 120.0) -> str:
         deadline = time.time() + timeout
         while time.time() < deadline:
