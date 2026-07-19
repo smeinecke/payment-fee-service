@@ -60,7 +60,14 @@ jobs:
         env:
           PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
           STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
-      - run: make validate
+      - name: Check Python formatting
+        run: uv run ruff format --check --diff .
+      - name: Lint Python
+        run: uv run ruff check .
+      - name: Type-check Python
+        run: uv run pyright
+      - name: Security scan Python
+        run: uv run bandit -r packages services -ll
       - run: make test-python
       - run: make test-e2e
         env:
@@ -345,8 +352,14 @@ jobs:
         env:
           PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
           STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
-      - name: Validate
-        run: make validate
+      - name: Check Python formatting
+        run: uv run ruff format --check --diff .
+      - name: Lint Python
+        run: uv run ruff check .
+      - name: Type-check Python
+        run: uv run pyright
+      - name: Security scan Python
+        run: uv run bandit -r packages services -ll
       - name: Cross-language conformance
         run: make test-conformance
         env:
