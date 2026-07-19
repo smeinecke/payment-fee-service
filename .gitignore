@@ -10,6 +10,8 @@ build/
 *.egg-info/
 .env
 .DS_Store
+paypal-fee-data/
+stripe-fee-data/
 docs/openapi.json
 coverage.xml
 packages/payment-fee-php/vendor/

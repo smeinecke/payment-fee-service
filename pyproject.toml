@@ -9,6 +9,7 @@ package = true
 
 [tool.ruff]
 line-length = 120
+exclude = ["paypal-fee-data", "stripe-fee-data", ".venv", "dist", "node_modules"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "SIM", "B"]
