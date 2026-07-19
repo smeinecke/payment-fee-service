@@ -153,7 +153,7 @@ def test_validate_paypal_gross_fee_net_invariant() -> None:
     case.paypal_evidence["net_amount"]["value"] = "9.00"
     result = validate_case_constraints(case)
     assert result["valid"] is False
-    assert result["classification"] == "paypal_fee_data_defect"
+    assert result["classification"] == "paypal_api_evidence_invalid"
 
 
 def test_validate_library_component_sum() -> None:
@@ -161,7 +161,21 @@ def test_validate_library_component_sum() -> None:
     case.quote["processing_fee"]["value"] = "1.00"
     result = validate_case_constraints(case)
     assert result["valid"] is False
-    assert result["classification"] == "payment_fee_calculation_or_rounding_defect"
+    assert result["classification"] == "harness_evidence_defect"
+
+
+def test_validate_missing_evidence_is_harness_defect() -> None:
+    case = _make_case(Path("/tmp"))
+    case.paypal_evidence = {
+        "status": "COMPLETED",
+        "gross_amount": {"currency_code": "GBP", "value": "10.00"},
+        "paypal_fee": {"currency_code": "GBP", "value": "0.59"},
+        "net_amount": {"currency_code": "GBP", "value": None},
+        "payer_country": "AU",
+    }
+    result = validate_case_constraints(case)
+    assert result["valid"] is False
+    assert result["classification"] == "harness_evidence_defect"
 
 
 def test_decompose_financial_uses_decimal() -> None:

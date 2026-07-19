@@ -29,5 +29,6 @@ packages/payment-fee-typescript/.eslintcache
 artifacts/paypal-sandbox/
 artifacts/paypal-sandbox-diagnostics/
 artifacts/paypal-sandbox-observations/
+artifacts/paypal-sandbox-qualification/
 .playwright/paypal-sandbox/
 

@@ -53,6 +53,20 @@ from paypal_sandbox_validation.planner import (
     generate_run_id,
     plan_summary,
 )
+from paypal_sandbox_validation.qualification import (
+    build_qualification_plan,
+    build_validation_plan,
+    classify_qualification,
+    default_qualification_path,
+    is_merchant_excluded,
+    load_qualification_registry,
+    promote_observation_fixtures,
+    qualification_summary,
+    save_qualification_registry,
+    save_qualification_report,
+    save_validation_report,
+    validation_summary,
+)
 from paypal_sandbox_validation.quote_adapter import QuoteAdapter, QuoteResolutionError
 from paypal_sandbox_validation.reconciliation import reconcile
 from paypal_sandbox_validation.redaction import mask_value, redact_path, sanitize_dict
@@ -472,6 +486,12 @@ def surcharge_pilot_cmd(
 @click.option("--slow-mo", type=int, default=0)
 @click.option("--continue-after-mismatch", is_flag=True, default=False)
 @click.option("--resume", type=str, default=None)
+@click.option("--include-unsuitable", is_flag=True, default=False)
+@click.option(
+    "--qualification-registry",
+    type=click.Path(dir_okay=False),
+    default=default_qualification_path,
+)
 def regional_pilot_cmd(
     accounts_csv: str,
     max_cases: int,
@@ -480,8 +500,10 @@ def regional_pilot_cmd(
     slow_mo: int,
     continue_after_mismatch: bool,
     resume: str | None,
+    include_unsuitable: bool,
+    qualification_registry: str,
 ) -> None:
-    """Execute the small regional Merchant pilot (two cases per merchant, no DE)."""
+    """Execute the small regional Merchant pilot (two cases per qualified merchant)."""
     accounts = parse_accounts_csv(accounts_csv)
     validation = validate_accounts(accounts, require_complete=False)
     if not validation["valid"]:
@@ -491,7 +513,16 @@ def regional_pilot_cmd(
     merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
     buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
     configured_merchants = set(merchant_accounts.keys())
-    regional_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if m in configured_merchants and m != "DE"]
+    registry = load_qualification_registry(Path(qualification_registry))
+
+    def _allowed(m: str) -> bool:
+        return (
+            m in configured_merchants
+            and m != "DE"
+            and not is_merchant_excluded(m, registry, override=include_unsuitable)
+        )
+
+    regional_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if _allowed(m)]
     buyer_countries = {a.country_code for a in buyer_accounts.values()}
 
     run_id = resume or generate_run_id()
@@ -530,9 +561,228 @@ def regional_pilot_cmd(
         adapter=adapter,
         oauth_cache=oauth_cache,
         resume=bool(resume),
-        extra_summary={"regional_pilot_plan_summary": pilot_summary},
+        extra_summary={
+            "regional_pilot_plan_summary": pilot_summary,
+            "qualification_registry": str(qualification_registry),
+        },
     )
     click.echo(json.dumps(output, indent=2))
+
+
+@cli.command("qualify")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+)
+@click.option(
+    "--merchants",
+    type=str,
+    default=None,
+    help="Comma-separated merchant countries to qualify (default: all configured except known exclusions).",
+)
+@click.option("--max-cases-per-merchant", type=int, default=3)
+@click.option("--headful", is_flag=True, default=False)
+@click.option("--headed", is_flag=True, default=False)
+@click.option("--slow-mo", type=int, default=0)
+@click.option("--resume", type=str, default=None)
+@click.option("--include-unsuitable", is_flag=True, default=False)
+@click.option(
+    "--qualification-registry",
+    type=click.Path(dir_okay=False),
+    default=default_qualification_path,
+)
+def qualify_cmd(
+    accounts_csv: str,
+    merchants: str | None,
+    max_cases_per_merchant: int,
+    headful: bool,
+    headed: bool,
+    slow_mo: int,
+    resume: str | None,
+    include_unsuitable: bool,
+    qualification_registry: str,
+) -> None:
+    """Run a bounded three-capture qualification per merchant."""
+    accounts = parse_accounts_csv(accounts_csv)
+    validation = validate_accounts(accounts, require_complete=False)
+    if not validation["valid"]:
+        click.echo("Account configuration is invalid; cannot run.", err=True)
+        sys.exit(1)
+
+    merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
+    buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
+    buyer_countries = {a.country_code for a in buyer_accounts.values()}
+
+    registry = load_qualification_registry(Path(qualification_registry))
+    if merchants:
+        target_merchants = [m.strip().upper() for m in merchants.split(",") if m.strip()]
+    else:
+
+        def _allowed_qual(m: str) -> bool:
+            return (
+                m in merchant_accounts
+                and m != "DE"
+                and not is_merchant_excluded(m, registry, override=include_unsuitable)
+            )
+
+        target_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if _allowed_qual(m)]
+
+    adapter = QuoteAdapter()
+    run_id = resume or generate_run_id()
+
+    if resume:
+        plan = load_plan(run_id)
+    else:
+        plan = build_qualification_plan(
+            run_id=run_id,
+            merchants=target_merchants,
+            buyer_countries=buyer_countries,
+            adapter=adapter,
+            max_cases_per_merchant=max_cases_per_merchant,
+        )
+        save_plan(run_id, plan)
+
+    config = RunConfig(
+        accounts_csv=accounts_csv,
+        profile="qualification",
+        headful=headful or headed,
+        headed=headful or headed,
+        slow_mo=slow_mo,
+    )
+    oauth_cache = OAuthCache()
+
+    first = not bool(resume)
+    for merchant in target_merchants:
+        merchant_plan = [c for c in plan if c.merchant_country == merchant]
+        if not merchant_plan:
+            continue
+        config.resume = run_id if not first else None
+        _execute_plan(
+            run_id=run_id,
+            plan=merchant_plan,
+            config=config,
+            merchant_accounts=merchant_accounts,
+            buyer_accounts=buyer_accounts,
+            adapter=adapter,
+            oauth_cache=oauth_cache,
+            resume=not first,
+        )
+        results = load_results(run_id)
+        merchant_cases = [
+            Case.model_validate({k: v for k, v in c.items() if k in Case.model_fields})
+            for c in results["cases"]
+            if c["merchant_country"] == merchant
+        ]
+        account_config = _merchant_account_config(accounts_csv, merchant)
+        registry[merchant] = classify_qualification(merchant, merchant_cases, adapter, account_config)
+        save_qualification_registry(registry, Path(qualification_registry))
+        first = False
+
+    results = load_results(run_id)
+    all_cases = [Case.model_validate({k: v for k, v in c.items() if k in Case.model_fields}) for c in results["cases"]]
+    attempted = set(target_merchants)
+    report_paths = save_qualification_report(run_id, registry, all_cases, attempted_merchants=attempted)
+    summary = qualification_summary(registry, attempted_merchants=attempted)
+    click.echo("Qualification complete.")
+    click.echo(f"Run ID: {run_id}")
+    click.echo(f"Report: {report_paths['md']}")
+    click.echo(json.dumps(summary, indent=2))
+
+
+@cli.command("regional-validation")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+)
+@click.option("--max-merchants", type=int, default=0)
+@click.option("--headful", is_flag=True, default=False)
+@click.option("--headed", is_flag=True, default=False)
+@click.option("--slow-mo", type=int, default=0)
+@click.option("--resume", type=str, default=None)
+@click.option(
+    "--qualification-registry",
+    type=click.Path(dir_okay=False),
+    default=default_qualification_path,
+)
+def regional_validation_cmd(
+    accounts_csv: str,
+    max_merchants: int,
+    headful: bool,
+    headed: bool,
+    slow_mo: int,
+    resume: str | None,
+    qualification_registry: str,
+) -> None:
+    """Validate one domestic and one distinct/surcharge case per representative merchant."""
+    accounts = parse_accounts_csv(accounts_csv)
+    validation = validate_accounts(accounts, require_complete=False)
+    if not validation["valid"]:
+        click.echo("Account configuration is invalid; cannot run.", err=True)
+        sys.exit(1)
+
+    merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
+    buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
+    buyer_countries = {a.country_code for a in buyer_accounts.values()}
+
+    registry = load_qualification_registry(Path(qualification_registry))
+    representative = [
+        m for m, q in sorted(registry.items()) if q.get("status") == "representative" and m in merchant_accounts
+    ]
+    if max_merchants:
+        representative = representative[:max_merchants]
+
+    adapter = QuoteAdapter()
+    run_id = resume or generate_run_id()
+    if resume:
+        plan = load_plan(run_id)
+    else:
+        plan = build_validation_plan(
+            run_id=run_id,
+            qualified_merchants=representative,
+            buyer_countries=buyer_countries,
+            adapter=adapter,
+        )
+        save_plan(run_id, plan)
+
+    config = RunConfig(
+        accounts_csv=accounts_csv,
+        profile="regional-validation",
+        headful=headful or headed,
+        headed=headful or headed,
+        slow_mo=slow_mo,
+        continue_after_mismatch=False,
+    )
+    oauth_cache = OAuthCache()
+    first = not bool(resume)
+    for merchant in representative:
+        merchant_plan = [c for c in plan if c.merchant_country == merchant]
+        if not merchant_plan:
+            continue
+        config.resume = run_id if not first else None
+        _execute_plan(
+            run_id=run_id,
+            plan=merchant_plan,
+            config=config,
+            merchant_accounts=merchant_accounts,
+            buyer_accounts=buyer_accounts,
+            adapter=adapter,
+            oauth_cache=oauth_cache,
+            resume=not first,
+        )
+        first = False
+
+    results = load_results(run_id)
+    cases = [Case.model_validate({k: v for k, v in c.items() if k in Case.model_fields}) for c in results["cases"]]
+    report_paths = save_validation_report(run_id, cases, registry)
+    fixture_paths = promote_observation_fixtures(cases)
+    summary = validation_summary(cases, registry)
+    click.echo("Regional validation complete.")
+    click.echo(f"Run ID: {run_id}")
+    click.echo(f"Report: {report_paths['md']}")
+    click.echo(f"Observation fixtures: {len(fixture_paths)}")
+    click.echo(json.dumps(summary, indent=2))
 
 
 def _merge_existing_case(case: Case, existing: dict[str, Any]) -> Case:
@@ -953,22 +1203,21 @@ def _case_dict(
     error: str | None = None,
     reconciliation_status: str | None = None,
 ) -> dict[str, Any]:
-    data = case.model_dump()
-    if error:
-        data["error"] = error
+    if error and not case.paypal_error:
+        case.paypal_error = {"message": error}
     if reconciliation_status:
-        rec = data.get("reconciliation") or {}
+        rec = case.reconciliation or {}
         rec["status"] = reconciliation_status
-        data["reconciliation"] = rec
+        case.reconciliation = rec
     if (
         error
-        and data.get("status") == CaseStatus.FAILED.value
-        and (not data.get("reconciliation") or not data["reconciliation"].get("status"))
+        and case.status == CaseStatus.FAILED
+        and (not case.reconciliation or not case.reconciliation.get("status"))
     ):
-        rec = data.get("reconciliation") or {}
+        rec = case.reconciliation or {}
         rec["status"] = ReconciliationStatus.PAYPAL_API_FAILURE.value
-        data["reconciliation"] = rec
-    return data
+        case.reconciliation = rec
+    return case.model_dump()
 
 
 @cli.command("reconcile")

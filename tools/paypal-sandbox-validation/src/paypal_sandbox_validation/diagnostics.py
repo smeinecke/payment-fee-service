@@ -79,14 +79,14 @@ def validate_case_constraints(case: Case) -> dict[str, Any]:
     gross_value = _decimal(gross.get("value"))
     fee_value = _decimal(fee.get("value"))
     net_value = _decimal(net.get("value"))
-    if (
-        gross_value is not None
-        and fee_value is not None
-        and net_value is not None
-        and (gross_value - fee_value).quantize(TWO_PLACES) != net_value.quantize(TWO_PLACES)
-    ):
+    if gross_value is None or fee_value is None or net_value is None:
         result["valid"] = False
-        result["classification"] = "paypal_fee_data_defect"
+        result["classification"] = "harness_evidence_defect"
+        return result
+
+    if (gross_value - fee_value).quantize(TWO_PLACES) != net_value.quantize(TWO_PLACES):
+        result["valid"] = False
+        result["classification"] = "paypal_api_evidence_invalid"
         return result
 
     quote = case.quote or {}
@@ -97,7 +97,7 @@ def validate_case_constraints(case: Case) -> dict[str, Any]:
         proc_fee = _decimal(quote.get("processing_fee", {}).get("value"))
         if proc_fee is not None and comp_total.quantize(TWO_PLACES) != proc_fee.quantize(TWO_PLACES):
             result["valid"] = False
-            result["classification"] = "payment_fee_calculation_or_rounding_defect"
+            result["classification"] = "harness_evidence_defect"
             return result
 
     return result
