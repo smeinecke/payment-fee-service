@@ -104,6 +104,7 @@ class Case(BaseModel):
     paypal_issue: str | None = None
     paypal_operation: str | None = None
     paypal_debug_id: str | None = None
+    pilot_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class OAuthProbeStatus(StrEnum):
@@ -141,6 +142,7 @@ class ReconciliationStatus(StrEnum):
     AUTHENTICATION_FAILED = "authentication_failed"
     ACCOUNT_CAPABILITY_UNAVAILABLE = "account_capability_unavailable"
     ACCOUNT_CONFIGURATION_DIFFERENCE = "account_configuration_difference"
+    NO_DISTINCT_FEE_SCHEDULE_CANDIDATE = "no_distinct_fee_schedule_candidate"
     EXCLUDED_FX_CASE = "excluded_fx_case"
 
 
@@ -162,6 +164,14 @@ class ReconciliationResult(BaseModel):
     components: list[dict[str, Any]] = Field(default_factory=list)
     matched_rules: list[str] = Field(default_factory=list)
     schedules: list[str] = Field(default_factory=list)
+    base_rule_id: str | None = None
+    fixed_fee_schedule_id: str | None = None
+    international_surcharge_schedule_id: str | None = None
+    base_percentage: str | None = None
+    fixed_amount: str | None = None
+    surcharge_percentage: str | None = None
+    predicted_total_fee: str | None = None
+    payer_region: str | None = None
     merchant_country: str | None = None
     buyer_country: str | None = None
     observed_payer_country: str | None = None

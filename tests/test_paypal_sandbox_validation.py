@@ -176,6 +176,25 @@ def test_reconcile_currency_mismatch() -> None:
     assert result.status == ReconciliationStatus.CURRENCY_MISMATCH
 
 
+def test_reconcile_jpy_zero_decimal() -> None:
+    os.environ.setdefault("PAYPAL_FEE_DATA_PATH", str(Path(__file__).resolve().parents[1] / "paypal-fee-data"))
+    # JPY has zero minor-unit scaling; 1000 JPY must remain exactly 1000.
+    quote = {
+        "gross_amount": {"value": "1000", "currency": "JPY"},
+        "processing_fee": {"value": "84", "currency": "JPY"},
+        "net_amount": {"value": "916", "currency": "JPY"},
+    }
+    evidence = {
+        "gross_amount": {"currency_code": "JPY", "value": "1000"},
+        "paypal_fee": {"currency_code": "JPY", "value": "84"},
+        "net_amount": {"currency_code": "JPY", "value": "916"},
+        "payer_country": "JP",
+    }
+    result = reconcile(evidence, quote, "JP", "JP", "JP")
+    assert result.status == ReconciliationStatus.MATCH
+    assert result.delta_minor_units == 0
+
+
 def test_redaction() -> None:
     assert mask_email("test@example.com") == "t***@example.com"
     assert mask_value("client_id", "Abc1234567890XYZ") == "Abc1...0XYZ"

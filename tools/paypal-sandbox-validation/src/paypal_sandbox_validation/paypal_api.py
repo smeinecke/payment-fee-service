@@ -133,8 +133,10 @@ def build_order_payload(
     custom_id: str,
     brand_name: str = "PayPal Sandbox Validation",
 ) -> dict[str, Any]:
+    from paypal_sandbox_validation.quote_adapter import validate_amount_for_currency
     from paypal_sandbox_validation.url_validation import validate_callback_url
 
+    validate_amount_for_currency(amount, currency)
     validate_callback_url(return_url)
     validate_callback_url(cancel_url)
 

@@ -117,6 +117,8 @@ class QuoteAdapter:
         product_id = scenario["product_id"]
         variant_id = scenario["variant_id"]
 
+        validate_amount_for_currency(amount, currency)
+
         transaction_region = self._resolve_transaction_region(merchant_country, buyer_country, product_id, variant_id)
         payer_region = self._resolve_payer_region(
             merchant_country, buyer_country, product_id, variant_id, transaction_region
@@ -151,7 +153,47 @@ class QuoteAdapter:
         quote_data["_scenario"] = scenario
         quote_data["_request"] = request_dict
         quote_data["_data_path"] = self.data_path
+        self.enrich_quote_metadata(quote_data)
         return quote_data
+
+    def enrich_quote_metadata(self, quote: dict[str, Any]) -> dict[str, Any]:
+        """Attach schedule and component metadata to a quote for reporting and reconciliation."""
+        request = quote.get("_request", {})
+        transaction = request.get("transaction", {})
+        merchant_country = request.get("account_country", "")
+        product_id = quote.get("_scenario", {}).get("product_id")
+        variant_id = quote.get("_scenario", {}).get("variant_id") or "default"
+        components = quote.get("components", []) or []
+
+        processing = next((c for c in components if c.get("type") == "processing"), {})
+        surcharge = next((c for c in components if c.get("type") == "surcharge"), {})
+        base_rule_id = processing.get("source_rule_id")
+
+        fixed_fee_schedule_id: str | None = None
+        international_surcharge_schedule_id: str | None = None
+        if merchant_country and product_id:
+            for rule in self._rule_for_product(merchant_country, product_id, variant_id):
+                # Use the rule that defines the base percentage / fixed fee schedule.
+                if rule.fixed_fee_schedule:
+                    fixed_fee_schedule_id = rule.fixed_fee_schedule
+                if rule.international_surcharge_schedule:
+                    international_surcharge_schedule_id = rule.international_surcharge_schedule
+                if not base_rule_id and rule.id:
+                    base_rule_id = f"paypal:{merchant_country}:{rule.id}:{rule.variant_id or 'default'}:base"
+
+        metadata = {
+            "base_rule_id": base_rule_id,
+            "fixed_fee_schedule_id": fixed_fee_schedule_id,
+            "international_surcharge_schedule_id": international_surcharge_schedule_id,
+            "base_percentage": processing.get("rate_percentage"),
+            "fixed_amount": processing.get("fixed_amount"),
+            "surcharge_percentage": surcharge.get("rate_percentage"),
+            "predicted_total_fee": quote.get("processing_fee", {}).get("value"),
+            "payer_region": transaction.get("payer_region"),
+            "component_signature": [(c.get("type"), c.get("amount")) for c in components],
+        }
+        quote["_schedule_metadata"] = metadata
+        return metadata
 
     def _resolve_transaction_region(
         self, merchant_country: str, buyer_country: str, product_id: str, variant_id: str
@@ -238,26 +280,37 @@ class QuoteResolutionError(Exception):
         self.status = status
 
 
+ZERO_DECIMAL_CURRENCIES = {
+    "BIF",
+    "CLP",
+    "DJF",
+    "GNF",
+    "ISK",
+    "JPY",
+    "KMF",
+    "KRW",
+    "PYG",
+    "RWF",
+    "UGX",
+    "VND",
+    "VUV",
+    "XAF",
+    "XOF",
+    "XPF",
+}
+
+
+def validate_amount_for_currency(amount: str, currency: str) -> None:
+    """Reject fractional amounts for zero-decimal currencies such as JPY."""
+    if currency.upper() in ZERO_DECIMAL_CURRENCIES:
+        dec = Decimal(str(amount))
+        if dec != dec.to_integral_value():
+            raise ValueError(f"{currency} amount {amount} must be an integer")
+
+
 def minor_units(value: Decimal | str, currency: str) -> int:
     dec = value if isinstance(value, Decimal) else Decimal(str(value))
-    if currency in {
-        "BIF",
-        "CLP",
-        "DJF",
-        "GNF",
-        "ISK",
-        "JPY",
-        "KMF",
-        "KRW",
-        "PYG",
-        "RWF",
-        "UGX",
-        "VND",
-        "VUV",
-        "XAF",
-        "XOF",
-        "XPF",
-    }:
+    if currency in ZERO_DECIMAL_CURRENCIES:
         return int(dec)
     if currency in {"BHD", "JOD", "KWD", "OMR", "TND"}:
         return int(dec * Decimal("1000"))

@@ -52,23 +52,21 @@ def _quote_schedule_fields(quote: dict[str, Any] | None) -> dict[str, Any]:
         return {}
     request = quote.get("_request", {})
     transaction = request.get("transaction", {})
-    matched_rules = quote.get("matched_rules", []) or []
-    base_rule_id = None
-    surcharge_schedule_id = None
-    if matched_rules:
-        base_rule_id = matched_rules[0].get("rule_id") if isinstance(matched_rules[0], dict) else matched_rules[0]
-    if len(matched_rules) > 1:
-        surcharge_schedule_id = (
-            matched_rules[1].get("rule_id") if isinstance(matched_rules[1], dict) else matched_rules[1]
-        )
+    meta = quote.get("_schedule_metadata") or {}
     components = quote.get("components", []) or []
     return {
         "transaction_region": transaction.get("transaction_region"),
-        "payer_region": transaction.get("payer_region"),
+        "payer_region": transaction.get("payer_region") or meta.get("payer_region"),
         "product_id": quote.get("_scenario", {}).get("product_id"),
         "variant_id": quote.get("_scenario", {}).get("variant_id"),
-        "base_rule_id": base_rule_id,
-        "international_surcharge_schedule_id": surcharge_schedule_id,
+        "base_rule_id": meta.get("base_rule_id"),
+        "fixed_fee_schedule_id": meta.get("fixed_fee_schedule_id"),
+        "international_surcharge_schedule_id": meta.get("international_surcharge_schedule_id"),
+        "base_percentage": meta.get("base_percentage"),
+        "fixed_amount": meta.get("fixed_amount"),
+        "surcharge_percentage": meta.get("surcharge_percentage"),
+        "predicted_total_fee": meta.get("predicted_total_fee"),
+        "component_signature": meta.get("component_signature"),
         "predicted_components": components,
     }
 
@@ -102,6 +100,11 @@ def build_summary(run_id: str) -> dict[str, Any]:
         "oauth_successful": 0,
         "oauth_failed": 0,
         "oauth_skipped": 0,
+        "domestic_cases": 0,
+        "distinct_schedule_cases": 0,
+        "nonzero_surcharge_cases": 0,
+        "no_distinct_schedule_candidates": 0,
+        "no_surcharge_candidate": None,
         "dataset_revision": None,
         "payment_fee_commit": _payment_fee_commit(),
         "cases": [],
@@ -155,27 +158,48 @@ def build_summary(run_id: str) -> dict[str, Any]:
             summary["capability_exclusions"] += 1
         elif rec_status == "account_configuration_difference":
             summary["configuration_exclusions"] += 1
+        elif rec_status == "no_distinct_fee_schedule_candidate":
+            summary["no_distinct_schedule_candidates"] += 1
         elif status in {"planned", "prediction_ready"}:
             summary["pending"] += 1
         elif status == "failed":
             summary["api_failures"] += 1
 
         schedule_fields = _quote_schedule_fields(case.get("quote"))
+        if case.get("pilot_metadata", {}).get("has_surcharge"):
+            summary["nonzero_surcharge_cases"] += 1
+        if case.get("pilot_metadata", {}).get("is_distinct_schedule"):
+            summary["distinct_schedule_cases"] += 1
+        if case.get("pilot_metadata", {}).get("selection_rationale") in {
+            "domestic_control",
+            "domestic_same_country",
+        }:
+            summary["domestic_cases"] += 1
+        if case.get("pilot_metadata", {}).get("selection_rationale") == "no_distinct_fee_schedule_candidate":
+            summary["no_distinct_schedule_candidates"] += 1
+
+        paypal_evidence = case.get("paypal_evidence") or {}
+        paypal_fee = paypal_evidence.get("paypal_fee", {}).get("value") or rec.get("paypal_fee_value")
+        paypal_net = paypal_evidence.get("net_amount", {}).get("value") or rec.get("paypal_net_value")
+        gross = paypal_evidence.get("gross_amount", {}).get("value") or rec.get("gross_value")
         case_summary = {
             "case_id": case.get("case_id"),
             "merchant_country": case.get("merchant_country"),
             "buyer_country": case.get("buyer_country"),
-            "observed_payer_country": (case.get("paypal_evidence") or {}).get("payer_country")
-            or rec.get("observed_payer_country"),
+            "observed_payer_country": paypal_evidence.get("payer_country") or rec.get("observed_payer_country"),
             "amount": case.get("amount"),
             "currency": case.get("currency"),
+            "gross_amount": gross,
+            "paypal_fee": paypal_fee,
+            "paypal_net_amount": paypal_net,
+            "library_fee": rec.get("library_fee_value") or schedule_fields.get("predicted_total_fee"),
+            "library_component_total": rec.get("library_fee_value") or schedule_fields.get("predicted_total_fee"),
             "status": status,
             "reconciliation_status": rec_status,
             "delta_minor_units": rec.get("delta_minor_units"),
-            "paypal_fee": (case.get("paypal_evidence") or {}).get("paypal_fee", {}).get("value")
-            or rec.get("paypal_fee_value"),
-            "library_fee": rec.get("library_fee_value"),
+            "paypal_fee_value": paypal_fee,
             **schedule_fields,
+            "pilot_metadata": case.get("pilot_metadata", {}),
         }
         summary["cases"].append(case_summary)
 
@@ -223,8 +247,18 @@ def save_summary_markdown(run_id: str, summary: dict[str, Any], csv_path: str | 
             f"| API failures | {summary['api_failures']} |",
             f"| Capability exclusions | {summary['capability_exclusions']} |",
             f"| Configuration exclusions | {summary['configuration_exclusions']} |",
+            f"| No distinct schedule candidates | {summary['no_distinct_schedule_candidates']} |",
             f"| Pending / not executed | {summary['pending']} |",
+            f"| Domestic cases | {summary['domestic_cases']} |",
+            f"| Distinct schedule cases | {summary['distinct_schedule_cases']} |",
+            f"| Nonzero surcharge cases | {summary['nonzero_surcharge_cases']} |",
             "",
+        ]
+    )
+    if summary.get("no_surcharge_candidate") is not None:
+        lines.extend([f"| No surcharge candidate | {summary['no_surcharge_candidate']} |", ""])
+    lines.extend(
+        [
             "## Cases",
             "",
             (
@@ -243,6 +277,31 @@ def save_summary_markdown(run_id: str, summary: dict[str, Any], csv_path: str | 
             f"{case.get('transaction_region') or ''} | {case.get('payer_region') or ''} | {case.get('status')} | "
             f"{case.get('reconciliation_status')} | {delta_str} |"
         )
+
+    completed = [c for c in summary["cases"] if c.get("status") in {"captured", "reconciled"}]
+    if completed:
+        lines.extend(
+            [
+                "",
+                "## Completed Cases by Schedule",
+                "",
+                (
+                    "| Case | Merchant | Buyer | Payer Region | Base Rule | "
+                    "Fixed Schedule | Surcharge Schedule | Predicted Fee | Component Signature |"
+                ),
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for case in completed:
+            sig = case.get("component_signature")
+            fixed = case.get("fixed_fee_schedule_id") or ""
+            surcharge = case.get("international_surcharge_schedule_id") or ""
+            lines.append(
+                f"| {case.get('case_id')} | {case.get('merchant_country')} | {case.get('buyer_country')} | "
+                f"{case.get('payer_region') or ''} | {case.get('base_rule_id') or ''} | "
+                f"{fixed} | {surcharge} | "
+                f"{case.get('predicted_total_fee') or ''} | {sig} |"
+            )
 
     mismatches = [
         c for c in summary["cases"] if c.get("reconciliation_status") in {"fee_mismatch", "net_amount_mismatch"}
@@ -286,6 +345,7 @@ _JUNIT_SKIPPED = {
     "buyer_interaction_blocked",
     "buyer_cancelled",
     "callback_token_mismatch",
+    "no_distinct_fee_schedule_candidate",
 }
 
 

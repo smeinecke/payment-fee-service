@@ -45,6 +45,8 @@ from paypal_sandbox_validation.persistence import (
 )
 from paypal_sandbox_validation.planner import (
     build_plan,
+    build_regional_pilot_plan,
+    build_surcharge_pilot_plan,
     enrich_plan_with_products,
     ensure_surcharge_case,
     generate_request_id,
@@ -333,81 +335,211 @@ def run_cmd(
             plan = ensure_surcharge_case(plan, adapter)
         save_plan(run_id, plan)
 
-    save_json(
-        Path("artifacts/paypal-sandbox") / run_id / "run-config.json",
-        sanitize_dict(config.model_dump()),
+    adapter = QuoteAdapter()
+    oauth_cache = OAuthCache()
+    output = _execute_plan(
+        run_id=run_id,
+        plan=plan,
+        config=config,
+        merchant_accounts=merchant_accounts,
+        buyer_accounts=buyer_accounts,
+        adapter=adapter,
+        oauth_cache=oauth_cache,
+        resume=bool(resume),
     )
+    click.echo(json.dumps(output, indent=2))
 
-    save_configuration_summary(
-        run_id,
-        {
-            "csv_path": redact_path(accounts_csv),
-            "merchant_count": len(merchant_accounts),
-            "buyer_count": len(buyer_accounts),
-            "profile": profile,
-            "run_id": run_id,
-        },
+
+REGIONAL_PILOT_MERCHANTS = [
+    "US",
+    "ES",
+    "GB",
+    "JP",
+    "CA",
+    "AU",
+    "CH",
+    "BR",
+    "HK",
+    "CZ",
+    "IL",
+    "ZA",
+]
+
+
+@cli.command("surcharge-pilot")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+)
+@click.option("--merchant", type=str, default="US")
+@click.option("--amount", type=str, default="10.00")
+@click.option("--currency", type=str, default="USD")
+@click.option("--headful", is_flag=True, default=False)
+@click.option("--headed", is_flag=True, default=False)
+@click.option("--slow-mo", type=int, default=0)
+@click.option("--continue-after-mismatch", is_flag=True, default=False)
+@click.option(
+    "--buyers",
+    type=str,
+    default=",".join(["DE", "GB", "JP", "AU", "BR", "HK", "IL", "ZA"]),
+)
+@click.option("--resume", type=str, default=None)
+def surcharge_pilot_cmd(
+    accounts_csv: str,
+    merchant: str,
+    amount: str,
+    currency: str,
+    headful: bool,
+    headed: bool,
+    slow_mo: int,
+    continue_after_mismatch: bool,
+    buyers: str,
+    resume: str | None,
+) -> None:
+    """Execute the US domestic control + nonzero-surcharge international pilot."""
+    accounts = parse_accounts_csv(accounts_csv)
+    validation = validate_accounts(accounts, require_complete=False)
+    if not validation["valid"]:
+        click.echo("Account configuration is invalid; cannot run.", err=True)
+        sys.exit(1)
+
+    merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
+    buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
+    buyer_countries = {a.country_code for a in buyer_accounts.values()}
+    candidate_buyers = [b.strip().upper() for b in buyers.split(",") if b.strip()]
+
+    run_id = resume or generate_run_id()
+    config = RunConfig(
+        accounts_csv=accounts_csv,
+        profile="surcharge-pilot",
+        merchant=merchant,
+        amount=amount,
+        currency=currency,
+        headful=headful or headed,
+        headed=headful or headed,
+        slow_mo=slow_mo,
+        continue_after_mismatch=continue_after_mismatch,
+        resume=resume,
     )
 
     adapter = QuoteAdapter()
-    oauth_cache = OAuthCache()
-    results: dict[str, Any] = {"run_id": run_id, "cases": []}
-    existing_by_id: dict[str, dict[str, Any]] = {}
-
     if resume:
-        existing_results = load_results(run_id)
-        existing_by_id = {c["case_id"]: c for c in existing_results.get("cases", [])}
-
-    mismatch_break = False
-    for case in plan:
-        if case_id and case.case_id != case_id:
-            continue
-
-        existing = existing_by_id.get(case.case_id)
-        if existing and not retry_failed:
-            case = _merge_existing_case(case, existing)
-
-        result = _run_case(
-            case=case,
-            config=config,
-            merchant_accounts=merchant_accounts,
-            buyer_accounts=buyer_accounts,
+        plan = load_plan(run_id)
+        no_surcharge_candidate = False
+    else:
+        plan, found = build_surcharge_pilot_plan(
+            run_id=run_id,
+            merchant_country=merchant,
+            buyer_countries=buyer_countries,
             adapter=adapter,
-            oauth_cache=oauth_cache,
+            amount=amount,
+            currency=currency,
+            candidate_buyers=candidate_buyers,
         )
+        save_plan(run_id, plan)
+        no_surcharge_candidate = not found
 
-        if existing:
-            existing_by_id[case.case_id] = result
-        results["cases"] = list(existing_by_id.values()) if resume else results["cases"] + [result]
-        save_results(run_id, results)
+    oauth_cache = OAuthCache()
+    output = _execute_plan(
+        run_id=run_id,
+        plan=plan,
+        config=config,
+        merchant_accounts=merchant_accounts,
+        buyer_accounts=buyer_accounts,
+        adapter=adapter,
+        oauth_cache=oauth_cache,
+        resume=bool(resume),
+        extra_summary={
+            "no_surcharge_candidate": no_surcharge_candidate,
+            "merchant": merchant,
+            "amount": amount,
+            "currency": currency,
+        },
+    )
+    click.echo(json.dumps(output, indent=2))
 
-        rec = result.get("reconciliation", {}) or {}
-        if (
-            rec.get("status")
-            in {
-                "fee_mismatch",
-                "net_amount_mismatch",
-                "currency_mismatch",
-                "buyer_country_mismatch",
-            }
-            and not continue_after_mismatch
-        ):
-            click.echo(f"Stopping after first mismatch: {case.case_id} ({rec['status']})")
-            mismatch_break = True
-            break
 
-    summary = build_summary(run_id)
-    save_summary(run_id, summary)
-    save_summary_markdown(run_id, summary, accounts_csv)
-    save_junit(run_id, summary)
-    output = {k: v for k, v in summary.items() if k != "cases"}
-    output["stopped_after_first_mismatch"] = mismatch_break
+@cli.command("regional-pilot")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+)
+@click.option("--max-cases", type=int, default=24)
+@click.option("--headful", is_flag=True, default=False)
+@click.option("--headed", is_flag=True, default=False)
+@click.option("--slow-mo", type=int, default=0)
+@click.option("--continue-after-mismatch", is_flag=True, default=False)
+@click.option("--resume", type=str, default=None)
+def regional_pilot_cmd(
+    accounts_csv: str,
+    max_cases: int,
+    headful: bool,
+    headed: bool,
+    slow_mo: int,
+    continue_after_mismatch: bool,
+    resume: str | None,
+) -> None:
+    """Execute the small regional Merchant pilot (two cases per merchant, no DE)."""
+    accounts = parse_accounts_csv(accounts_csv)
+    validation = validate_accounts(accounts, require_complete=False)
+    if not validation["valid"]:
+        click.echo("Account configuration is invalid; cannot run.", err=True)
+        sys.exit(1)
+
+    merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
+    buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
+    configured_merchants = set(merchant_accounts.keys())
+    regional_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if m in configured_merchants and m != "DE"]
+    buyer_countries = {a.country_code for a in buyer_accounts.values()}
+
+    run_id = resume or generate_run_id()
+    config = RunConfig(
+        accounts_csv=accounts_csv,
+        profile="regional-pilot",
+        headful=headful or headed,
+        headed=headful or headed,
+        slow_mo=slow_mo,
+        continue_after_mismatch=continue_after_mismatch,
+        max_cases=max_cases,
+        resume=resume,
+    )
+
+    adapter = QuoteAdapter()
+    if resume:
+        plan = load_plan(run_id)
+        pilot_summary: dict[str, Any] = {}
+    else:
+        plan, pilot_summary = build_regional_pilot_plan(
+            run_id=run_id,
+            merchant_countries=regional_merchants,
+            buyer_countries=buyer_countries,
+            adapter=adapter,
+            max_cases=max_cases,
+        )
+        save_plan(run_id, plan)
+
+    oauth_cache = OAuthCache()
+    output = _execute_plan(
+        run_id=run_id,
+        plan=plan,
+        config=config,
+        merchant_accounts=merchant_accounts,
+        buyer_accounts=buyer_accounts,
+        adapter=adapter,
+        oauth_cache=oauth_cache,
+        resume=bool(resume),
+        extra_summary={"regional_pilot_plan_summary": pilot_summary},
+    )
     click.echo(json.dumps(output, indent=2))
 
 
 def _merge_existing_case(case: Case, existing: dict[str, Any]) -> Case:
     """Hydrate a planned case with persisted progress so idempotency keys are reused."""
-    existing_case = Case.model_validate(existing)
+    allowed = set(Case.model_fields.keys())
+    filtered_existing = {k: v for k, v in existing.items() if k in allowed}
+    existing_case = Case.model_validate(filtered_existing)
     case.status = existing_case.status
     case.request_id_create = existing_case.request_id_create or case.request_id_create
     case.request_id_capture = existing_case.request_id_capture or case.request_id_capture
@@ -425,7 +557,97 @@ def _merge_existing_case(case: Case, existing: dict[str, Any]) -> Case:
     case.paypal_issue = existing_case.paypal_issue or case.paypal_issue
     case.paypal_operation = existing_case.paypal_operation or case.paypal_operation
     case.paypal_debug_id = existing_case.paypal_debug_id or case.paypal_debug_id
+    case.pilot_metadata = existing_case.pilot_metadata or case.pilot_metadata
+    case.expected_payer_region = existing_case.expected_payer_region or case.expected_payer_region
+    case.expected_surcharge_components = (
+        existing_case.expected_surcharge_components or case.expected_surcharge_components
+    )
+    case.expected_surcharge_amount = existing_case.expected_surcharge_amount or case.expected_surcharge_amount
     return case
+
+
+def _execute_plan(
+    run_id: str,
+    plan: list[Case],
+    config: RunConfig,
+    merchant_accounts: dict[str, Account],
+    buyer_accounts: dict[str, Account],
+    adapter: QuoteAdapter,
+    oauth_cache: OAuthCache,
+    *,
+    resume: bool = False,
+    extra_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run the prepared plan, save results, build reports, and return the summary."""
+    save_json(
+        Path("artifacts/paypal-sandbox") / run_id / "run-config.json",
+        sanitize_dict(config.model_dump()),
+    )
+
+    save_configuration_summary(
+        run_id,
+        {
+            "csv_path": redact_path(config.accounts_csv),
+            "merchant_count": len(merchant_accounts),
+            "buyer_count": len(buyer_accounts),
+            "profile": config.profile,
+            "run_id": run_id,
+        },
+    )
+
+    results: dict[str, Any] = {"run_id": run_id, "cases": []}
+    existing_by_id: dict[str, dict[str, Any]] = {}
+
+    if resume:
+        existing_results = load_results(run_id)
+        existing_by_id = {c["case_id"]: c for c in existing_results.get("cases", [])}
+
+    mismatch_break = False
+    for case in plan:
+        if config.case_id and case.case_id != config.case_id:
+            continue
+
+        existing = existing_by_id.get(case.case_id)
+        if existing and not config.retry_failed:
+            case = _merge_existing_case(case, existing)
+
+        result = _run_case(
+            case=case,
+            config=config,
+            merchant_accounts=merchant_accounts,
+            buyer_accounts=buyer_accounts,
+            adapter=adapter,
+            oauth_cache=oauth_cache,
+        )
+
+        existing_by_id[case.case_id] = result
+        results["cases"] = list(existing_by_id.values()) if resume else results["cases"] + [result]
+        save_results(run_id, results)
+
+        rec = result.get("reconciliation", {}) or {}
+        if (
+            rec.get("status")
+            in {
+                "fee_mismatch",
+                "net_amount_mismatch",
+                "currency_mismatch",
+                "buyer_country_mismatch",
+            }
+            and not config.continue_after_mismatch
+        ):
+            click.echo(f"Stopping after first mismatch: {case.case_id} ({rec['status']})")
+            mismatch_break = True
+            break
+
+    summary = build_summary(run_id)
+    if extra_summary:
+        summary.update(extra_summary)
+    save_summary(run_id, summary)
+    save_summary_markdown(run_id, summary, config.accounts_csv)
+    save_junit(run_id, summary)
+    output = {k: v for k, v in summary.items() if k != "cases"}
+    output["stopped_after_first_mismatch"] = mismatch_break
+    return output
 
 
 def _run_case(

@@ -109,6 +109,17 @@ def reconcile(
         ]
         if rule_id is not None
     ]
+    result.amount = str(gross_value) if gross_value is not None else None
+    result.currency = gross_currency or None
+    meta = quote.get("_schedule_metadata") or {}
+    result.base_rule_id = meta.get("base_rule_id")
+    result.fixed_fee_schedule_id = meta.get("fixed_fee_schedule_id")
+    result.international_surcharge_schedule_id = meta.get("international_surcharge_schedule_id")
+    result.base_percentage = meta.get("base_percentage")
+    result.fixed_amount = meta.get("fixed_amount")
+    result.surcharge_percentage = meta.get("surcharge_percentage")
+    result.predicted_total_fee = meta.get("predicted_total_fee")
+    result.payer_region = meta.get("payer_region")
     return result
 
 
