@@ -80,10 +80,10 @@ function runCase(array $case): array
     return [
         'id' => $case['id'],
         'status' => $status,
-        'actual' => normalize($actual),
-        'expected' => normalize($expected),
-        'actual_error' => normalize($actualError),
-        'expected_error' => normalize($expectedError),
+        'actual' => $actual,
+        'expected' => $expected,
+        'actual_error' => $actualError,
+        'expected_error' => $expectedError,
     ];
 }
 
@@ -114,7 +114,7 @@ function main(): int
             $failures[] = [
                 'id' => $result['id'],
                 'status' => $result['status'],
-                'field' => !deepEqual($result['actual'], $result['expected']) ? 'result' : 'error',
+                'field' => !deepEqual(normalize($result['actual']), normalize($result['expected'])) ? 'result' : 'error',
                 'actual' => $result['actual'],
                 'expected' => $result['expected'],
             ];

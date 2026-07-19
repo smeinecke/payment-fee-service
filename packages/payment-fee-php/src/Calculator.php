@@ -27,6 +27,12 @@ final class Calculator
                     'label' => $rule['label'],
                     'amount' => '0',
                     'currency' => $currency,
+                    'rate_percentage' => null,
+                    'fixed_amount' => null,
+                    'minimum_applied' => false,
+                    'maximum_applied' => false,
+                    'payer' => $rule['payer'] ?? null,
+                    'unit' => $rule['unit'] ?? null,
                     'source_rule_id' => $rule['rule_id'],
                 ];
                 $matchedRules[] = $this->matchedRule($rule);
@@ -103,24 +109,14 @@ final class Calculator
             'label' => $rule['label'],
             'amount' => Rounding::toString($rounded, $currency),
             'currency' => $currency,
+            'rate_percentage' => $ratePercentage !== null ? (string) $ratePercentage : null,
+            'fixed_amount' => ($rule['fixed_amount'] ?? null) !== null ? Rounding::toString(BigDecimal::of($rule['fixed_amount']), $rule['fixed_currency'] ?? $currency) : null,
             'minimum_applied' => $minimumApplied,
             'maximum_applied' => $maximumApplied,
+            'payer' => $rule['payer'] ?? null,
+            'unit' => $rule['unit'] ?? null,
             'source_rule_id' => $rule['rule_id'],
         ];
-
-        if ($ratePercentage !== null) {
-            $component['rate_percentage'] = (string) $ratePercentage;
-        }
-        if (($rule['fixed_amount'] ?? null) !== null) {
-            $component['fixed_amount'] = Rounding::toString(BigDecimal::of($rule['fixed_amount']), $rule['fixed_currency'] ?? $currency);
-        }
-
-        if (($rule['payer'] ?? null) !== null) {
-            $component['payer'] = $rule['payer'];
-        }
-        if (($rule['unit'] ?? null) !== null) {
-            $component['unit'] = $rule['unit'];
-        }
 
         return $component;
     }

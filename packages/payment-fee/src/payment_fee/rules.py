@@ -3,7 +3,13 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _normalize_confidence(value):
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
 
 
 class ExecutableFeeRule(BaseModel):
@@ -23,10 +29,15 @@ class ExecutableFeeRule(BaseModel):
     payer: str | None = None
     unit: str | None = None
     classification_status: str = "calculable"
-    confidence: float | None = None
+    confidence: int | float | None = None
     exactness: str | None = None
     source_url: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence_whole_number(cls, value):
+        return _normalize_confidence(value)
 
 
 class CompiledFeePlan(BaseModel):

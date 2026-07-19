@@ -52,6 +52,7 @@ async function runCase(caseData) {
   } catch (e) {
     actualError = { code: e.code, message: e.message, details: e.details || {} };
   }
+
   const expected = caseData.expected_result;
   const expectedError = caseData.expected_error;
 
@@ -66,10 +67,10 @@ async function runCase(caseData) {
   return {
     id: caseData.id,
     status,
-    actual: normalize(actual),
-    expected: normalize(expected),
-    actual_error: normalize(actualError),
-    expected_error: normalize(expectedError),
+    actual,
+    expected,
+    actual_error: actualError,
+    expected_error: expectedError,
   };
 }
 
@@ -89,7 +90,7 @@ async function main() {
       failures.push({
         id: result.id,
         status: result.status,
-        field: !deepEqual(result.actual, result.expected) ? "result" : "error",
+        field: !deepEqual(normalize(result.actual), normalize(result.expected)) ? "result" : "error",
         actual: result.actual,
         expected: result.expected,
       });

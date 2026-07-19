@@ -8,5 +8,6 @@ process.stdin.on("data", (chunk) => {
 process.stdin.on("end", async () => {
   const documents = JSON.parse(input);
   const engine = await PaymentFeeEngine.fromDocuments(documents);
-  console.log(JSON.stringify(engine.auditContract()));
+  const counters = engine.auditContract();
+  console.log(JSON.stringify({ counters, failures: [] }));
 });

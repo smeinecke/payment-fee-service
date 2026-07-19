@@ -6,6 +6,12 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+def _normalize_confidence(value: Any) -> Any:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 class Money(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -192,9 +198,14 @@ class MatchedRule(BaseModel):
 
     rule_id: str
     classification_status: str
-    confidence: float | None = None
+    confidence: int | float | None = None
     exactness: str | None = None
     source_url: str | None = None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence_whole_number(cls, value: Any) -> Any:
+        return _normalize_confidence(value)
 
 
 class DataProvenance(BaseModel):

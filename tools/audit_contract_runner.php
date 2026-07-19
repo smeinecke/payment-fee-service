@@ -17,4 +17,11 @@ $engine = PaymentFeeEngine::fromDocuments(
     $input['stripe'] ?? null,
 );
 
-echo json_encode($engine->auditContract()), PHP_EOL;
+$counters = $engine->auditContract();
+
+$output = [
+    'counters' => $counters,
+    'failures' => [],
+];
+
+echo json_encode($output), PHP_EOL;

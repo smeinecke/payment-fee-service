@@ -30,15 +30,15 @@ def normalize(result: dict | None) -> dict | None:
 
 def run_case(case: dict) -> dict:
     provider_documents = case.get("provider_documents") or {}
-    actual = None
-    actual_error = None
+    actual: dict | None = None
+    actual_error: dict | None = None
     try:
         engine = PaymentFeeEngine.from_documents(
             paypal=provider_documents.get("paypal"),
             stripe=provider_documents.get("stripe"),
         )
         response = engine.quote(case["request"])
-        actual = response.model_dump(mode="json", by_alias=False, exclude_none=True)
+        actual = response.model_dump(mode="json", by_alias=False, exclude_none=False)
     except PaymentFeeError as exc:
         actual_error = {"code": exc.code, "message": str(exc), "details": exc.details}
     except Exception as exc:
@@ -61,10 +61,10 @@ def run_case(case: dict) -> dict:
     return {
         "id": case["id"],
         "status": status,
-        "actual": normalize(actual),
-        "expected": normalize(expected),
-        "actual_error": normalize(actual_error),
-        "expected_error": normalize(expected_error),
+        "actual": actual,
+        "expected": expected,
+        "actual_error": actual_error,
+        "expected_error": expected_error,
     }
 
 
@@ -95,19 +95,19 @@ def main() -> int:
                 {
                     "id": result["id"],
                     "status": result["status"],
-                    "field": "result" if result["actual"] != result["expected"] else "error",
+                    "field": "result" if normalize(result["actual"]) != normalize(result["expected"]) else "error",
                     "actual": result["actual"],
                     "expected": result["expected"],
                 }
             )
 
     if args.emit:
-        args.emit.write_text(json.dumps(emitted, indent=2, sort_keys=True))
+        args.emit.write_text(json.dumps(emitted, indent=2))
 
     if failures:
         print("\nFailures:", file=sys.stderr)
         for failure in failures:
-            print(json.dumps(failure, indent=2), file=sys.stderr)
+            print(json.dumps(failure, indent=2, sort_keys=True), file=sys.stderr)
         return 1
 
     print("\nAll conformance cases passed.")

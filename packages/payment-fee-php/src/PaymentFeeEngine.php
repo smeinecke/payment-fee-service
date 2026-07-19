@@ -200,6 +200,26 @@ final class PaymentFeeEngine
                 $result[$key] = ($result[$key] ?? 0) + $value;
             }
         }
+        $required = [
+            'paypal_calculable_rules_total',
+            'paypal_calculable_rules_parsed',
+            'paypal_calculable_rules_skipped',
+            'paypal_context_required',
+            'stripe_calculable_rules_total',
+            'stripe_calculable_rules_parsed',
+            'stripe_calculable_rules_skipped',
+            'stripe_context_required',
+            'unknown_fields',
+            'unknown_condition_dimensions',
+            'unknown_condition_operators',
+            'unsupported_fee_components',
+            'unresolved_schedule_references',
+        ];
+        foreach ($required as $key) {
+            if (!isset($result[$key])) {
+                $result[$key] = 0;
+            }
+        }
         return $result;
     }
 

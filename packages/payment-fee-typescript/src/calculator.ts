@@ -27,12 +27,12 @@ export interface FeeComponent {
   label: string;
   amount: string;
   currency: string;
-  rate_percentage?: string;
-  fixed_amount?: string | null;
+  rate_percentage: string | null;
+  fixed_amount: string | null;
   minimum_applied: boolean;
   maximum_applied: boolean;
-  payer?: string | null;
-  unit?: string | null;
+  payer: string | null;
+  unit: string | null;
   source_rule_id: string;
 }
 
@@ -68,8 +68,12 @@ export function calculate(
         label: rule.label,
         amount: "0",
         currency,
+        rate_percentage: null,
+        fixed_amount: null,
         minimum_applied: false,
         maximum_applied: false,
+        payer: rule.payer ?? null,
+        unit: rule.unit ?? null,
         source_rule_id: rule.rule_id,
       });
       matchedRules.push(matchedRule(rule));
@@ -116,7 +120,7 @@ function calculateRule(amount: MoneyLike, currency: string, rule: ExecutableRule
   }
 
   let raw = new Decimal("0");
-  let ratePercentage: string | undefined;
+  let ratePercentage: string | null = null;
 
   if (rule.basis_points !== undefined && rule.basis_points !== null) {
     const bp = toDecimal(rule.basis_points);
@@ -160,36 +164,34 @@ function calculateRule(amount: MoneyLike, currency: string, rule: ExecutableRule
     label: rule.label,
     amount: toMoneyString(rounded, currency),
     currency,
+    rate_percentage: ratePercentage ?? null,
+    fixed_amount:
+      rule.fixed_amount !== undefined && rule.fixed_amount !== null
+        ? toMoneyString(toDecimal(rule.fixed_amount), rule.fixed_currency ?? currency)
+        : null,
     minimum_applied: minimumApplied,
     maximum_applied: maximumApplied,
+    payer: rule.payer ?? null,
+    unit: rule.unit ?? null,
     source_rule_id: rule.rule_id,
   };
-
-  if (ratePercentage !== undefined) {
-    component.rate_percentage = ratePercentage;
-  }
-  if (rule.fixed_amount !== undefined && rule.fixed_amount !== null) {
-    component.fixed_amount = toMoneyString(
-      toDecimal(rule.fixed_amount),
-      rule.fixed_currency ?? currency,
-    );
-  }
-
-  if (rule.payer !== undefined && rule.payer !== null) {
-    component.payer = rule.payer;
-  }
-  if (rule.unit !== undefined && rule.unit !== null) {
-    component.unit = rule.unit;
-  }
 
   return component;
 }
 
+function normalizeConfidence(value: number): number {
+  if (Number.isInteger(value)) {
+    return value;
+  }
+  return value;
+}
+
 function matchedRule(rule: ExecutableRule): MatchedRule {
+  const confidence = rule.confidence ?? 1.0;
   return {
     rule_id: rule.rule_id,
     classification_status: rule.classification_status ?? "calculable",
-    confidence: rule.confidence ?? 1.0,
+    confidence: normalizeConfidence(confidence),
     exactness: rule.exactness ?? "exact",
     source_url: rule.source_url ?? null,
   };

@@ -8,18 +8,51 @@ permissions:
   contents: read
 
 jobs:
+  resolve-data-revisions:
+    runs-on: ubuntu-latest
+    outputs:
+      paypal_sha: ${{ steps.paypal.outputs.sha }}
+      stripe_sha: ${{ steps.stripe.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: smeinecke/paypal-fee-data
+          path: paypal-fee-data
+          fetch-depth: 0
+      - id: paypal
+        run: echo "sha=$(cd paypal-fee-data && git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: smeinecke/stripe-fee-data
+          path: stripe-fee-data
+          fetch-depth: 0
+      - id: stripe
+        run: echo "sha=$(cd stripe-fee-data && git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Print resolved data revisions
+        run: |
+          echo "PayPal data commit: ${{ steps.paypal.outputs.sha }}"
+          echo "Stripe data commit: ${{ steps.stripe.outputs.sha }}"
+
   python:
     runs-on: ubuntu-latest
+    needs: [resolve-data-revisions]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/paypal-fee-data
           path: paypal-fee-data
+          ref: ${{ needs.resolve-data-revisions.outputs.paypal_sha }}
+          fetch-depth: 0
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/stripe-fee-data
           path: stripe-fee-data
+          ref: ${{ needs.resolve-data-revisions.outputs.stripe_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
       - uses: astral-sh/setup-uv@4db96194c378173c656ce18a155ffc14a9fc4355 # v5.2.2
         with:
           enable-cache: true
@@ -81,17 +114,34 @@ jobs:
 
   conformance:
     runs-on: ubuntu-latest
-    needs: [python, php, typescript]
+    needs: [python, php, typescript, resolve-data-revisions]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/paypal-fee-data
           path: paypal-fee-data
+          ref: ${{ needs.resolve-data-revisions.outputs.paypal_sha }}
+          fetch-depth: 0
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/stripe-fee-data
           path: stripe-fee-data
+          ref: ${{ needs.resolve-data-revisions.outputs.stripe_sha }}
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@20529878ed81ef8e78ddf08b480401e6101a850f # v2.35.3
+        with:
+          php-version: '8.2'
+          tools: composer
+      - run: composer install
+        working-directory: packages/payment-fee-php
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: packages/payment-fee-typescript
+      - run: npm run build
+        working-directory: packages/payment-fee-typescript
       - uses: astral-sh/setup-uv@4db96194c378173c656ce18a155ffc14a9fc4355 # v5.2.2
         with:
           enable-cache: true
@@ -141,6 +191,8 @@ jobs:
           node-version: '22'
       - run: npm ci
         working-directory: packages/payment-fee-typescript
+      - run: npm run build
+        working-directory: packages/payment-fee-typescript
       - run: make test-isolated
 
   wheels:
@@ -176,17 +228,21 @@ jobs:
 
   python-isolated-install:
     runs-on: ubuntu-latest
-    needs: wheels
+    needs: [wheels, resolve-data-revisions]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/paypal-fee-data
           path: paypal-fee-data
+          ref: ${{ needs.resolve-data-revisions.outputs.paypal_sha }}
+          fetch-depth: 0
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/stripe-fee-data
           path: stripe-fee-data
+          ref: ${{ needs.resolve-data-revisions.outputs.stripe_sha }}
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@4db96194c378173c656ce18a155ffc14a9fc4355 # v5.2.2
         with:
           enable-cache: true
@@ -253,7 +309,7 @@ jobs:
 
   release-gate:
     runs-on: ubuntu-latest
-    needs: [python, php, typescript, conformance, packages, isolated-install, wheels, python-isolated-install]
+    needs: [python, php, typescript, conformance, packages, isolated-install, wheels, python-isolated-install, resolve-data-revisions]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -261,10 +317,27 @@ jobs:
         with:
           repository: smeinecke/paypal-fee-data
           path: paypal-fee-data
+          ref: ${{ needs.resolve-data-revisions.outputs.paypal_sha }}
+          fetch-depth: 0
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/stripe-fee-data
           path: stripe-fee-data
+          ref: ${{ needs.resolve-data-revisions.outputs.stripe_sha }}
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@20529878ed81ef8e78ddf08b480401e6101a850f # v2.35.3
+        with:
+          php-version: '8.2'
+          tools: composer
+      - run: composer install
+        working-directory: packages/payment-fee-php
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: packages/payment-fee-typescript
+      - run: npm run build
+        working-directory: packages/payment-fee-typescript
       - uses: astral-sh/setup-uv@4db96194c378173c656ce18a155ffc14a9fc4355 # v5.2.2
         with:
           enable-cache: true
@@ -272,12 +345,22 @@ jobs:
         env:
           PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
           STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
-      - run: make validate
-      - run: make test-conformance
+      - name: Validate
+        run: make validate
+      - name: Cross-language conformance
+        run: make test-conformance
         env:
           PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
           STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
-      - run: make audit-contract
+      - name: Contract audit
+        run: make audit-contract
         env:
           PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
           STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
+      - name: Isolated package install tests
+        run: make test-isolated
+      - name: Print release gate summary
+        run: |
+          echo "Service commit: $(git rev-parse HEAD)"
+          echo "PayPal data commit: ${{ needs.resolve-data-revisions.outputs.paypal_sha }}"
+          echo "Stripe data commit: ${{ needs.resolve-data-revisions.outputs.stripe_sha }}"
