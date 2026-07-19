@@ -1,0 +1,39 @@
+# Git and CI metadata
+.git/
+.github/
+.gitignore
+
+# Documentation at the repository root only; package READMEs are copied explicitly
+/*.md
+docs/
+
+# Languages / packages not used by the production service image
+packages/payment-fee-php/
+packages/payment-fee-typescript/
+node_modules/
+
+# PayPal Sandbox validation harness and fee-data repositories
+# These are kept in the workspace for development but excluded from the
+# production image.
+tools/
+paypal-fee-data/
+stripe-fee-data/
+
+# Sandbox artifacts and transient state
+artifacts/
+.playwright/
+*.csv
+*secrets*
+.env
+
+# Python tooling / build artifacts
+.venv/
+dist/
+build/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Tests are not needed in the production image
+tests/

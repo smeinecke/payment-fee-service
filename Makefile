@@ -3,9 +3,12 @@
 DOCKER_IMAGE ?= ghcr.io/smeinecke/payment-fee-service
 COMPOSER_BIN ?= $(shell command -v composer 2>/dev/null || echo /tmp/composer)
 
-.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-push help paypal-sandbox-validate-config paypal-sandbox-probe paypal-sandbox-plan paypal-sandbox-smoke paypal-sandbox-report paypal-sandbox-install-playwright
+.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-smoke docker-push lock-check help paypal-sandbox-validate-config paypal-sandbox-probe paypal-sandbox-plan paypal-sandbox-smoke paypal-sandbox-report paypal-sandbox-install-playwright
 
 all: validate test-unit
+
+lock-check:
+	uv lock --check
 
 format:
 	uv run ruff format --check --diff .
@@ -63,6 +66,9 @@ build: docker-build
 
 docker-build:
 	docker buildx build --load --platform linux/amd64 -t $(DOCKER_IMAGE):local .
+
+docker-smoke: docker-build
+	scripts/docker-smoke.sh $(DOCKER_IMAGE):local
 
 docker-push:
 	docker buildx build --push --platform linux/amd64,linux/arm64 -t $(DOCKER_IMAGE):latest .
