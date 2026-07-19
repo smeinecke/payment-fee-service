@@ -12,7 +12,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     expected_token: ClassVar[str] = ""
     state: ClassVar[dict[str, str]] = {}
 
-    def log_message(self, fmt: str, *args: Any) -> None:
+    def log_message(self, format: str, *args: Any) -> None:
         # Suppress default logging to avoid leaking query strings.
         pass
 

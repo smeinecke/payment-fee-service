@@ -57,6 +57,7 @@ class RunConfig(BaseModel):
     max_cases: int | None = None
     resume: str | None = None
     continue_after_mismatch: bool = False
+    retry_failed: bool = False
     dry_run: bool = False
     confirm_full_matrix: bool = False
 
@@ -86,12 +87,23 @@ class Case(BaseModel):
     status: CaseStatus = CaseStatus.PLANNED
     request_id_create: str | None = None
     request_id_capture: str | None = None
+    create_attempts: int = 0
+    capture_attempts: int = 0
     order_id: str | None = None
     approval_url: str | None = None
     capture_id: str | None = None
+    payer_id: str | None = Field(default=None, repr=False, exclude=True)
+    observed_payer_country: str | None = None
+    expected_payer_region: str | None = None
+    expected_surcharge_components: int = 0
+    expected_surcharge_amount: str | None = None
     quote: dict[str, Any] | None = None
     paypal_evidence: dict[str, Any] | None = None
     reconciliation: dict[str, Any] | None = None
+    paypal_error: dict[str, Any] | None = None
+    paypal_issue: str | None = None
+    paypal_operation: str | None = None
+    paypal_debug_id: str | None = None
 
 
 class OAuthProbeStatus(StrEnum):
@@ -167,9 +179,21 @@ class RunSummary(BaseModel):
     completed_captures: int = 0
     matches: int = 0
     fee_mismatches: int = 0
+    net_amount_mismatches: int = 0
     currency_mismatches: int = 0
+    buyer_country_mismatches: int = 0
     library_not_calculable: int = 0
     blocked_buyer_interactions: int = 0
     api_failures: int = 0
     capability_exclusions: int = 0
+    configuration_exclusions: int = 0
+    pending: int = 0
+    merchants_present: int = 0
+    merchants_valid: int = 0
+    merchants_probed: int = 0
+    oauth_successful: int = 0
+    oauth_failed: int = 0
+    oauth_skipped: int = 0
+    dataset_revision: str | None = None
+    payment_fee_commit: str | None = None
     cases: list[dict[str, Any]] = Field(default_factory=list)

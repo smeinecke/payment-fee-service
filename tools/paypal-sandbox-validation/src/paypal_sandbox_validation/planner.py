@@ -9,8 +9,10 @@ from paypal_sandbox_validation.configuration import (
     resolve_amount_for_country,
     resolve_amounts,
 )
-from paypal_sandbox_validation.models import Case
+from paypal_sandbox_validation.models import Case, CaseStatus
 from paypal_sandbox_validation.quote_adapter import QuoteAdapter
+
+_SURCHARGE_BUYER_CANDIDATES = ["GB", "DE", "JP", "AU", "CH", "FR", "IT"]
 
 
 def generate_run_id() -> str:
@@ -83,12 +85,93 @@ def build_plan(
 
 
 def enrich_plan_with_products(plan: list[Case], adapter: QuoteAdapter) -> list[Case]:
-    """Resolve the product/variant for each planned case using current capabilities."""
+    """Resolve product/variant, expected payer region and surcharge for each case."""
     for case in plan:
         scenario = adapter.resolve_scenario(case.merchant_country)
         if scenario:
             case.product_id = scenario["product_id"]
             case.variant_id = scenario["variant_id"]
+        try:
+            quote = adapter.build_quote(
+                case.merchant_country,
+                case.buyer_country,
+                case.amount,
+                case.currency,
+            )
+            case.quote = quote
+            request = quote.get("_request", {})
+            transaction = request.get("transaction", {})
+            case.expected_payer_region = transaction.get("payer_region")
+            components = quote.get("components", [])
+            surcharge_components = [c for c in components if c.get("type") == "surcharge"]
+            case.expected_surcharge_components = len(surcharge_components)
+            if surcharge_components:
+                case.expected_surcharge_amount = surcharge_components[0].get("amount")
+        except Exception:
+            # Leave quote empty; run-time will attempt again and record the failure.
+            pass
+    return plan
+
+
+def ensure_surcharge_case(plan: list[Case], adapter: QuoteAdapter) -> list[Case]:
+    """If no cross-border case in a smoke-style plan carries a surcharge, add one."""
+    if not plan:
+        return plan
+
+    domestic = [c for c in plan if c.merchant_country == c.buyer_country]
+    cross_border = [c for c in plan if c.merchant_country != c.buyer_country]
+
+    # Domestic case must not have a surcharge.
+    for case in domestic:
+        if case.expected_surcharge_components:
+            case.quote = None
+            case.expected_surcharge_components = 0
+            case.expected_surcharge_amount = None
+
+    if any(c.expected_surcharge_components > 0 for c in cross_border):
+        return plan
+
+    merchant = plan[0].merchant_country
+    amount = plan[0].amount
+    currency = plan[0].currency
+    existing_buyers = {c.buyer_country for c in plan}
+    index = max(int(c.case_id.split("-")[-1]) for c in plan)
+    prefix = "-".join(plan[0].case_id.split("-")[:2])
+
+    for buyer in _SURCHARGE_BUYER_CANDIDATES:
+        if buyer in existing_buyers:
+            continue
+        if buyer == merchant:
+            continue
+        try:
+            quote = adapter.build_quote(merchant, buyer, amount, currency)
+            components = quote.get("components", [])
+            surcharge_components = [c for c in components if c.get("type") == "surcharge"]
+            if surcharge_components:
+                index += 1
+                request = quote.get("_request", {})
+                transaction = request.get("transaction", {})
+                new_case = Case(
+                    case_id=f"{prefix}-{buyer}-{index}",
+                    run_id=plan[0].run_id,
+                    merchant_country=merchant,
+                    buyer_country=buyer,
+                    amount=amount,
+                    currency=currency,
+                    product_id=quote.get("_scenario", {}).get("product_id", ""),
+                    variant_id=quote.get("_scenario", {}).get("variant_id", ""),
+                    status=CaseStatus.PLANNED,
+                    quote=quote,
+                    expected_payer_region=transaction.get("payer_region"),
+                    expected_surcharge_components=len(surcharge_components),
+                    expected_surcharge_amount=surcharge_components[0].get("amount"),
+                )
+                plan.append(new_case)
+                return plan
+        except Exception:
+            continue
+
+    # If we cannot find a surcharge-bearing case, document the fact but keep the plan.
     return plan
 
 

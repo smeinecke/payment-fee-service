@@ -44,10 +44,12 @@ def extract_capture_evidence(order_or_capture: dict[str, Any], order: dict[str, 
     exchange_rate = breakdown.get("exchange_rate")
 
     payer_country = None
+    payer_id = None
     if order and isinstance(order.get("payer"), dict):
         payer = order["payer"]
         address = payer.get("address", {})
         payer_country = address.get("country_code") or payer.get("payer_info", {}).get("country_code")
+        payer_id = payer.get("payer_id")
 
     evidence = {
         "capture_id": capture.get("id"),
@@ -58,6 +60,7 @@ def extract_capture_evidence(order_or_capture: dict[str, Any], order: dict[str, 
         "receivable_amount": receivable,
         "exchange_rate": exchange_rate,
         "payer_country": payer_country,
+        "payer_id": payer_id,
     }
 
     if gross is None or gross.get("value") is None:

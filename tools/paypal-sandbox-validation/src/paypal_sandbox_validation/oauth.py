@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import contextlib
 from typing import Any
 
 import httpx
@@ -39,7 +38,7 @@ def request_token(client_id: str, secret: str, timeout: float = 30.0) -> tuple[s
         "Authorization": f"Basic {_b64((client_id, secret))}",
         "Content-Type": "application/x-www-form-urlencoded",
     }
-    data = "grant_type=client_credentials"
+    data = {"grant_type": "client_credentials"}
     with httpx.Client(timeout=timeout) as client:
         response = client.post(url, headers=headers, data=data)
     if response.status_code != 200:
@@ -78,6 +77,8 @@ class OAuthCache:
 
 def probe_credentials(client_id: str, secret: str, country: str) -> OAuthProbeResult:
     """Probe credentials without retaining the token."""
+    token = None
+    payload: dict[str, Any] = {}
     try:
         token, payload = request_token(client_id, secret)
     except OAuthError as exc:
@@ -90,8 +91,7 @@ def probe_credentials(client_id: str, secret: str, country: str) -> OAuthProbeRe
         return OAuthProbeResult(country=country, status=OAuthProbeStatus.UNEXPECTED)
     finally:
         # Ensure the token is not retained after the probe.
-        with contextlib.suppress(NameError):
-            del token
+        del token
 
     scope = payload.get("scope", "")
     scope_count = len(scope.split()) if isinstance(scope, str) else 0

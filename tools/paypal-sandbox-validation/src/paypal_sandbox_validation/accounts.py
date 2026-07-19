@@ -59,7 +59,7 @@ EXPECTED_HEADERS = [
 def detect_delimiter(sample: str) -> str:
     delimiters = [",", "\t", ";"]
     counts = {d: sample.count(d) for d in delimiters}
-    max_delim = max(counts, key=counts.get)
+    max_delim = max(counts.items(), key=lambda item: item[1])[0]
     if counts[max_delim] == 0:
         raise ValueError("Could not detect CSV delimiter; the file appears to be empty.")
     # Reject ambiguous parsing: two delimiters have the same non-zero count.
@@ -74,7 +74,8 @@ def detect_delimiter(sample: str) -> str:
 def _open_csv(path: Path) -> tuple[str, Any]:
     raw = path.read_bytes()
     encoding = "utf-8-sig" if raw.startswith(b"\xef\xbb\xbf") else "utf-8"
-    text = path.read_text(encoding=encoding, newline="")
+    with path.open(encoding=encoding, newline="") as f:
+        text = f.read()
     if not text.strip():
         raise ValueError("Account CSV is empty.")
     delimiter = detect_delimiter(text[:2048])
@@ -167,9 +168,28 @@ def validate_accounts(accounts: list[Account]) -> dict[str, Any]:
     missing_merchants = EXPECTED_COUNTRIES - merchant_set
     missing_buyers = EXPECTED_COUNTRIES - buyer_set
 
+    invalid_merchant_countries: set[str] = set()
+    invalid_merchant_countries.update(duplicate_merchants)
+    invalid_merchant_countries.update(missing_business)
+    invalid_merchant_countries.update(invalid_business)
+    for a in merchants:
+        if a.client_id in dup_client_ids or a.primary_email_alias in dup_emails:
+            invalid_merchant_countries.add(a.country_code)
+
+    invalid_buyer_countries: set[str] = set()
+    invalid_buyer_countries.update(duplicate_buyers)
+    invalid_buyer_countries.update(missing_personal)
+    for a in buyers:
+        if a.primary_email_alias in dup_emails:
+            invalid_buyer_countries.add(a.country_code)
+
     return {
         "merchant_count": len(merchants),
         "buyer_count": len(buyers),
+        "merchants_valid": len(merchants) - len(invalid_merchant_countries),
+        "buyers_valid": len(buyers) - len(invalid_buyer_countries),
+        "invalid_merchant_countries": sorted(invalid_merchant_countries),
+        "invalid_buyer_countries": sorted(invalid_buyer_countries),
         "duplicate_accounts": duplicates,
         "duplicate_emails": sorted(dup_emails),
         "duplicate_client_ids": sorted(dup_client_ids),

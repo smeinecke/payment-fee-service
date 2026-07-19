@@ -14,7 +14,6 @@ from paypal_sandbox_validation.accounts import (
 )
 from paypal_sandbox_validation.approval import approve_order
 from paypal_sandbox_validation.callback_server import CallbackServer
-from paypal_sandbox_validation.capture import extract_capture_evidence
 from paypal_sandbox_validation.configuration import (
     load_scenarios,
     validate_configuration,
@@ -23,7 +22,6 @@ from paypal_sandbox_validation.models import (
     Account,
     Case,
     CaseStatus,
-    ReconciliationStatus,
     RunConfig,
 )
 from paypal_sandbox_validation.oauth import OAuthCache, fetch_token, probe_credentials
@@ -42,12 +40,12 @@ from paypal_sandbox_validation.persistence import (
     save_json,
     save_plan,
     save_results,
-    save_sanitized_capture,
     save_sanitized_order,
 )
 from paypal_sandbox_validation.planner import (
     build_plan,
     enrich_plan_with_products,
+    ensure_surcharge_case,
     generate_request_id,
     generate_run_id,
     plan_summary,
@@ -82,14 +80,16 @@ def validate_config_cmd(accounts_csv: str) -> None:
     config_check = validate_configuration(accounts_csv, accounts)
 
     summary = {
-        "merchants_valid": validation["merchant_count"],
-        "buyers_valid": validation["buyer_count"],
+        "merchants_present": validation["merchant_count"],
+        "merchants_valid": validation["merchants_valid"],
+        "buyers_present": validation["buyer_count"],
+        "buyers_valid": validation["buyers_valid"],
         "rest_credential_pairs": sum(1 for a in accounts if a.is_business() and a.client_id and a.secret),
         "duplicate_accounts": len(validation["duplicate_accounts"]),
         "duplicate_client_ids": len(validation["duplicate_client_ids"]),
         "invalid_business_credentials": len(validation["invalid_business_credentials"]),
-        "missing_fields": len(validation["missing_business_credentials"])
-        + len(validation["missing_personal_credentials"]),
+        "missing_business_credentials": len(validation["missing_business_credentials"]),
+        "missing_personal_credentials": len(validation["missing_personal_credentials"]),
         "live_endpoints": len(config_check["live_hosts_found"]),
         "csv_tracked": config_check["csv_tracked"],
         "gitignore_complete": config_check["gitignore_complete"],
@@ -117,19 +117,25 @@ def probe_cmd(accounts_csv: str) -> None:
     accounts = parse_accounts_csv(accounts_csv)
     validation = validate_accounts(accounts)
 
-    invalid_countries = set(validation["invalid_business_credentials"])
-    if invalid_countries:
-        click.echo(
-            f"Skipping {len(invalid_countries)} business accounts with invalid credentials (client_id == secret).",
-            err=True,
-        )
+    merchants = [a for a in accounts if a.is_business()]
+    summary = {
+        "probe_run_id": generate_run_id(),
+        "merchants_present": len(merchants),
+        "merchants_valid": validation["merchants_valid"],
+        "merchants_probed": 0,
+        "oauth_successful": 0,
+        "oauth_failed": 0,
+        "oauth_skipped": 0,
+    }
+
+    if not validation["valid"]:
+        click.echo("Account configuration is invalid; cannot probe.", err=True)
+        for key, value in summary.items():
+            click.echo(f"{key} = {value}")
+        sys.exit(1)
 
     results: list[dict] = []
-    for account in accounts:
-        if not account.is_business():
-            continue
-        if account.country_code in invalid_countries:
-            continue
+    for account in merchants:
         assert account.client_id and account.secret
         result = probe_credentials(account.client_id, account.secret, account.country_code)
         results.append(
@@ -143,9 +149,22 @@ def probe_cmd(accounts_csv: str) -> None:
         )
         click.echo(f"{result.country}: {result.status.value}")
 
-    failures = [r for r in results if r["status"] != "success"]
-    if failures:
-        click.echo(f"Probe failures: {len(failures)}", err=True)
+    summary["merchants_probed"] = len(merchants)
+    summary["oauth_successful"] = sum(1 for r in results if r["status"] == "success")
+    summary["oauth_failed"] = sum(1 for r in results if r["status"] != "success")
+    summary["oauth_skipped"] = 0
+
+    from paypal_sandbox_validation.persistence import save_oauth_probe_summary
+
+    save_oauth_probe_summary(summary["probe_run_id"], results)
+    summary_path = Path("artifacts/paypal-sandbox") / summary["probe_run_id"] / "oauth-probe-summary.json"
+    save_json(summary_path, summary)
+
+    for key, value in summary.items():
+        click.echo(f"{key} = {value}")
+
+    if summary["oauth_failed"] or summary["merchants_probed"] != summary["merchants_present"]:
+        click.echo("Probe failed.", err=True)
         sys.exit(1)
 
 
@@ -155,7 +174,11 @@ def probe_cmd(accounts_csv: str) -> None:
     type=click.Path(exists=True, dir_okay=False),
     default=_env_csv_default,
 )
-@click.option("--profile", type=click.Choice(["smoke", "de-pilot", "full"], case_sensitive=False), default="smoke")
+@click.option(
+    "--profile",
+    type=click.Choice(["smoke", "de-compliance-probe", "de-pilot", "full"], case_sensitive=False),
+    default="smoke",
+)
 @click.option("--merchant", type=str, default=None)
 @click.option("--buyer", type=str, default=None)
 @click.option("--case-id", type=str, default=None)
@@ -192,6 +215,8 @@ def plan_cmd(
     )
     adapter = QuoteAdapter()
     plan = enrich_plan_with_products(plan, adapter)
+    if profile == "smoke":
+        plan = ensure_surcharge_case(plan, adapter)
     save_plan(run_id, plan)
     summary = plan_summary(plan)
     click.echo(json.dumps(summary, indent=2))
@@ -217,7 +242,11 @@ def plan_cmd(
     type=click.Path(exists=True, dir_okay=False),
     default=_env_csv_default,
 )
-@click.option("--profile", type=click.Choice(["smoke", "de-pilot", "full"], case_sensitive=False), default="smoke")
+@click.option(
+    "--profile",
+    type=click.Choice(["smoke", "de-compliance-probe", "de-pilot", "full"], case_sensitive=False),
+    default="smoke",
+)
 @click.option("--merchant", type=str, default=None)
 @click.option("--buyer", type=str, default=None)
 @click.option("--case-id", type=str, default=None)
@@ -229,6 +258,7 @@ def plan_cmd(
 @click.option("--max-cases", type=int, default=None)
 @click.option("--resume", type=str, default=None)
 @click.option("--continue-after-mismatch", is_flag=True, default=False)
+@click.option("--retry-failed", is_flag=True, default=False)
 @click.option("--dry-run", is_flag=True, default=False)
 @click.option("--confirm-full-matrix", is_flag=True, default=False)
 def run_cmd(
@@ -245,6 +275,7 @@ def run_cmd(
     max_cases: int | None,
     resume: str | None,
     continue_after_mismatch: bool,
+    retry_failed: bool,
     dry_run: bool,
     confirm_full_matrix: bool,
 ) -> None:
@@ -252,20 +283,12 @@ def run_cmd(
     accounts = parse_accounts_csv(accounts_csv)
     validation = validate_accounts(accounts)
 
-    invalid_countries = set(validation["invalid_business_credentials"])
-    if invalid_countries:
-        click.echo(
-            f"Warning: {len(invalid_countries)} business accounts have invalid "
-            "credentials (client_id == secret) and will be skipped.",
-            err=True,
-        )
+    if not validation["valid"]:
+        click.echo("Account configuration is invalid; cannot run.", err=True)
+        sys.exit(1)
 
-    merchant_accounts = {
-        a.country_code: a
-        for a in accounts
-        if a.is_business() and a.client_id and a.secret and a.country_code not in invalid_countries
-    }
-    buyer_accounts = {a.country_code: a for a in accounts if a.is_personal() and a.password}
+    merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
+    buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
 
     scenarios = load_scenarios()
     run_id = resume or generate_run_id()
@@ -283,6 +306,7 @@ def run_cmd(
         max_cases=max_cases,
         resume=resume,
         continue_after_mismatch=continue_after_mismatch,
+        retry_failed=retry_failed,
         dry_run=dry_run,
         confirm_full_matrix=confirm_full_matrix,
     )
@@ -303,6 +327,8 @@ def run_cmd(
         )
         adapter = QuoteAdapter()
         plan = enrich_plan_with_products(plan, adapter)
+        if profile == "smoke":
+            plan = ensure_surcharge_case(plan, adapter)
         save_plan(run_id, plan)
 
     save_json(
@@ -324,10 +350,21 @@ def run_cmd(
     adapter = QuoteAdapter()
     oauth_cache = OAuthCache()
     results: dict[str, Any] = {"run_id": run_id, "cases": []}
+    existing_by_id: dict[str, dict[str, Any]] = {}
 
+    if resume:
+        existing_results = load_results(run_id)
+        existing_by_id = {c["case_id"]: c for c in existing_results.get("cases", [])}
+
+    mismatch_break = False
     for case in plan:
         if case_id and case.case_id != case_id:
             continue
+
+        existing = existing_by_id.get(case.case_id)
+        if existing and not retry_failed:
+            case = _merge_existing_case(case, existing)
+
         result = _run_case(
             case=case,
             config=config,
@@ -336,19 +373,57 @@ def run_cmd(
             adapter=adapter,
             oauth_cache=oauth_cache,
         )
-        results["cases"].append(result)
+
+        if existing:
+            existing_by_id[case.case_id] = result
+        results["cases"] = list(existing_by_id.values()) if resume else results["cases"] + [result]
         save_results(run_id, results)
 
         rec = result.get("reconciliation", {}) or {}
-        if rec.get("status") == "fee_mismatch" and not continue_after_mismatch:
-            click.echo(f"Stopping after first fee mismatch: {case.case_id}")
+        if (
+            rec.get("status")
+            in {
+                "fee_mismatch",
+                "net_amount_mismatch",
+                "currency_mismatch",
+                "buyer_country_mismatch",
+            }
+            and not continue_after_mismatch
+        ):
+            click.echo(f"Stopping after first mismatch: {case.case_id} ({rec['status']})")
+            mismatch_break = True
             break
 
     summary = build_summary(run_id)
     save_summary(run_id, summary)
     save_summary_markdown(run_id, summary, accounts_csv)
     save_junit(run_id, summary)
-    click.echo(json.dumps({k: v for k, v in summary.items() if k != "cases"}, indent=2))
+    output = {k: v for k, v in summary.items() if k != "cases"}
+    output["stopped_after_first_mismatch"] = mismatch_break
+    click.echo(json.dumps(output, indent=2))
+
+
+def _merge_existing_case(case: Case, existing: dict[str, Any]) -> Case:
+    """Hydrate a planned case with persisted progress so idempotency keys are reused."""
+    existing_case = Case.model_validate(existing)
+    case.status = existing_case.status
+    case.request_id_create = existing_case.request_id_create or case.request_id_create
+    case.request_id_capture = existing_case.request_id_capture or case.request_id_capture
+    case.create_attempts = existing_case.create_attempts or 0
+    case.capture_attempts = existing_case.capture_attempts or 0
+    case.order_id = existing_case.order_id or case.order_id
+    case.approval_url = existing_case.approval_url or case.approval_url
+    case.capture_id = existing_case.capture_id or case.capture_id
+    case.payer_id = existing_case.payer_id or case.payer_id
+    case.observed_payer_country = existing_case.observed_payer_country or case.observed_payer_country
+    case.quote = existing_case.quote or case.quote
+    case.paypal_evidence = existing_case.paypal_evidence or case.paypal_evidence
+    case.reconciliation = existing_case.reconciliation or case.reconciliation
+    case.paypal_error = existing_case.paypal_error or case.paypal_error
+    case.paypal_issue = existing_case.paypal_issue or case.paypal_issue
+    case.paypal_operation = existing_case.paypal_operation or case.paypal_operation
+    case.paypal_debug_id = existing_case.paypal_debug_id or case.paypal_debug_id
+    return case
 
 
 def _run_case(
@@ -365,9 +440,60 @@ def _run_case(
         case.status = CaseStatus.FAILED
         return _case_dict(case, error="Missing merchant or buyer account")
 
-    case.request_id_create = generate_request_id(case.run_id, case.case_id, "create", 0)
+    # 1. Quote (re-use if already computed during planning or a previous run).
+    if not case.quote:
+        quote_result = _build_quote(case, merchant, buyer, adapter)
+        if quote_result:
+            return quote_result
 
-    # 1. Library prediction before creating any PayPal transaction.
+    if config.dry_run:
+        case.status = CaseStatus.PREDICTION_READY
+        return _case_dict(case)
+
+    # 2/3. Order creation and buyer approval share one callback server so the
+    # redirect URL embedded in the created order matches the listener.
+    callback: CallbackServer | None = None
+    if not case.order_id or case.status in {CaseStatus.PLANNED, CaseStatus.PREDICTION_READY, CaseStatus.ORDER_CREATED}:
+        callback = CallbackServer(expected_token="")
+        callback.start()
+    try:
+        if not case.order_id:
+            create_result = _create_order(case, merchant, oauth_cache, callback)
+            if create_result:
+                return create_result
+
+        if case.status in {CaseStatus.PLANNED, CaseStatus.PREDICTION_READY, CaseStatus.ORDER_CREATED}:
+            approve_result = _approve_order(case, buyer, config, callback)
+            if approve_result:
+                return approve_result
+    finally:
+        if callback:
+            callback.stop()
+
+    # 4. Capture and evidence extraction.
+    if case.status == CaseStatus.BUYER_APPROVED:
+        capture_result = _capture(case, merchant, oauth_cache)
+        if capture_result:
+            return capture_result
+
+    # 5. Reconciliation.
+    if case.status == CaseStatus.CAPTURED and not case.reconciliation:
+        reconcile_result = _reconcile_case(case, merchant, buyer)
+        if reconcile_result:
+            return reconcile_result
+
+    if case.status == CaseStatus.RECONCILED:
+        return _case_dict(case)
+
+    return _case_dict(case, error=f"Unhandled case status: {case.status}")
+
+
+def _build_quote(
+    case: Case,
+    merchant: Account,
+    buyer: Account,
+    adapter: QuoteAdapter,
+) -> dict[str, Any] | None:
     try:
         quote = adapter.build_quote(
             merchant.country_code,
@@ -378,18 +504,32 @@ def _run_case(
         case.quote = quote
         case.product_id = quote["_scenario"]["product_id"]
         case.variant_id = quote["_scenario"]["variant_id"]
+        request = quote.get("_request", {})
+        transaction = request.get("transaction", {})
+        case.expected_payer_region = transaction.get("payer_region")
+        components = quote.get("components", [])
+        surcharge_components = [c for c in components if c.get("type") == "surcharge"]
+        case.expected_surcharge_components = len(surcharge_components)
+        if surcharge_components:
+            case.expected_surcharge_amount = surcharge_components[0].get("amount")
     except QuoteResolutionError as exc:
         case.status = CaseStatus.FAILED
         return _case_dict(case, error=str(exc), reconciliation_status=exc.status)
     except Exception as exc:
         case.status = CaseStatus.FAILED
         return _case_dict(case, error=f"Library quote failed: {exc}")
+    return None
 
-    if config.dry_run:
-        case.status = CaseStatus.PREDICTION_READY
-        return _case_dict(case)
 
-    # 2. OAuth token for merchant.
+def _create_order(
+    case: Case,
+    merchant: Account,
+    oauth_cache: OAuthCache,
+    callback: CallbackServer | None,
+) -> dict[str, Any] | None:
+    if not case.request_id_create:
+        case.request_id_create = generate_request_id(case.run_id, case.case_id, "create", case.create_attempts)
+
     try:
         assert merchant.client_id and merchant.secret
         token = fetch_token(oauth_cache, merchant.client_id, merchant.secret, merchant.country_code)
@@ -398,10 +538,11 @@ def _run_case(
         return _case_dict(case, error=f"OAuth failed: {exc}")
 
     client = PayPalClient(token=token)
-
-    # 3. Callback server and order creation.
     invoice_id = f"{case.run_id}-{case.case_id}"
-    callback = CallbackServer(expected_token="")
+    if callback is None:
+        case.status = CaseStatus.FAILED
+        return _case_dict(case, error="No callback server available for order creation")
+
     try:
         payload = build_order_payload(
             amount=case.amount,
@@ -411,82 +552,148 @@ def _run_case(
             reference_id=case.case_id,
             invoice_id=invoice_id,
             custom_id=case.case_id,
+            brand_name="PayPal Sandbox Validation",
         )
     except Exception as exc:
         case.status = CaseStatus.FAILED
         return _case_dict(case, error=f"Failed to build order payload: {exc}")
 
-    callback.start()
     try:
         order = client.create_order(payload, request_id=case.request_id_create)
         case.order_id = order.get("id")
         case.status = CaseStatus.ORDER_CREATED
+        case.create_attempts += 1
         save_sanitized_order(case.run_id, case.case_id, order)
 
         if not case.order_id:
             return _case_dict(case, error="Order response missing id")
 
         callback.update_expected_token(case.order_id)
-        approval_url = extract_approval_url(order)
-        case.approval_url = approval_url
-
-        # 4. Buyer approval via Playwright.
-        screenshot_dir = Path("artifacts/paypal-sandbox") / case.run_id / "screenshots"
-        approval_result = approve_order(
-            buyer=buyer,
-            approval_url=approval_url,
-            amount=case.amount,
-            currency=case.currency,
-            order_token=case.order_id,
-            headless=not (config.headful or config.headed),
-            slow_mo=config.slow_mo,
-            screenshot_dir=screenshot_dir,
-            case_id=case.case_id,
-            callback_server=callback,
-        )
+        case.approval_url = extract_approval_url(order)
     except PayPalAPIError as exc:
+        _record_paypal_error(case, exc)
+        return _case_dict(case)
+    return None
+
+
+def _approve_order(
+    case: Case,
+    buyer: Account,
+    config: RunConfig,
+    callback: CallbackServer | None,
+) -> dict[str, Any] | None:
+    if not case.approval_url or not case.order_id:
         case.status = CaseStatus.FAILED
-        return _case_dict(case, error=f"Order creation failed: {exc}")
-    finally:
-        callback.stop()
+        return _case_dict(case, error="Cannot approve order: missing approval URL or order id")
+
+    screenshot_dir = Path("artifacts/paypal-sandbox") / case.run_id / "screenshots"
+    approval_result = approve_order(
+        buyer=buyer,
+        approval_url=case.approval_url,
+        amount=case.amount,
+        currency=case.currency,
+        order_token=case.order_id,
+        headless=not (config.headful or config.headed),
+        slow_mo=config.slow_mo,
+        screenshot_dir=screenshot_dir,
+        case_id=case.case_id,
+        callback_server=callback,
+    )
     if approval_result["status"] != "approved":
         case.status = CaseStatus.FAILED
-        return _case_dict(case, error=approval_result.get("error"), reconciliation_status=approval_result["status"])
+        return _case_dict(
+            case,
+            error=approval_result.get("error"),
+            reconciliation_status=approval_result["status"],
+        )
     case.status = CaseStatus.BUYER_APPROVED
+    return None
 
-    # 5. Capture.
-    case.request_id_capture = generate_request_id(case.run_id, case.case_id, "capture", 0)
+
+def _capture(
+    case: Case,
+    merchant: Account,
+    oauth_cache: OAuthCache,
+) -> dict[str, Any] | None:
+    from paypal_sandbox_validation import capture as capture_mod
+
+    if not case.request_id_capture:
+        case.request_id_capture = generate_request_id(case.run_id, case.case_id, "capture", case.capture_attempts)
+
     try:
-        capture_response = client.capture_order(case.order_id, request_id=case.request_id_capture)
+        assert merchant.client_id and merchant.secret
+        token = fetch_token(oauth_cache, merchant.client_id, merchant.secret, merchant.country_code)
+    except Exception as exc:
+        case.status = CaseStatus.FAILED
+        return _case_dict(case, error=f"OAuth failed: {exc}")
+
+    client = PayPalClient(token=token)
+    if not case.order_id:
+        case.status = CaseStatus.FAILED
+        return _case_dict(case, error="Cannot capture: missing order id")
+    try:
+        evidence = capture_mod.capture_order(client, case.order_id, case.request_id_capture)
     except PayPalAPIError as exc:
+        _record_paypal_error(case, exc)
+        return _case_dict(case)
+    except Exception as exc:
         case.status = CaseStatus.FAILED
         return _case_dict(case, error=f"Capture failed: {exc}")
 
-    try:
-        evidence = extract_capture_evidence(capture_response)
-    except Exception as exc:
-        case.status = CaseStatus.FAILED
-        return _case_dict(case, error=f"Capture evidence extraction failed: {exc}")
-
     case.capture_id = evidence.get("capture_id")
     case.paypal_evidence = evidence
+    case.payer_id = evidence.get("payer_id")
+    case.observed_payer_country = evidence.get("payer_country")
+    case.capture_attempts += 1
     case.status = CaseStatus.CAPTURED
-    save_sanitized_capture(case.run_id, case.case_id, capture_response)
+    save_case(case.run_id, case)
+    return None
 
-    # 6. Reconciliation.
-    observed_payer_country = evidence.get("payer_country")
-    if observed_payer_country and observed_payer_country != buyer.country_code:
-        rec_result = reconcile(evidence, case.quote, merchant.country_code, buyer.country_code, observed_payer_country)
-        rec_result.status = ReconciliationStatus.BUYER_COUNTRY_MISMATCH
-    else:
-        rec_result = reconcile(evidence, case.quote, merchant.country_code, buyer.country_code, observed_payer_country)
+
+def _reconcile_case(
+    case: Case,
+    merchant: Account,
+    buyer: Account,
+) -> dict[str, Any] | None:
+    try:
+        rec_result = reconcile(
+            case.paypal_evidence or {},
+            case.quote or {},
+            merchant.country_code,
+            buyer.country_code,
+            case.observed_payer_country,
+        )
+    except Exception as exc:
+        case.status = CaseStatus.FAILED
+        return _case_dict(case, error=f"Reconciliation failed: {exc}")
+
     case.reconciliation = rec_result.model_dump()
     case.status = CaseStatus.RECONCILED
     save_case(case.run_id, case)
     return _case_dict(case)
 
 
-def _case_dict(case: Case, error: str | None = None, reconciliation_status: str | None = None) -> dict[str, Any]:
+def _record_paypal_error(case: Case, exc: PayPalAPIError) -> None:
+    from paypal_sandbox_validation.error_classification import classify_paypal_api_error
+
+    status, safe, detail = classify_paypal_api_error(exc)
+    case.paypal_error = safe
+    case.paypal_issue = safe.get("issue") or safe.get("name")
+    case.paypal_operation = safe.get("operation")
+    case.paypal_debug_id = safe.get("debug_id")
+    case.status = CaseStatus.FAILED
+    case.reconciliation = {
+        "status": status.value,
+        "delta_minor_units": None,
+        "root_cause": detail,
+    }
+
+
+def _case_dict(
+    case: Case,
+    error: str | None = None,
+    reconciliation_status: str | None = None,
+) -> dict[str, Any]:
     data = case.model_dump()
     if error:
         data["error"] = error

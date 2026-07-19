@@ -6,37 +6,29 @@ from typing import Any
 import httpx
 
 from paypal_sandbox_validation.redaction import sanitize_paypal_capture, sanitize_paypal_order
+from paypal_sandbox_validation.url_validation import validate_api_url
 
 PAYPAL_SANDBOX_API = "https://api-m.sandbox.paypal.com"
 PAYPAL_SANDBOX_CHECKOUT = "https://www.sandbox.paypal.com"
 
-ALLOWED_HOSTS = {
-    "api-m.sandbox.paypal.com",
-    "www.sandbox.paypal.com",
-}
-
-LIVE_HOSTS = {
-    "api-m.paypal.com",
-    "www.paypal.com",
-    "api.paypal.com",
-}
-
 
 def require_sandbox_host(url: str) -> None:
-    from urllib.parse import urlparse
-
-    host = urlparse(url).hostname or ""
-    if host in LIVE_HOSTS or "live" in host or "production" in host:
-        raise ValueError(f"Live PayPal host rejected: {url}")
-    if host not in ALLOWED_HOSTS and "sandbox" not in host:
-        raise ValueError(f"Only PayPal Sandbox hosts are allowed: {url}")
+    """Backward-compatible alias for the exact API URL validator."""
+    validate_api_url(url)
 
 
 class PayPalAPIError(Exception):
-    def __init__(self, message: str, status_code: int | None = None, body: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        body: dict[str, Any] | None = None,
+        operation: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
-        self.body = body
+        self.body = body or {}
+        self.operation = operation
 
 
 class PayPalClient:
@@ -62,31 +54,47 @@ class PayPalClient:
         request_id: str,
     ) -> dict[str, Any]:
         url = f"{self.base_url}/v2/checkout/orders"
-        require_sandbox_host(url)
-        with httpx.Client(timeout=self.timeout) as client:
-            response = client.post(url, headers=self._headers(request_id), json=payload)
-        return self._handle(response, "create order")
+        return self._request("POST", url, "create order", json=payload, request_id=request_id)
 
     def get_order(self, order_id: str) -> dict[str, Any]:
         url = f"{self.base_url}/v2/checkout/orders/{order_id}"
-        require_sandbox_host(url)
-        with httpx.Client(timeout=self.timeout) as client:
-            response = client.get(url, headers=self._headers())
-        return self._handle(response, "get order")
+        return self._request("GET", url, "get order")
 
     def capture_order(self, order_id: str, request_id: str) -> dict[str, Any]:
         url = f"{self.base_url}/v2/checkout/orders/{order_id}/capture"
-        require_sandbox_host(url)
-        with httpx.Client(timeout=self.timeout) as client:
-            response = client.post(url, headers=self._headers(request_id))
-        return self._handle(response, "capture order")
+        return self._request("POST", url, "capture order", request_id=request_id)
 
     def get_capture(self, capture_id: str) -> dict[str, Any]:
         url = f"{self.base_url}/v2/payments/captures/{capture_id}"
+        return self._request("GET", url, "get capture")
+
+    def _request(
+        self,
+        method: str,
+        url: str,
+        operation: str,
+        json: dict[str, Any] | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        from time import sleep
+
         require_sandbox_host(url)
-        with httpx.Client(timeout=self.timeout) as client:
-            response = client.get(url, headers=self._headers())
-        return self._handle(response, "get capture")
+        attempts = 3
+        response: httpx.Response | None = None
+        for attempt in range(attempts):
+            with httpx.Client(timeout=self.timeout) as client:
+                if method == "GET":
+                    response = client.get(url, headers=self._headers(request_id))
+                elif method == "POST":
+                    response = client.post(url, headers=self._headers(request_id), json=json)
+                else:
+                    raise ValueError(f"Unsupported HTTP method: {method}")
+            if response.status_code < 300 or response.status_code not in {429, 500, 502, 503, 504}:
+                return self._handle(response, operation)
+            if attempt < attempts - 1:
+                sleep(2**attempt)
+        assert response is not None
+        return self._handle(response, operation)
 
     def _handle(self, response: httpx.Response, operation: str) -> dict[str, Any]:
         try:
@@ -99,15 +107,20 @@ class PayPalClient:
             f"PayPal API failure during {operation}: HTTP {response.status_code}",
             status_code=response.status_code,
             body=body,
+            operation=operation,
         )
 
 
 def extract_approval_url(order: dict[str, Any]) -> str:
+    from paypal_sandbox_validation.url_validation import validate_approval_url
+
     for rel in ("payer-action", "approve"):
         for link in order.get("links", []):
-            if link.get("rel") == rel and link.get("href"):
-                return link["href"]
-    raise PayPalAPIError("No approval link found in order response")
+            href = link.get("href")
+            if link.get("rel") == rel and href:
+                validate_approval_url(href)
+                return href
+    raise PayPalAPIError("No approval link found in order response", operation="extract approval url")
 
 
 def build_order_payload(
@@ -118,7 +131,13 @@ def build_order_payload(
     reference_id: str,
     invoice_id: str,
     custom_id: str,
+    brand_name: str = "PayPal Sandbox Validation",
 ) -> dict[str, Any]:
+    from paypal_sandbox_validation.url_validation import validate_callback_url
+
+    validate_callback_url(return_url)
+    validate_callback_url(cancel_url)
+
     # PayPal's current Sandbox checkout flow returns a classic `approve`
     # link when application_context is supplied.  The newer
     # payment_source.paypal.experience_context shape triggers the
@@ -142,7 +161,38 @@ def build_order_payload(
             "shipping_preference": "NO_SHIPPING",
             "return_url": return_url,
             "cancel_url": cancel_url,
+            "brand_name": brand_name,
         },
+    }
+
+
+def extract_paypal_issue(body: dict[str, Any]) -> str | None:
+    if not isinstance(body, dict):
+        return None
+    name = body.get("name") or ""
+    if isinstance(name, str):
+        return name.upper()
+    details = body.get("details") or []
+    if isinstance(details, list) and details:
+        issue = details[0].get("issue") or ""
+        if isinstance(issue, str):
+            return issue.upper()
+    return None
+
+
+def extract_paypal_error_fields(exc: PayPalAPIError) -> dict[str, Any]:
+    """Return only the sanitized, non-credential PayPal error fields."""
+    body = exc.body or {}
+    details = body.get("details") or []
+    first_detail = details[0] if isinstance(details, list) and details else {}
+    return {
+        "http_status": exc.status_code,
+        "operation": exc.operation,
+        "name": body.get("name"),
+        "issue": first_detail.get("issue") if isinstance(first_detail, dict) else None,
+        "description": first_detail.get("description") if isinstance(first_detail, dict) else body.get("message"),
+        "debug_id": body.get("debug_id"),
+        "information_link": body.get("information_link"),
     }
 
 

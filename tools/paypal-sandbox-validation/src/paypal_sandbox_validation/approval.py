@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import urlparse
 
 from paypal_sandbox_validation.browser import BrowserError, PayPalBrowser
 from paypal_sandbox_validation.callback_server import CallbackServer
 from paypal_sandbox_validation.models import Account, ReconciliationStatus
+from paypal_sandbox_validation.url_validation import URLValidationError, validate_approval_url
 
 
 def approve_order(
@@ -77,6 +77,7 @@ def approve_order(
 
 
 def require_sandbox_approval_url(url: str) -> None:
-    host = urlparse(url).hostname
-    if host != "www.sandbox.paypal.com":
-        raise BrowserError(f"Rejecting approval URL with non-Sandbox host: {host}")
+    try:
+        validate_approval_url(url)
+    except URLValidationError as exc:
+        raise BrowserError(str(exc)) from exc

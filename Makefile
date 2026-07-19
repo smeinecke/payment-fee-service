@@ -91,7 +91,15 @@ paypal-sandbox-plan:
 
 paypal-sandbox-smoke:
 	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation run --profile smoke
+
+paypal-sandbox-smoke-continue:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
 		uv run paypal-sandbox-validation run --profile smoke --continue-after-mismatch
+
+paypal-sandbox-de-compliance:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation run --profile de-compliance-probe --merchant DE --buyer DE
 
 paypal-sandbox-report:
 	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \

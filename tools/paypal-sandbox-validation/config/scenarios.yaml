@@ -27,6 +27,15 @@ profiles:
     amount: "10.00"
     currencies:
       US: USD
+  de-compliance-probe:
+    description: Single German compliance-violation probe (preserved for diagnostics)
+    merchants:
+      - DE
+    buyers_per_merchant:
+      - DE
+    amount: "1.00"
+    currencies:
+      DE: EUR
   de-pilot:
     description: German pilot profile
     merchants:

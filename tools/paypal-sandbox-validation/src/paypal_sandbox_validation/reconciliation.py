@@ -48,6 +48,12 @@ def reconcile(
         library_net_value=str(lib_net_value) if lib_net_value is not None else None,
     )
 
+    # Buyer country verification takes precedence over fee comparison.
+    if observed_payer_country and observed_payer_country.upper() != buyer_country.upper():
+        result.status = ReconciliationStatus.BUYER_COUNTRY_MISMATCH
+        result.root_cause = "configured buyer country does not match observed payer country"
+        return result
+
     if gross_value is None:
         result.status = ReconciliationStatus.PAYPAL_API_FAILURE
         result.root_cause = "harness defect"
@@ -96,7 +102,12 @@ def reconcile(
     result.delta_minor_units = 0
     result.components = quote.get("components", [])
     result.matched_rules = [
-        r.get("rule_id") if isinstance(r, dict) else getattr(r, "rule_id", None) for r in quote.get("matched_rules", [])
+        str(rule_id)
+        for rule_id in [
+            r.get("rule_id") if isinstance(r, dict) else getattr(r, "rule_id", None)
+            for r in quote.get("matched_rules", [])
+        ]
+        if rule_id is not None
     ]
     return result
 

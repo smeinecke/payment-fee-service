@@ -9,6 +9,7 @@ from playwright.sync_api import Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from paypal_sandbox_validation.models import ReconciliationStatus
+from paypal_sandbox_validation.url_validation import URLValidationError, validate_approval_url
 
 
 class BrowserError(Exception):
@@ -52,9 +53,10 @@ class PayPalBrowser:
         return self.page
 
     def open_approval_url(self, url: str) -> None:
-        host = urlparse(url).hostname
-        if host != "www.sandbox.paypal.com":
-            raise BrowserError(f"Rejecting non-Sandbox approval host: {host}")
+        try:
+            validate_approval_url(url)
+        except URLValidationError as exc:
+            raise BrowserError(str(exc)) from exc
         page = self._require_page()
         page.goto(url, timeout=120000)
 
