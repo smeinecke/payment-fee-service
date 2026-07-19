@@ -36,6 +36,9 @@ jobs:
   python:
     runs-on: ubuntu-latest
     needs: [resolve-data-revisions]
+    env:
+      PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
+      STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -318,6 +321,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [python, php, typescript, conformance, packages, isolated-install, wheels, python-isolated-install, resolve-data-revisions]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    env:
+      PAYPAL_FEE_DATA: ${{ github.workspace }}/paypal-fee-data
+      STRIPE_FEE_DATA: ${{ github.workspace }}/stripe-fee-data
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
