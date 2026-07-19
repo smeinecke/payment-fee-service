@@ -18,15 +18,15 @@ standard_wallet_checkout:
 
 profiles:
   smoke:
-    description: Two-case smoke profile
+    description: Two-case smoke profile (US domestic + cross-border)
     merchants:
-      - DE
-    buyers_per_merchant:
-      - DE
       - US
+    buyers_per_merchant:
+      - US
+      - CA
     amount: "10.00"
     currencies:
-      DE: EUR
+      US: USD
   de-pilot:
     description: German pilot profile
     merchants:

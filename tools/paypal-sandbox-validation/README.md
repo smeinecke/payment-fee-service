@@ -44,8 +44,8 @@ regenerate a report for a specific run.
 
 ## Profiles
 
-* `smoke` - One domestic and one cross-border case for the first merchant
-  country (default: DE).
+* `smoke` - One domestic and one cross-border case using the US merchant
+  (USD domestic US and cross-border CA).
 * `de-pilot` - A broader DE-centric subset.
 * `full` - The full merchant/buyer/amount matrix. Use only after confirming the
   harness works for `smoke` and `de-pilot`.

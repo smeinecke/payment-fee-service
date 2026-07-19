@@ -94,8 +94,10 @@ def reconcile(
         return result
 
     result.delta_minor_units = 0
-    result.components = [c.model_dump() for c in quote.get("components", [])]
-    result.matched_rules = [r.get("rule_id") for r in quote.get("matched_rules", [])]
+    result.components = quote.get("components", [])
+    result.matched_rules = [
+        r.get("rule_id") if isinstance(r, dict) else getattr(r, "rule_id", None) for r in quote.get("matched_rules", [])
+    ]
     return result
 
 

@@ -151,8 +151,8 @@ class PayPalBrowser:
 
     def _click_pay_now(self, page: Page) -> None:
         pay_pattern = re.compile(
-            r"Pay Now|Jetzt zahlen|Zahlung bestätigen|Jetzt bezahlen|Bestätigen|"
-            r"Approve|Continue|Weiter|Zahlen|Pay|Agree",
+            r"Pay Now|Complete Purchase|Jetzt zahlen|Zahlung bestätigen|"
+            r"Jetzt bezahlen|Bestätigen|Approve|Continue|Weiter|Zahlen|Pay|Agree",
             re.IGNORECASE,
         )
         try:
