@@ -3,7 +3,7 @@
 DOCKER_IMAGE ?= ghcr.io/smeinecke/payment-fee-service
 COMPOSER_BIN ?= $(shell command -v composer 2>/dev/null || echo /tmp/composer)
 
-.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-smoke docker-push lock-check help paypal-sandbox-validate-config paypal-sandbox-probe paypal-sandbox-plan paypal-sandbox-smoke paypal-sandbox-report paypal-sandbox-install-playwright
+.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-smoke docker-push lock-check help paypal-sandbox-validate-config paypal-sandbox-probe paypal-sandbox-probe-nvp paypal-sandbox-plan paypal-sandbox-smoke paypal-sandbox-report paypal-sandbox-install-playwright paypal-sandbox-manual-plan paypal-sandbox-manual-smoke paypal-sandbox-manual-formula paypal-sandbox-manual-report
 
 all: validate test-unit
 
@@ -94,6 +94,10 @@ paypal-sandbox-probe:
 	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
 		uv run paypal-sandbox-validation probe
 
+paypal-sandbox-probe-nvp:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation probe-nvp
+
 paypal-sandbox-plan:
 	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
 		uv run paypal-sandbox-validation plan --profile smoke
@@ -116,6 +120,26 @@ paypal-sandbox-report:
 
 paypal-sandbox-install-playwright:
 	uv run python -m playwright install chromium
+
+paypal-sandbox-manual-plan:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation manual-plan --profile manual-de-first
+
+paypal-sandbox-manual-smoke:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation manual-plan --profile manual-de-first && \
+		PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation manual-run --run-id $$(ls -t artifacts/paypal-sandbox-manual 2>/dev/null | head -1)
+
+paypal-sandbox-manual-formula:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation manual-plan --profile manual-de-formula && \
+		PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation manual-run --run-id $$(ls -t artifacts/paypal-sandbox-manual 2>/dev/null | head -1)
+
+paypal-sandbox-manual-report:
+	PAYPAL_SANDBOX_ACCOUNTS_CSV=$(PAYPAL_SANDBOX_ACCOUNTS_CSV) \
+		uv run paypal-sandbox-validation manual-report --run-id $$(ls -t artifacts/paypal-sandbox-manual 2>/dev/null | head -1)
 
 help:
 	@echo "Available targets:"
@@ -140,5 +164,12 @@ help:
 	@echo "  build           - Build all package artifacts"
 	@echo "  docker-build    - Build a local Docker image for linux/amd64"
 	@echo "  docker-push     - Build and push the Docker image to GHCR for linux/amd64+arm64"
+	@echo "  paypal-sandbox-validate-config     - Validate PayPal Sandbox account configuration"
+	@echo "  paypal-sandbox-probe               - Probe OAuth credentials for all merchants"
+	@echo "  paypal-sandbox-probe-nvp           - Probe NVP credentials for all merchants"
+	@echo "  paypal-sandbox-manual-plan         - Create a manual Send Money validation plan"
+	@echo "  paypal-sandbox-manual-smoke        - Run the DE manual Send Money first case"
+	@echo "  paypal-sandbox-manual-formula      - Run the DE manual Send Money formula suite"
+	@echo "  paypal-sandbox-manual-report       - Report the latest manual validation run"
 	@echo "  validate        - Run all validation checks"
 	@echo "  help            - Show this help message"

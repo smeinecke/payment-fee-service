@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,10 @@ from paypal_sandbox_validation.configuration import (
     load_scenarios,
     validate_configuration,
 )
+from paypal_sandbox_validation.manual_flow import (
+    build_manual_plan,
+    run_manual_plan,
+)
 from paypal_sandbox_validation.models import (
     Account,
     Case,
@@ -25,6 +30,7 @@ from paypal_sandbox_validation.models import (
     ReconciliationStatus,
     RunConfig,
 )
+from paypal_sandbox_validation.nvp import PayPalNVPClient
 from paypal_sandbox_validation.oauth import OAuthCache, OAuthError, OAuthProbeStatus, fetch_token, probe_credentials
 from paypal_sandbox_validation.paypal_api import (
     PayPalAPIError,
@@ -37,11 +43,14 @@ from paypal_sandbox_validation.paypal_api import (
 )
 from paypal_sandbox_validation.persistence import (
     artifact_root,
+    load_manual_results,
     load_plan,
     load_results,
+    manual_run_dir,
     save_case,
     save_configuration_summary,
     save_json,
+    save_manual_plan,
     save_plan,
     save_results,
     save_sanitized_order,
@@ -105,10 +114,16 @@ def validate_config_cmd(accounts_csv: str) -> None:
         "buyers_present": validation["buyer_count"],
         "buyers_valid": validation["buyers_valid"],
         "rest_credential_pairs": sum(1 for a in accounts if a.is_business() and a.client_id and a.secret),
+        "nvp_credential_triples": sum(
+            1 for a in accounts if a.is_business() and a.nvp_user and a.nvp_password and a.nvp_signature
+        ),
         "duplicate_accounts": len(validation["duplicate_accounts"]),
         "duplicate_client_ids": len(validation["duplicate_client_ids"]),
+        "duplicate_nvp_users": len(validation["duplicate_nvp_users"]),
         "invalid_business_credentials": len(validation["invalid_business_credentials"]),
         "missing_business_credentials": len(validation["missing_business_credentials"]),
+        "missing_nvp_credentials": len(validation["missing_nvp_credentials"]),
+        "incomplete_nvp_credentials": len(validation["incomplete_nvp_credentials"]),
         "missing_personal_credentials": len(validation["missing_personal_credentials"]),
         "live_endpoints": len(config_check["live_hosts_found"]),
         "csv_tracked": config_check["csv_tracked"],
@@ -185,6 +200,70 @@ def probe_cmd(accounts_csv: str) -> None:
 
     if summary["oauth_failed"] or summary["merchants_probed"] != summary["merchants_present"]:
         click.echo("Probe failed.", err=True)
+        sys.exit(1)
+
+
+@cli.command("probe-nvp")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+)
+def probe_nvp_cmd(accounts_csv: str) -> None:
+    """Probe NVP credentials for every Business merchant."""
+    accounts = parse_accounts_csv(accounts_csv)
+    validation = validate_accounts(accounts)
+
+    merchants = [a for a in accounts if a.is_business()]
+    summary = {
+        "probe_run_id": generate_run_id(),
+        "merchants_selected": len(merchants),
+        "nvp_credentials_valid": 0,
+        "nvp_credentials_failed": 0,
+        "nvp_credentials_skipped": 0,
+    }
+
+    if not validation["valid"]:
+        click.echo("Account configuration is invalid; cannot probe NVP.", err=True)
+        for key, value in summary.items():
+            click.echo(f"{key} = {value}")
+        sys.exit(1)
+
+    end = datetime.now(UTC)
+    start = end - timedelta(hours=24)
+    start_iso = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    for account in merchants:
+        if not account.nvp_user or not account.nvp_password or not account.nvp_signature:
+            summary["nvp_credentials_skipped"] += 1
+            click.echo(f"{account.country_code}: skipped")
+            continue
+        try:
+            with PayPalNVPClient(account) as client:
+                response = client.transaction_search(start_date=start_iso, end_date=end_iso)
+            if response.is_success():
+                summary["nvp_credentials_valid"] += 1
+                click.echo(f"{account.country_code}: valid")
+            else:
+                summary["nvp_credentials_failed"] += 1
+                click.echo(f"{account.country_code}: failed")
+        except Exception as exc:
+            summary["nvp_credentials_failed"] += 1
+            click.echo(f"{account.country_code}: failed ({type(exc).__name__})")
+
+    summary_path = Path("artifacts/paypal-sandbox") / summary["probe_run_id"] / "nvp-probe-summary.json"
+    save_json(summary_path, summary)
+
+    for key, value in summary.items():
+        click.echo(f"{key} = {value}")
+
+    if (
+        summary["nvp_credentials_failed"]
+        or summary["nvp_credentials_skipped"]
+        or summary["nvp_credentials_valid"] != summary["merchants_selected"]
+    ):
+        click.echo("NVP probe failed.", err=True)
         sys.exit(1)
 
 
@@ -1910,6 +1989,159 @@ def create_manual_approval_case_cmd(
     save_json(artifact_dir / "manual-approval-capture.json", report)
     click.echo(json.dumps(report, indent=2))
     callback.stop()
+
+
+_MANUAL_PROFILE_CASES: dict[str, list[tuple[str, str, str, str]]] = {
+    "manual-de-first": [
+        ("DE", "DE", "1.00", "EUR"),
+    ],
+    "manual-de-smoke": [
+        ("DE", "DE", "1.00", "EUR"),
+        ("DE", "DE", "10.00", "EUR"),
+    ],
+    "manual-de-formula": [
+        ("DE", "DE", "1.00", "EUR"),
+        ("DE", "DE", "10.00", "EUR"),
+        ("DE", "DE", "100.00", "EUR"),
+    ],
+}
+
+
+def _manual_run_id_option(run_id: str | None, profile: str) -> str:
+    if run_id:
+        return run_id
+    return f"{profile}-{generate_run_id()}"
+
+
+@cli.command("manual-plan")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+    help="Path to the PayPal Sandbox accounts CSV/TSV.",
+)
+@click.option(
+    "--profile",
+    default="manual-de-smoke",
+    type=click.Choice(list(_MANUAL_PROFILE_CASES)),
+    help="Manual validation profile.",
+)
+@click.option("--run-id", default=None, help="Run identifier (generated if omitted).")
+def manual_plan(accounts_csv: str, profile: str, run_id: str | None) -> None:
+    """Create a manual Send Money validation plan."""
+    run_id = _manual_run_id_option(run_id, profile)
+    cases = _MANUAL_PROFILE_CASES[profile]
+    plan = build_manual_plan(run_id, profile, accounts_csv, cases)
+    save_manual_plan(run_id, plan)
+    click.echo(f"Manual plan saved to {manual_run_dir(run_id)}")
+    click.echo(f"Cases: {len(plan)}")
+    for case in plan:
+        fee = (case.quote or {}).get("processing_fee", {}).get("value") if case.quote else None
+        click.echo(
+            f"  {case.case_id}: {case.buyer_country}->{case.merchant_country} "
+            f"{case.amount} {case.currency} (predicted fee {fee})"
+        )
+
+
+@cli.command("manual-run")
+@click.option(
+    "--accounts-csv",
+    type=click.Path(exists=True, dir_okay=False),
+    default=_env_csv_default,
+    help="Path to the PayPal Sandbox accounts CSV/TSV.",
+)
+@click.option("--run-id", required=True, help="Run identifier.")
+@click.option(
+    "--continue-after-mismatch",
+    is_flag=True,
+    help="Continue through fee mismatches instead of stopping at the first.",
+)
+@click.option(
+    "--headful",
+    "headful_flag",
+    is_flag=True,
+    help="Run Playwright in headful mode.",
+)
+@click.option(
+    "--headed",
+    "headed_flag",
+    is_flag=True,
+    help="Alias for --headful.",
+)
+@click.option("--slow-mo", default=0, type=int, help="Playwright slow_mo delay in ms.")
+def manual_run(
+    accounts_csv: str,
+    run_id: str,
+    continue_after_mismatch: bool,
+    headful_flag: bool,
+    headed_flag: bool,
+    slow_mo: int,
+) -> None:
+    """Execute a manual Send Money validation plan."""
+    headless = not (headful_flag or headed_flag)
+    results = run_manual_plan(
+        run_id=run_id,
+        accounts_csv=accounts_csv,
+        stop_after_first_mismatch=not continue_after_mismatch,
+        headless=headless,
+        slow_mo=slow_mo,
+    )
+    click.echo(json.dumps(results, indent=2))
+    _emit_manual_summary(run_id, results)
+
+
+@cli.command("manual-report")
+@click.option("--run-id", required=True, help="Run identifier.")
+def manual_report(run_id: str) -> None:
+    """Print a secret-free manual run report."""
+    results = load_manual_results(run_id)
+    _emit_manual_summary(run_id, results)
+
+
+def _emit_manual_summary(run_id: str, results: dict[str, Any]) -> None:
+    cases = results.get("cases", [])
+    total = len(cases)
+    reconciled = sum(1 for c in cases if c.get("status") == "reconciled")
+    failed = sum(1 for c in cases if c.get("status") == "failed")
+    pending = total - reconciled - failed
+
+    report: dict[str, Any] = {
+        "run_id": run_id,
+        "total_cases": total,
+        "reconciled": reconciled,
+        "failed": failed,
+        "pending": pending,
+        "cases": [],
+    }
+
+    for c in cases:
+        evidence = c.get("paypal_evidence") or {}
+        quote = c.get("quote") or {}
+        reconciliation = c.get("reconciliation") or {}
+        case_report = {
+            "case_id": c.get("case_id"),
+            "status": c.get("status"),
+            "amount": c.get("amount"),
+            "currency": c.get("currency"),
+            "execution_path": c.get("execution_path"),
+            "evidence_source": c.get("evidence_source"),
+            "observed_transaction_type": evidence.get("transaction_type"),
+            "observed_payment_type": evidence.get("payment_type"),
+            "observed_payer_country": evidence.get("payer_country"),
+            "paypal_gross": evidence.get("gross_amount", {}).get("value"),
+            "paypal_fee": evidence.get("paypal_fee", {}).get("value"),
+            "paypal_net": evidence.get("net_amount", {}).get("value"),
+            "selected_product_id": c.get("product_id"),
+            "selected_variant_id": c.get("variant_id"),
+            "library_fee": quote.get("processing_fee", {}).get("value"),
+            "library_net": quote.get("net_amount", {}).get("value"),
+            "delta_minor_units": reconciliation.get("delta_minor_units"),
+            "reconciliation_status": reconciliation.get("status"),
+            "duplicate_prevention": (c.get("pilot_metadata") or {}).get("duplicate_prevention"),
+        }
+        report["cases"].append(case_report)
+
+    click.echo(json.dumps(report, indent=2))
 
 
 def main() -> None:

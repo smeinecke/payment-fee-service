@@ -16,6 +16,17 @@ standard_wallet_checkout:
       product_id: paypal_checkout
       variant_id: standard
 
+manual_send_to_business:
+  provider: paypal
+  channel: online
+  payment_method: paypal_wallet
+  user_action: PAY_NOW
+  shipping_preference: NO_SHIPPING
+  intent: CAPTURE
+  default:
+    product_id: other_commercial
+    variant_id: standard
+
 profiles:
   smoke:
     description: Two-case smoke profile (US domestic + cross-border)

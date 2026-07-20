@@ -28,6 +28,7 @@ packages/payment-fee-typescript/.eslintcache
 *.paypal-sandbox-secrets.local.json
 artifacts/paypal-sandbox/
 artifacts/paypal-sandbox-diagnostics/
+artifacts/paypal-sandbox-manual/
 artifacts/paypal-sandbox-observations/
 artifacts/paypal-sandbox-qualification/
 .playwright/paypal-sandbox/

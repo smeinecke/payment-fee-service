@@ -24,11 +24,11 @@ from paypal_sandbox_validation.redaction import (
     sanitize_paypal_order,
 )
 
-SAMPLE_CSV = """country_code;account_type;primary_email_alias;password;first_name;last_name;ppBalance;addBank;ccType;payment_card;client_id;secret
-DE;BUSINESS;merchant-de@business.example.com;secret1;Test;MerchantDE;99999;Y;VISA;4111111111111111;{cid};{sec}
-DE;PERSONAL;buyer-de@personal.example.com;secret2;Test;BuyerDE;99999;Y;VISA;4111111111111111;;
-US;BUSINESS;pp-merchant-us@business.example.com;secret3;Test;MerchantUS;99999;Y;VISA;4111111111111111;{cid2};{sec2}
-US;PERSONAL;pp-buyer-us@personal.example.com;secret4;Test;BuyerUS;99999;Y;VISA;4111111111111111;;
+SAMPLE_CSV = """country_code;account_type;primary_email_alias;password;first_name;last_name;ppBalance;addBank;ccType;payment_card;client_id;secret;nvp_user;nvp_password;nvp_signature
+DE;BUSINESS;merchant-de@business.example.com;secret1;Test;MerchantDE;99999;Y;VISA;4111111111111111;{cid};{sec};nvp-de-user;nvp-de-pwd;nvp-de-sig
+DE;PERSONAL;buyer-de@personal.example.com;secret2;Test;BuyerDE;99999;Y;VISA;4111111111111111;;;;;
+US;BUSINESS;pp-merchant-us@business.example.com;secret3;Test;MerchantUS;99999;Y;VISA;4111111111111111;{cid2};{sec2};nvp-us-user;nvp-us-pwd;nvp-us-sig
+US;PERSONAL;pp-buyer-us@personal.example.com;secret4;Test;BuyerUS;99999;Y;VISA;4111111111111111;;;;;
 """  # noqa: E501
 
 

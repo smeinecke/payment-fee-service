@@ -8,7 +8,11 @@ from typing import Any
 from payment_fee import PaymentFeeEngine
 from payment_fee.providers.paypal.provider import PayPalProvider
 
-from paypal_sandbox_validation.configuration import get_standard_wallet_scenario, load_scenarios
+from paypal_sandbox_validation.configuration import (
+    get_manual_send_scenario,
+    get_standard_wallet_scenario,
+    load_scenarios,
+)
 
 # Broad payer-region groupings used by the PayPal fee dataset.
 EEA_COUNTRIES = {
@@ -64,7 +68,22 @@ class QuoteAdapter:
         self.scenarios = load_scenarios()
 
     def resolve_scenario(self, merchant_country: str) -> dict[str, Any] | None:
-        spec = get_standard_wallet_scenario(self.scenarios, merchant_country)
+        return self._resolve_scenario_for(merchant_country, get_standard_wallet_scenario)
+
+    def resolve_manual_scenario(self, merchant_country: str) -> dict[str, Any] | None:
+        return self._resolve_scenario_for(
+            merchant_country,
+            get_manual_send_scenario,
+            preferred=["other_commercial", "goods_and_services", "paypal_checkout"],
+        )
+
+    def _resolve_scenario_for(
+        self,
+        merchant_country: str,
+        scenario_getter,
+        preferred: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        spec = scenario_getter(self.scenarios, merchant_country)
         if not spec:
             return None
         cap = self.engine.capabilities("paypal", merchant_country)
@@ -75,7 +94,8 @@ class QuoteAdapter:
             if variant_id in variants:
                 return spec
         # Fallback to a calculable wallet-like product/variant.
-        for product in ["paypal_checkout", "other_commercial", "goods_and_services"]:
+        products = preferred or ["paypal_checkout", "other_commercial", "goods_and_services"]
+        for product in products:
             variants = cap.calculable_products.get(product, [])
             if "standard" in variants:
                 return {**spec, "product_id": product, "variant_id": "standard"}
@@ -101,14 +121,60 @@ class QuoteAdapter:
             rules.append(rule)
         return rules
 
-    def build_quote(
+    def build_quote_manual(
         self,
         merchant_country: str,
         buyer_country: str,
         amount: str,
         currency: str,
     ) -> dict[str, Any]:
-        scenario = self.resolve_scenario(merchant_country)
+        scenario = self.resolve_manual_scenario(merchant_country)
+        return self._build_quote(
+            merchant_country=merchant_country,
+            buyer_country=buyer_country,
+            amount=amount,
+            currency=currency,
+            scenario=scenario,
+        )
+
+    def build_quote(
+        self,
+        merchant_country: str,
+        buyer_country: str,
+        amount: str,
+        currency: str,
+        product_id: str | None = None,
+        variant_id: str | None = None,
+    ) -> dict[str, Any]:
+        if product_id and variant_id:
+            scenario = {
+                "provider": "paypal",
+                "channel": "online",
+                "payment_method": "paypal_wallet",
+                "user_action": "PAY_NOW",
+                "shipping_preference": "NO_SHIPPING",
+                "intent": "CAPTURE",
+                "product_id": product_id,
+                "variant_id": variant_id,
+            }
+        else:
+            scenario = self.resolve_scenario(merchant_country)
+        return self._build_quote(
+            merchant_country=merchant_country,
+            buyer_country=buyer_country,
+            amount=amount,
+            currency=currency,
+            scenario=scenario,
+        )
+
+    def _build_quote(
+        self,
+        merchant_country: str,
+        buyer_country: str,
+        amount: str,
+        currency: str,
+        scenario: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         if not scenario:
             raise QuoteResolutionError(
                 f"No calculable standard wallet scenario for {merchant_country}",

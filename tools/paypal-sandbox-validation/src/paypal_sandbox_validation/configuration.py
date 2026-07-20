@@ -54,6 +54,16 @@ def get_standard_wallet_scenario(scenarios: dict[str, Any], country: str) -> dic
     return {**spec, **spec.get("default", {})}
 
 
+def get_manual_send_scenario(scenarios: dict[str, Any], country: str) -> dict[str, Any] | None:
+    spec = scenarios.get("manual_send_to_business")
+    if not spec:
+        return None
+    per_country = spec.get("per_country", {})
+    if country in per_country:
+        return {**spec, **per_country[country]}
+    return {**spec, **spec.get("default", {})}
+
+
 def is_csv_tracked(csv_path: str | Path) -> bool:
     path = Path(csv_path)
     try:
@@ -79,6 +89,7 @@ def gitignore_patterns_present(gitignore_path: Path | None = None) -> list[str]:
         "*.paypal-sandbox.local.tsv",
         "*.paypal-sandbox-secrets.local.json",
         "artifacts/paypal-sandbox/",
+        "artifacts/paypal-sandbox-manual/",
         ".playwright/paypal-sandbox/",
     ]
     return [p for p in patterns if p not in content]

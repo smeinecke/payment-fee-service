@@ -25,12 +25,19 @@ from paypal_sandbox_validation.url_validation import (
 )
 
 
-def _us_only_csv(tmp_path: Path, client_id: str = "A" * 80, secret: str = "B" * 80) -> Path:
+def _us_only_csv(
+    tmp_path: Path,
+    client_id: str = "A" * 80,
+    secret: str = "B" * 80,
+    nvp_user: str = "nvp-us-user",
+    nvp_password: str = "nvp-us-pwd",
+    nvp_signature: str = "nvp-us-sig",
+) -> Path:
     path = tmp_path / "accounts.csv"
     path.write_text(
-        "country_code;account_type;primary_email_alias;password;first_name;last_name;ppBalance;addBank;ccType;payment_card;client_id;secret\n"
-        f"US;BUSINESS;merchant-us@business.example.com;secret1;Test;MerchantUS;99999;Y;VISA;4111111111111111;{client_id};{secret}\n"
-        "US;PERSONAL;buyer-us@personal.example.com;secret2;Test;BuyerUS;99999;Y;VISA;4111111111111111;;;\n",
+        "country_code;account_type;primary_email_alias;password;first_name;last_name;ppBalance;addBank;ccType;payment_card;client_id;secret;nvp_user;nvp_password;nvp_signature\n"
+        f"US;BUSINESS;merchant-us@business.example.com;secret1;Test;MerchantUS;99999;Y;VISA;4111111111111111;{client_id};{secret};{nvp_user};{nvp_password};{nvp_signature}\n"
+        "US;PERSONAL;buyer-us@personal.example.com;secret2;Test;BuyerUS;99999;Y;VISA;4111111111111111;;;;;\n",
         encoding="utf-8",
     )
     return path
@@ -39,11 +46,11 @@ def _us_only_csv(tmp_path: Path, client_id: str = "A" * 80, secret: str = "B" * 
 def _two_country_csv(tmp_path: Path) -> Path:
     path = tmp_path / "accounts.csv"
     path.write_text(
-        "country_code;account_type;primary_email_alias;password;first_name;last_name;ppBalance;addBank;ccType;payment_card;client_id;secret\n"
-        "US;BUSINESS;merchant-us@business.example.com;secret1;Test;MerchantUS;99999;Y;VISA;4111111111111111;USCLIENTID;USSECRET\n"
-        "CA;BUSINESS;merchant-ca@business.example.com;secret2;Test;MerchantCA;99999;Y;VISA;4111111111111111;CACLIENTID;CASECRET\n"
-        "US;PERSONAL;buyer-us@personal.example.com;secret3;Test;BuyerUS;99999;Y;VISA;4111111111111111;;;\n"
-        "CA;PERSONAL;buyer-ca@personal.example.com;secret4;Test;BuyerCA;99999;Y;VISA;4111111111111111;;;\n",
+        "country_code;account_type;primary_email_alias;password;first_name;last_name;ppBalance;addBank;ccType;payment_card;client_id;secret;nvp_user;nvp_password;nvp_signature\n"
+        "US;BUSINESS;merchant-us@business.example.com;secret1;Test;MerchantUS;99999;Y;VISA;4111111111111111;USCLIENTID;USSECRET;nvp-us-user;nvp-us-pwd;nvp-us-sig\n"
+        "CA;BUSINESS;merchant-ca@business.example.com;secret2;Test;MerchantCA;99999;Y;VISA;4111111111111111;CACLIENTID;CASECRET;nvp-ca-user;nvp-ca-pwd;nvp-ca-sig\n"
+        "US;PERSONAL;buyer-us@personal.example.com;secret3;Test;BuyerUS;99999;Y;VISA;4111111111111111;;;;;\n"
+        "CA;PERSONAL;buyer-ca@personal.example.com;secret4;Test;BuyerCA;99999;Y;VISA;4111111111111111;;;;;\n",
         encoding="utf-8",
     )
     return path
@@ -289,11 +296,11 @@ def test_complete_probe_requires_all_selected_merchants(
 ) -> None:
     path = tmp_path / "accounts.csv"
     path.write_text(
-        "country_code;account_type;primary_email_alias;password;first_name;last_name;ppBalance;addBank;ccType;payment_card;client_id;secret\n"
-        "US;BUSINESS;merchant-us@business.example.com;secret1;Test;MerchantUS;99999;Y;VISA;4111111111111111;AAAA;BBBB\n"
-        "CA;BUSINESS;merchant-ca@business.example.com;secret2;Test;MerchantCA;99999;Y;VISA;4111111111111111;CCCC;DDDD\n"
-        "US;PERSONAL;buyer-us@personal.example.com;secret3;Test;BuyerUS;99999;Y;VISA;4111111111111111;;;\n"
-        "CA;PERSONAL;buyer-ca@personal.example.com;secret4;Test;BuyerCA;99999;Y;VISA;4111111111111111;;;\n",
+        "country_code;account_type;primary_email_alias;password;first_name;last_name;ppBalance;addBank;ccType;payment_card;client_id;secret;nvp_user;nvp_password;nvp_signature\n"
+        "US;BUSINESS;merchant-us@business.example.com;secret1;Test;MerchantUS;99999;Y;VISA;4111111111111111;AAAA;BBBB;nvp-us-user;nvp-us-pwd;nvp-us-sig\n"
+        "CA;BUSINESS;merchant-ca@business.example.com;secret2;Test;MerchantCA;99999;Y;VISA;4111111111111111;CCCC;DDDD;nvp-ca-user;nvp-ca-pwd;nvp-ca-sig\n"
+        "US;PERSONAL;buyer-us@personal.example.com;secret3;Test;BuyerUS;99999;Y;VISA;4111111111111111;;;;;\n"
+        "CA;PERSONAL;buyer-ca@personal.example.com;secret4;Test;BuyerCA;99999;Y;VISA;4111111111111111;;;;;\n",
         encoding="utf-8",
     )
     monkeypatch.setattr("paypal_sandbox_validation.accounts.EXPECTED_COUNTRIES", {"US", "CA"})

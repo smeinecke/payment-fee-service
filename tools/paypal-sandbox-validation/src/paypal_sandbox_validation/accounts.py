@@ -53,6 +53,9 @@ EXPECTED_HEADERS = [
     "payment_card",
     "client_id",
     "secret",
+    "nvp_user",
+    "nvp_password",
+    "nvp_signature",
 ]
 
 
@@ -93,19 +96,22 @@ def parse_accounts_csv(csv_path: str | Path) -> list[Account]:
         raise ValueError("Account CSV has no headers.")
 
     headers = [h.strip() for h in reader.fieldnames]
-    missing = [h for h in EXPECTED_HEADERS if h not in headers]
-    if missing:
-        raise ValueError(f"Account CSV missing required headers: {missing}")
-    extra = [h for h in headers if h not in EXPECTED_HEADERS]
-    if extra:
-        raise ValueError(f"Account CSV contains unexpected headers: {extra}")
+    if headers != EXPECTED_HEADERS:
+        missing = [h for h in EXPECTED_HEADERS if h not in headers]
+        extra = [h for h in headers if h not in EXPECTED_HEADERS]
+        raise ValueError(
+            f"Account CSV headers do not match expected schema. "
+            f"missing={missing}, extra={extra}, got={headers}"
+        )
 
     rows: list[Account] = []
-    for row in reader:
+    for idx, row in enumerate(reader, start=2):
+        if None in row:
+            raise ValueError(f"Malformed CSV row {idx}: too many values for the header.")
         if not any(row.values()):
             continue
         if not row.get("country_code") or not row.get("account_type"):
-            raise ValueError("Empty or malformed account row.")
+            raise ValueError(f"Empty or malformed account row {idx}.")
         rows.append(_row_to_account(row))
     return rows
 
@@ -121,12 +127,8 @@ def _row_to_account(row: dict[str, str]) -> Account:
         raise ValueError(f"Missing primary_email_alias for {country} {account_type}")
     if not row.get("password"):
         raise ValueError(f"Missing password for {country} {account_type}")
-    if account_type == "BUSINESS" and (not row.get("client_id") or not row.get("secret")):
-        raise ValueError(f"Missing Business REST credentials for {country}")
-    if account_type == "PERSONAL" and not row.get("password"):
-        raise ValueError(f"Missing Personal login credentials for {country}")
 
-    return Account(
+    account = Account(
         country_code=country,
         account_type=AccountType(account_type),
         primary_email_alias=row["primary_email_alias"].strip(),
@@ -139,7 +141,34 @@ def _row_to_account(row: dict[str, str]) -> Account:
         payment_card=row.get("payment_card", "").strip(),
         client_id=row.get("client_id") or None,
         secret=row.get("secret") or None,
+        nvp_user=row.get("nvp_user") or None,
+        nvp_password=row.get("nvp_password") or None,
+        nvp_signature=row.get("nvp_signature") or None,
     )
+
+    _validate_account_credentials(account)
+    return account
+
+
+def _incomplete_nvp(account: Account) -> bool:
+    """Return True when any NVP credential is present but the triple is incomplete."""
+    fields = [account.nvp_user, account.nvp_password, account.nvp_signature]
+    return any(fields) and not all(fields)
+
+
+def _validate_account_credentials(account: Account) -> None:
+    """Validate that credential rules are satisfied for a single account row."""
+    if account.is_business():
+        if not account.client_id or not account.secret:
+            raise ValueError(f"Missing Business REST credentials for {account.country_code}")
+        nvp_fields = [account.nvp_user, account.nvp_password, account.nvp_signature]
+        if not all(nvp_fields):
+            raise ValueError(f"Missing Business NVP credentials for {account.country_code}")
+    else:
+        if account.client_id or account.secret:
+            raise ValueError(f"Business REST credentials on Personal row {account.country_code}")
+        if account.nvp_user or account.nvp_password or account.nvp_signature:
+            raise ValueError(f"Business NVP credentials on Personal row {account.country_code}")
 
 
 def validate_accounts(accounts: list[Account], *, require_complete: bool = False) -> dict[str, Any]:
@@ -158,7 +187,12 @@ def validate_accounts(accounts: list[Account], *, require_complete: bool = False
     client_ids = [a.client_id for a in merchants if a.client_id]
     dup_client_ids = {cid for cid, n in Counter(client_ids).items() if n > 1}
 
+    nvp_users = [a.nvp_user for a in merchants if a.nvp_user]
+    dup_nvp_users = {u for u, n in Counter(nvp_users).items() if n > 1}
+
     missing_business = [a.country_code for a in merchants if not a.client_id or not a.secret]
+    missing_nvp = [a.country_code for a in merchants if not a.nvp_user or not a.nvp_password or not a.nvp_signature]
+    incomplete_nvp = [a.country_code for a in merchants if _incomplete_nvp(a)]
     invalid_business = [a.country_code for a in merchants if a.client_id and a.secret and a.client_id == a.secret]
     missing_personal = [a.country_code for a in buyers if not a.password]
     unsupported = [a.country_code for a in accounts if a.country_code not in EXPECTED_COUNTRIES]
@@ -171,9 +205,15 @@ def validate_accounts(accounts: list[Account], *, require_complete: bool = False
     invalid_merchant_countries: set[str] = set()
     invalid_merchant_countries.update(duplicate_merchants)
     invalid_merchant_countries.update(missing_business)
+    invalid_merchant_countries.update(missing_nvp)
+    invalid_merchant_countries.update(incomplete_nvp)
     invalid_merchant_countries.update(invalid_business)
     for a in merchants:
-        if a.client_id in dup_client_ids or a.primary_email_alias in dup_emails:
+        if (
+            a.client_id in dup_client_ids
+            or a.nvp_user in dup_nvp_users
+            or a.primary_email_alias in dup_emails
+        ):
             invalid_merchant_countries.add(a.country_code)
 
     invalid_buyer_countries: set[str] = set()
@@ -187,8 +227,11 @@ def validate_accounts(accounts: list[Account], *, require_complete: bool = False
         duplicates,
         dup_emails,
         dup_client_ids,
+        dup_nvp_users,
         invalid_business,
         missing_business,
+        missing_nvp,
+        incomplete_nvp,
         missing_personal,
         unsupported,
     ]
@@ -205,7 +248,10 @@ def validate_accounts(accounts: list[Account], *, require_complete: bool = False
         "duplicate_accounts": duplicates,
         "duplicate_emails": sorted(dup_emails),
         "duplicate_client_ids": sorted(dup_client_ids),
+        "duplicate_nvp_users": sorted(dup_nvp_users),
         "missing_business_credentials": sorted(missing_business),
+        "missing_nvp_credentials": sorted(missing_nvp),
+        "incomplete_nvp_credentials": sorted(incomplete_nvp),
         "invalid_business_credentials": sorted(invalid_business),
         "missing_personal_credentials": sorted(missing_personal),
         "unsupported_countries": sorted(unsupported),
@@ -222,6 +268,9 @@ def summarize_accounts(accounts: list[Account]) -> dict[str, Any]:
         "merchant_count": len(merchants),
         "buyer_count": len(buyers),
         "rest_credential_pairs": sum(1 for a in merchants if a.client_id and a.secret),
+        "nvp_credential_triples": sum(
+            1 for a in merchants if a.nvp_user and a.nvp_password and a.nvp_signature
+        ),
         "sample_merchants": [mask_client_id(a.client_id) if a.client_id else None for a in merchants[:3]],
         "sample_buyers": [mask_email(a.primary_email_alias) for a in buyers[:3]],
     }
