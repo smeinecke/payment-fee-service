@@ -91,6 +91,19 @@ def _finalize_au_qualification(entry: dict[str, Any]) -> None:
     # Ensure the domestic public formula is preserved for comparison.
     if "public_domestic_formula" not in entry and "public_formula" in entry:
         entry["public_domestic_formula"] = entry["public_formula"]
+
+    # Also place the surcharge inside the sandbox_profile_pricing evidence block.
+    profile = entry.setdefault("sandbox_profile_pricing", {})
+    if isinstance(profile, dict):
+        profile.setdefault(
+            "international_surcharge",
+            {
+                "percentage_points": "1.00",
+                "status": "confirmed_for_tested_case",
+                "confirmed_case": "AU merchant ← US buyer, AUD 10.00",
+                "cross_region_generalization": "not_yet_tested",
+            },
+        )
     account_pct = (entry.get("observed_account_formula") or {}).get("percentage")
     account_fixed = (entry.get("observed_account_formula") or {}).get("fixed", {}).get("value")
     public_pct = (entry.get("public_formula") or {}).get("percentage")
@@ -714,16 +727,23 @@ def save_qualification_report(
 ) -> dict[str, Path]:
     """Write merchant-qualification.json and merchant-qualification.md."""
     from .persistence import run_dir
+    from .profile_pricing import build_profile_pricing_verifications
 
     if output_dir is None:
         output_dir = run_dir(run_id)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary = qualification_summary(qualifications, attempted_merchants=attempted_merchants)
+    profile_verifications = build_profile_pricing_verifications(qualifications)
+    summary["merchants_with_profile_pricing"] = len(profile_verifications)
+    summary["merchants_profile_matches_transactions"] = sum(
+        1 for v in profile_verifications if v.get("status") == "profile_matches_transactions"
+    )
     report = {
         "run_id": run_id,
         "summary": summary,
         "qualifications": qualifications,
+        "profile_pricing_verifications": profile_verifications,
         "cases": [_redacted_case_dict(c) for c in cases],
     }
     json_path = output_dir / "merchant-qualification.json"
@@ -983,4 +1003,27 @@ def _render_qualification_markdown(report: dict[str, Any]) -> str:
         reason = q.get("reason", "").replace("|", "\\|")
         lines.append(f"| {merchant} | `{q.get('status')}` | {reason} |")
     lines.append("")
+
+    verifications = report.get("profile_pricing_verifications") or []
+    if verifications:
+        lines.extend(
+            [
+                "## Sandbox profile pricing verification",
+                "",
+                "| Merchant | Profile wallet | Observed wallet | Delta | Status | Production representative |",
+                "| --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for v in verifications:
+            note = v.get("international_surcharge_note") or ""
+            observed = v.get("observed_wallet_formula") or "n/a"
+            lines.append(
+                f"| {v['merchant_country']} | `{v['profile_wallet_formula']}` | `{observed}` | "
+                f"`{v.get('delta_minor_units')}` | `{v['status']}` | "
+                f"`{v.get('production_representative')}` |"
+            )
+            if note:
+                lines.append(f"| | | | | | {note.replace('|', '\\|')} |")
+        lines.append("")
+
     return "\n".join(lines)

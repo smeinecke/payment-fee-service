@@ -47,6 +47,7 @@ class Account(BaseModel):
 class QualificationStatus(StrEnum):
     REPRESENTATIVE = "representative"
     SANDBOX_SPECIFIC_PRICING = "sandbox_specific_pricing"
+    SANDBOX_PROFILE_PRICING_CONFIRMED = "sandbox_profile_pricing_confirmed"
     ACCOUNT_CONFIGURATION_BLOCKED = "account_configuration_blocked"
     DATASET_NOT_CALCULABLE = "dataset_not_calculable"
     CAPABILITY_UNAVAILABLE = "capability_unavailable"

@@ -23,7 +23,8 @@ payment-fee-service/
 ├── services/
 │   └── payment-fee-service/ FastAPI /v1 service
 └── tools/
-    └── conformance/     cross-language differential runner
+    ├── conformance/              cross-language differential runner
+    └── paypal-sandbox-validation/  PayPal Sandbox harness and qualification
 ```
 
 The canonical public contract lives in `contracts/api`. All three libraries consume the same provider datasets and produce the same normalized JSON results. The HTTP service is an optional wrapper around the Python library.
@@ -488,3 +489,19 @@ Current versions:
 * Provider-side rounding, tax, and settlement timing may differ.
 * PHP and TypeScript provider adapters are under construction; not all cases are passing yet.
 * The HTTP service is Python-based and optional.
+
+### PayPal Sandbox validation
+
+PayPal Sandbox Business profiles can display environment/account-specific rates
+that differ from public production pricing. Sandbox observations are kept
+separate from production public-rate conformance. The fee service continues to
+use public production-oriented datasets by default.
+
+The validation harness records three distinct evidence scopes:
+
+* `production_public_pricing` — public production-facing PayPal fee pages.
+* `sandbox_profile_pricing` — authenticated Sandbox Business account pricing.
+* `observed_transaction_pricing` — fees captured from Sandbox transactions.
+
+See [tools/paypal-sandbox-validation/README.md](tools/paypal-sandbox-validation/README.md)
+and [docs/PAYPAL_SANDBOX_VALIDATION.md](docs/PAYPAL_SANDBOX_VALIDATION.md).
