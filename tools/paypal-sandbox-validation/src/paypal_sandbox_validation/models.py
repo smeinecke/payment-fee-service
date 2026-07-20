@@ -117,6 +117,8 @@ class Case(BaseModel):
     request_id_capture: str | None = None
     create_attempts: int = 0
     capture_attempts: int = 0
+    paypal_operations_executed_in_current_run: int = 0
+    observation_source: str | None = None
     order_id: str | None = None
     approval_url: str | None = None
     capture_id: str | None = None

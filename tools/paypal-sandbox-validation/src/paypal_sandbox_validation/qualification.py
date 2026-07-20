@@ -43,6 +43,8 @@ def _redacted_case_dict(case: Case) -> dict[str, Any]:
         "status": case.status.value,
         "create_attempts": case.create_attempts,
         "capture_attempts": case.capture_attempts,
+        "paypal_operations_executed_in_current_run": case.paypal_operations_executed_in_current_run,
+        "observation_source": case.observation_source,
         "observed_payer_country": case.observed_payer_country,
         "expected_payer_region": case.expected_payer_region,
         "expected_surcharge_components": case.expected_surcharge_components,
@@ -75,9 +77,40 @@ def load_qualification_registry(path: Path | None = None) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
+def _finalize_au_qualification(entry: dict[str, Any]) -> None:
+    """Normalize the AU entry after an AU→US diagnostic confirmation."""
+    if entry.get("status") != QualificationStatus.SANDBOX_SPECIFIC_PRICING.value:
+        return
+    if entry.get("merchant_country") != "AU":
+        return
+    entry["international_surcharge_status"] = "confirmed_for_tested_case"
+    entry["international_surcharge_percentage_points"] = "1.00"
+    entry["confirmed_case"] = "AU merchant ← US buyer, AUD 10.00"
+    entry["cross_region_generalization"] = "not_yet_tested"
+    entry["representative_for_public_rates"] = False
+    # Ensure the domestic public formula is preserved for comparison.
+    if "public_domestic_formula" not in entry and "public_formula" in entry:
+        entry["public_domestic_formula"] = entry["public_formula"]
+    account_pct = (entry.get("observed_account_formula") or {}).get("percentage")
+    account_fixed = (entry.get("observed_account_formula") or {}).get("fixed", {}).get("value")
+    public_pct = (entry.get("public_formula") or {}).get("percentage")
+    public_fixed = (entry.get("public_formula") or {}).get("fixed", {}).get("value")
+    reason_parts = [
+        "This AU Sandbox merchant account applies a stable account-specific "
+        f"{account_pct}% + AUD {account_fixed} base formula.",
+        f"The international surcharge is confirmed only for the tested case ({entry['confirmed_case']}) "
+        f"at {entry['international_surcharge_percentage_points']}pp, producing the observed US-buyer fee.",
+        f"The public domestic formula is {public_pct}% + AUD {public_fixed}.",
+        "Cross-region generalization is not yet tested.",
+    ]
+    entry["reason"] = " ".join(reason_parts)
+
+
 def save_qualification_registry(registry: dict[str, Any], path: Path | None = None) -> None:
     if path is None:
         path = default_qualification_path()
+    if "AU" in registry:
+        _finalize_au_qualification(registry["AU"])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(registry, indent=2, sort_keys=True))
 

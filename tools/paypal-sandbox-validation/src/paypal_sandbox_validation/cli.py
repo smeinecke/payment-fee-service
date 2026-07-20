@@ -988,6 +988,8 @@ def _merge_existing_case(case: Case, existing: dict[str, Any]) -> Case:
     case.request_id_capture = existing_case.request_id_capture or case.request_id_capture
     case.create_attempts = existing_case.create_attempts or 0
     case.capture_attempts = existing_case.capture_attempts or 0
+    case.paypal_operations_executed_in_current_run = existing_case.paypal_operations_executed_in_current_run or 0
+    case.observation_source = existing_case.observation_source or case.observation_source
     case.order_id = existing_case.order_id or case.order_id
     case.approval_url = existing_case.approval_url or case.approval_url
     case.capture_id = existing_case.capture_id or case.capture_id
@@ -998,9 +1000,9 @@ def _merge_existing_case(case: Case, existing: dict[str, Any]) -> Case:
     case.reconciliation = existing_case.reconciliation or case.reconciliation
     case.paypal_error = existing_case.paypal_error or case.paypal_error
     case.paypal_issue = existing_case.paypal_issue or case.paypal_issue
+    case.pilot_metadata = {**case.pilot_metadata, **existing_case.pilot_metadata}
     case.paypal_operation = existing_case.paypal_operation or case.paypal_operation
     case.paypal_debug_id = existing_case.paypal_debug_id or case.paypal_debug_id
-    case.pilot_metadata = existing_case.pilot_metadata or case.pilot_metadata
     case.expected_payer_region = existing_case.expected_payer_region or case.expected_payer_region
     case.expected_surcharge_components = (
         existing_case.expected_surcharge_components or case.expected_surcharge_components
@@ -1095,12 +1097,11 @@ def _attempt_public_rate_reuse(
             rec_data["root_cause"] = "Historical observation does not match the current dataset prediction."
         case.reconciliation = rec_data
         case.status = CaseStatus.RECONCILED
-        case.create_attempts = 1
-        case.capture_attempts = 1
-        case.order_id = "reused"
-        case.capture_id = "reused"
-        case.request_id_create = "reused"
-        case.request_id_capture = "reused"
+        case.create_attempts = 0
+        case.capture_attempts = 0
+        case.paypal_operations_executed_in_current_run = 0
+        case.observation_source = "historical_fixture"
+        # order_id, capture_id and request IDs remain null for fixture-hydrated cases.
 
         source_meta = fixture.get("data_revision")
         current_meta = (new_quote.get("data") or {}).get("content_sha256")
@@ -1117,7 +1118,10 @@ def _attempt_public_rate_reuse(
             (new_quote.get("_schedule_metadata") or {}).get("international_surcharge_schedule_id"),
         ]
         delta_minor = rec_data.get("delta_minor_units")
-        case.pilot_metadata["current_delta_minor_units"] = abs(delta_minor) if delta_minor is not None else None
+        case.pilot_metadata["current_delta_minor_units"] = delta_minor
+        case.pilot_metadata["current_absolute_delta_minor_units"] = (
+            abs(delta_minor) if delta_minor is not None else None
+        )
 
 
 def _execute_plan(
@@ -1214,9 +1218,14 @@ def _run_case(
 ) -> dict[str, Any]:
     merchant = merchant_accounts.get(case.merchant_country)
     buyer = buyer_accounts.get(case.buyer_country)
-    if not merchant or not buyer:
+    if not merchant or buyer is None:
         case.status = CaseStatus.FAILED
         return _case_dict(case, error="Missing merchant or buyer account")
+
+    # Fixture-hydrated cases are already reconciled; do not start a callback server
+    # or call PayPal again.
+    if case.status == CaseStatus.RECONCILED:
+        return _case_dict(case)
 
     # 1. Quote (re-use if already computed during planning or a previous run).
     if not case.quote:
@@ -1360,6 +1369,7 @@ def _create_order(
         case.order_id = order.get("id")
         case.status = CaseStatus.ORDER_CREATED
         case.create_attempts += 1
+        case.paypal_operations_executed_in_current_run += 1
         save_sanitized_order(case.run_id, case.case_id, order)
 
         if not case.order_id:
@@ -1468,6 +1478,8 @@ def _capture(
     case.payer_id = evidence.get("payer_id")
     case.observed_payer_country = evidence.get("payer_country")
     case.capture_attempts += 1
+    case.paypal_operations_executed_in_current_run += 1
+    case.observation_source = "live_capture"
     case.status = CaseStatus.CAPTURED
     save_case(case.run_id, case)
     return None

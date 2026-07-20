@@ -106,6 +106,16 @@ def test_public_rate_reuse_requotes_with_current_revision(tmp_path: Path) -> Non
     assert case.pilot_metadata["current_data_revision"] == "new-sha"
     assert case.pilot_metadata["historical_fixture_result"] == "match"
 
+    # Reused cases do not perform PayPal operations in the current run.
+    assert case.create_attempts == 0
+    assert case.capture_attempts == 0
+    assert case.paypal_operations_executed_in_current_run == 0
+    assert case.observation_source == "historical_fixture"
+    assert case.order_id is None
+    assert case.capture_id is None
+    assert case.request_id_create is None
+    assert case.request_id_capture is None
+
 
 def test_public_rate_reuse_records_current_mismatch(tmp_path: Path) -> None:
     """A historical fixture that no longer matches the current quote is not treated as a match."""
@@ -129,7 +139,38 @@ def test_public_rate_reuse_records_current_mismatch(tmp_path: Path) -> None:
     assert case.status == CaseStatus.RECONCILED
     assert case.reconciliation.get("status") == ReconciliationStatus.HISTORICAL_OBSERVATION_CURRENT_MISMATCH.value
     assert case.pilot_metadata["reused_observation"] is True
+    assert case.pilot_metadata["current_delta_minor_units"] == -15
+    assert case.pilot_metadata["current_absolute_delta_minor_units"] == 15
+    assert case.create_attempts == 0
+    assert case.capture_attempts == 0
+    assert case.paypal_operations_executed_in_current_run == 0
+    assert case.observation_source == "historical_fixture"
+    assert case.order_id is None
+    assert case.capture_id is None
+
+
+def test_public_rate_reuse_preserves_positive_delta(tmp_path: Path) -> None:
+    """A historical fee higher than the current prediction yields a positive signed delta."""
+    fixtures_dir = tmp_path / "fixtures"
+    fixtures_dir.mkdir()
+    fixture_path = fixtures_dir / "us-us.json"
+    fixture_path.write_text(json.dumps(_fixture("US", "US", "10.00", "USD", "0.99")))
+
+    case = _public_case("US", "US", "10.00", "USD")
+    plan = [case]
+    registry = {"US": {"status": QualificationStatus.REPRESENTATIVE}}
+
+    class _Adapter:
+        def build_quote(
+            self, merchant_country: str, buyer_country: str, amount: str, currency: str, **_: Any
+        ) -> dict[str, Any]:
+            return _adapter_quote("0.84", currency)
+
+    _attempt_public_rate_reuse(plan, registry, _Adapter(), fixtures_dir=fixtures_dir)
+
+    assert case.reconciliation.get("status") == ReconciliationStatus.HISTORICAL_OBSERVATION_CURRENT_MISMATCH.value
     assert case.pilot_metadata["current_delta_minor_units"] == 15
+    assert case.pilot_metadata["current_absolute_delta_minor_units"] == 15
 
 
 def test_reused_fixture_is_not_promoted_as_new_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

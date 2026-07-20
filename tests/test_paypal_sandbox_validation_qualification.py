@@ -418,3 +418,26 @@ def test_validation_summary_excludes_diagnostic_merchants() -> None:
     assert summary["diagnostic_captures_completed"] == 1
     assert summary["domestic_matches"] == 1
     assert summary["surcharge_matches"] == 0
+
+
+def test_save_qualification_registry_finalizes_au_surcharge_status(tmp_path: Path) -> None:
+    """The AU entry is normalized to confirm the surcharge only for the tested case."""
+    registry = {
+        "AU": {
+            "merchant_country": "AU",
+            "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
+            "classification": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
+            "observed_account_formula": {"percentage": "2.40", "fixed": {"value": "0.30", "currency": "AUD"}},
+            "public_formula": {"percentage": "2.9", "fixed": {"value": "0.30", "currency": "AUD"}},
+            "representative_for_public_rates": False,
+        }
+    }
+    path = tmp_path / "registry.json"
+    save_qualification_registry(registry, path=path)
+    updated = json.loads(path.read_text())["AU"]
+    assert updated["international_surcharge_status"] == "confirmed_for_tested_case"
+    assert updated["international_surcharge_percentage_points"] == "1.00"
+    assert updated["confirmed_case"] == "AU merchant ← US buyer, AUD 10.00"
+    assert updated["cross_region_generalization"] == "not_yet_tested"
+    assert "not yet tested" in updated["reason"].lower()
+    assert updated["representative_for_public_rates"] is False
