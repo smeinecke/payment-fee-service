@@ -17,6 +17,7 @@ from paypal_sandbox_validation.accounts import (
 from paypal_sandbox_validation.approval import approve_order
 from paypal_sandbox_validation.callback_server import CallbackServer
 from paypal_sandbox_validation.configuration import (
+    currency_for_country,
     load_scenarios,
     validate_configuration,
 )
@@ -29,6 +30,7 @@ from paypal_sandbox_validation.models import (
     Account,
     Case,
     CaseStatus,
+    QualificationStatus,
     ReconciliationStatus,
     RunConfig,
 )
@@ -58,6 +60,7 @@ from paypal_sandbox_validation.persistence import (
     save_sanitized_order,
 )
 from paypal_sandbox_validation.planner import (
+    build_diagnostic_plan,
     build_plan,
     build_regional_pilot_plan,
     build_surcharge_pilot_plan,
@@ -72,6 +75,7 @@ from paypal_sandbox_validation.qualification import (
     build_validation_plan,
     classify_qualification,
     default_qualification_path,
+    is_diagnostic_sandbox_pricing_merchant,
     is_merchant_excluded,
     load_qualification_registry,
     promote_observation_fixtures,
@@ -572,6 +576,18 @@ def surcharge_pilot_cmd(
     type=click.Path(exists=True, dir_okay=False),
     default=_env_csv_default,
 )
+@click.option(
+    "--merchants",
+    type=str,
+    default=None,
+    help="Comma-separated merchant countries (default: all eligible).",
+)
+@click.option(
+    "--merchant",
+    type=str,
+    default=None,
+    help="Single-merchant alias for --merchants.",
+)
 @click.option("--max-cases", type=int, default=24)
 @click.option("--headful", is_flag=True, default=False)
 @click.option("--headed", is_flag=True, default=False)
@@ -583,7 +599,19 @@ def surcharge_pilot_cmd(
     "--diagnostic-sandbox-pricing",
     is_flag=True,
     default=False,
-    help="Include merchants with sandbox-specific pricing (e.g. DE) as diagnostic cases.",
+    help="Include only merchants with a sandbox-pricing classification as diagnostic cases.",
+)
+@click.option(
+    "--diagnostic-amounts",
+    type=str,
+    default="1.00,10.00,100.00",
+    help="Comma-separated diagnostic amounts (used with --diagnostic-sandbox-pricing).",
+)
+@click.option(
+    "--diagnostic-control-buyers",
+    type=str,
+    default=",".join(["US", "GB", "DE", "JP", "BR", "HK", "IL", "ZA"]),
+    help="Comma-separated control buyers for diagnostic matrix.",
 )
 @click.option(
     "--qualification-registry",
@@ -592,6 +620,8 @@ def surcharge_pilot_cmd(
 )
 def regional_pilot_cmd(
     accounts_csv: str,
+    merchants: str | None,
+    merchant: str | None,
     max_cases: int,
     headful: bool,
     headed: bool,
@@ -600,6 +630,8 @@ def regional_pilot_cmd(
     resume: str | None,
     include_unsuitable: bool,
     diagnostic_sandbox_pricing: bool,
+    diagnostic_amounts: str,
+    diagnostic_control_buyers: str,
     qualification_registry: str,
 ) -> None:
     """Execute the small regional Merchant pilot (two cases per qualified merchant)."""
@@ -612,15 +644,19 @@ def regional_pilot_cmd(
     merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
     buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
     configured_merchants = set(merchant_accounts.keys())
+    buyer_countries = {a.country_code for a in buyer_accounts.values()}
     registry = load_qualification_registry(Path(qualification_registry))
 
-    override = include_unsuitable or diagnostic_sandbox_pricing
+    requested = _parse_requested_merchants(merchants, merchant)
+    regional_merchants = _select_regional_pilot_merchants(
+        requested=requested,
+        configured_merchants=configured_merchants,
+        registry=registry,
+        include_unsuitable=include_unsuitable,
+        diagnostic_sandbox_pricing=diagnostic_sandbox_pricing,
+    )
 
-    def _allowed(m: str) -> bool:
-        return m in configured_merchants and not is_merchant_excluded(m, registry, override=override)
-
-    regional_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if _allowed(m)]
-    buyer_countries = {a.country_code for a in buyer_accounts.values()}
+    click.echo(f"Selected regional-pilot merchants: {regional_merchants}")
 
     run_id = resume or generate_run_id()
     config = RunConfig(
@@ -639,15 +675,29 @@ def regional_pilot_cmd(
         plan = load_plan(run_id)
         pilot_summary: dict[str, Any] = {}
     else:
-        plan, pilot_summary = build_regional_pilot_plan(
-            run_id=run_id,
-            merchant_countries=regional_merchants,
-            buyer_countries=buyer_countries,
-            adapter=adapter,
-            max_cases=max_cases,
-        )
         if diagnostic_sandbox_pricing:
-            _mark_diagnostic_sandbox_pricing(plan, registry)
+            amounts = [a.strip() for a in diagnostic_amounts.split(",") if a.strip()]
+            controls = [b.strip().upper() for b in diagnostic_control_buyers.split(",") if b.strip()]
+            plan = _build_diagnostic_pilot_plan(
+                run_id=run_id,
+                merchant_countries=regional_merchants,
+                buyer_countries=buyer_countries,
+                adapter=adapter,
+                amounts=amounts,
+                controls=controls,
+                max_new_captures=max_cases,
+            )
+            _tag_diagnostic_sandbox_pricing(plan, registry)
+            pilot_summary = {"diagnostic_merchants": regional_merchants, "amounts": amounts, "controls": controls}
+        else:
+            plan, pilot_summary = build_regional_pilot_plan(
+                run_id=run_id,
+                merchant_countries=regional_merchants,
+                buyer_countries=buyer_countries,
+                adapter=adapter,
+                max_cases=max_cases,
+            )
+            _tag_public_rate_validation(plan, registry)
         save_plan(run_id, plan)
 
     oauth_cache = OAuthCache()
@@ -721,15 +771,33 @@ def qualify_cmd(
     buyer_countries = {a.country_code for a in buyer_accounts.values()}
 
     registry = load_qualification_registry(Path(qualification_registry))
-    override = include_unsuitable or diagnostic_sandbox_pricing
+
     if merchants:
         target_merchants = [m.strip().upper() for m in merchants.split(",") if m.strip()]
     else:
 
         def _allowed_qual(m: str) -> bool:
-            return m in merchant_accounts and not is_merchant_excluded(m, registry, override=override)
+            if m not in merchant_accounts:
+                return False
+            entry = registry.get(m, {})
+            if include_unsuitable:
+                return True
+            if diagnostic_sandbox_pricing:
+                return is_diagnostic_sandbox_pricing_merchant(entry)
+            return not is_merchant_excluded(m, registry)
 
         target_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if _allowed_qual(m)]
+
+    for m in target_merchants:
+        if m not in merchant_accounts:
+            raise click.UsageError(f"Merchant {m} is not configured in the accounts CSV.")
+        entry = registry.get(m, {})
+        if diagnostic_sandbox_pricing and not is_diagnostic_sandbox_pricing_merchant(entry):
+            raise click.UsageError(f"Merchant {m} is not eligible for diagnostic sandbox-pricing mode.")
+        if not diagnostic_sandbox_pricing and not include_unsuitable and is_merchant_excluded(m, registry):
+            raise click.UsageError(f"Merchant {m} is excluded from qualification (status: {entry.get('status')}).")
+
+    click.echo(f"Selected qualification merchants: {target_merchants}")
 
     adapter = QuoteAdapter()
     run_id = resume or generate_run_id()
@@ -744,6 +812,10 @@ def qualify_cmd(
             adapter=adapter,
             max_cases_per_merchant=max_cases_per_merchant,
         )
+        if diagnostic_sandbox_pricing:
+            _tag_diagnostic_sandbox_pricing(plan, registry)
+        else:
+            _tag_public_rate_validation(plan, registry)
         save_plan(run_id, plan)
 
     config = RunConfig(
@@ -799,6 +871,18 @@ def qualify_cmd(
     type=click.Path(exists=True, dir_okay=False),
     default=_env_csv_default,
 )
+@click.option(
+    "--merchants",
+    type=str,
+    default=None,
+    help="Comma-separated merchant countries to validate (default: all representative).",
+)
+@click.option(
+    "--merchant",
+    type=str,
+    default=None,
+    help="Single-merchant alias for --merchants.",
+)
 @click.option("--max-merchants", type=int, default=0)
 @click.option("--headful", is_flag=True, default=False)
 @click.option("--headed", is_flag=True, default=False)
@@ -811,6 +895,8 @@ def qualify_cmd(
 )
 def regional_validation_cmd(
     accounts_csv: str,
+    merchants: str | None,
+    merchant: str | None,
     max_merchants: int,
     headful: bool,
     headed: bool,
@@ -830,11 +916,17 @@ def regional_validation_cmd(
     buyer_countries = {a.country_code for a in buyer_accounts.values()}
 
     registry = load_qualification_registry(Path(qualification_registry))
-    representative = [
-        m for m, q in sorted(registry.items()) if q.get("status") == "representative" and m in merchant_accounts
-    ]
+
+    requested = _parse_requested_merchants(merchants, merchant)
+    representative = _filter_representative_merchants(
+        requested=requested,
+        merchant_accounts=merchant_accounts,
+        registry=registry,
+    )
     if max_merchants:
         representative = representative[:max_merchants]
+
+    click.echo(f"Selected representative merchants for regional validation: {representative}")
 
     adapter = QuoteAdapter()
     run_id = resume or generate_run_id()
@@ -847,6 +939,8 @@ def regional_validation_cmd(
             buyer_countries=buyer_countries,
             adapter=adapter,
         )
+        _tag_public_rate_validation(plan, registry)
+        _attempt_public_rate_reuse(plan, registry)
         save_plan(run_id, plan)
 
     config = RunConfig(
@@ -917,6 +1011,75 @@ def _merge_existing_case(case: Case, existing: dict[str, Any]) -> Case:
     )
     case.expected_surcharge_amount = existing_case.expected_surcharge_amount or case.expected_surcharge_amount
     return case
+
+
+def _attempt_public_rate_reuse(plan: list[Case], registry: dict[str, Any]) -> None:
+    """Hydrate planned public-rate cases from existing positive observation fixtures.
+
+    A fixture can be reused when it matches the planned merchant, buyer, amount,
+    currency, product and variant and is a positive public-rate match. Reused
+    cases are tagged so they are not promoted as new fixtures.
+    """
+    fixtures_dir = Path("artifacts/paypal-sandbox-observations")
+    if not fixtures_dir.exists():
+        return
+
+    index: dict[tuple[str, str, str, str, str, str], list[tuple[Path, dict[str, Any]]]] = {}
+    for fixture_path in fixtures_dir.glob("*.json"):
+        try:
+            fixture = json.loads(fixture_path.read_text())
+        except Exception:
+            continue
+        if fixture.get("result") != "match":
+            continue
+        key = (
+            fixture.get("merchant_country", ""),
+            fixture.get("buyer_country", ""),
+            str(fixture.get("amount", {}).get("value", "")),
+            fixture.get("amount", {}).get("currency", ""),
+            fixture.get("product_id", ""),
+            fixture.get("variant_id", ""),
+        )
+        index.setdefault(key, []).append((fixture_path, fixture))
+
+    for case in plan:
+        if case.execution_classification != "public_rate_validation":
+            continue
+        entry = registry.get(case.merchant_country, {})
+        if entry.get("status") != QualificationStatus.REPRESENTATIVE:
+            continue
+        key = (case.merchant_country, case.buyer_country, case.amount, case.currency, case.product_id, case.variant_id)
+        candidates = index.get(key, [])
+        if not candidates:
+            continue
+        # Prefer the most recently written fixture.
+        candidates.sort(key=lambda x: x[0].stat().st_mtime, reverse=True)
+        fixture_path, fixture = candidates[0]
+        amount = str(fixture["amount"]["value"])
+        currency = fixture["amount"]["currency"]
+        fee = str(fixture["paypal_fee"]["value"])
+        try:
+            net = str(Decimal(amount) - Decimal(fee))
+        except Exception:
+            net = amount
+        case.paypal_evidence = {
+            "status": "COMPLETED",
+            "gross_amount": {"value": amount, "currency_code": currency},
+            "paypal_fee": {"value": fee, "currency_code": currency},
+            "net_amount": {"value": net, "currency_code": currency},
+            "payer_country": fixture.get("observed_payer_country"),
+        }
+        case.observed_payer_country = fixture.get("observed_payer_country")
+        case.reconciliation = {"status": "match"}
+        case.status = CaseStatus.RECONCILED
+        case.create_attempts = 1
+        case.capture_attempts = 1
+        case.order_id = "reused"
+        case.capture_id = "reused"
+        case.request_id_create = "reused"
+        case.request_id_capture = "reused"
+        case.pilot_metadata["reused_observation"] = True
+        case.pilot_metadata["reused_from_fixture"] = fixture_path.name
 
 
 def _execute_plan(
@@ -2046,6 +2209,16 @@ def manual_plan(accounts_csv: str, profile: str, run_id: str | None) -> None:
     run_id = _manual_run_id_option(run_id, profile)
     cases = _MANUAL_PROFILE_CASES[profile]
     plan = build_manual_plan(run_id, profile, accounts_csv, cases)
+
+    registry = load_qualification_registry()
+    for case in plan:
+        entry = registry.get(case.merchant_country, {})
+        case.planning_time_registry_status = entry.get("status")
+        if is_diagnostic_sandbox_pricing_merchant(entry):
+            case.execution_classification = "diagnostic_sandbox_pricing"
+        else:
+            case.execution_classification = "public_rate_validation"
+
     save_manual_plan(run_id, plan)
     click.echo(f"Manual plan saved to {manual_run_dir(run_id)}")
     click.echo(f"Cases: {len(plan)}")
@@ -2132,14 +2305,14 @@ def manual_qualify(run_id: str, qualification_registry: str) -> None:
 
     results = load_manual_results(run_id)
     cases = [Case.model_validate(c) for c in results.get("cases", [])]
-    observation = classify_manual_send_pricing(cases)
-    if not observation:
+    classification = classify_manual_send_pricing(cases)
+    if not classification.get("merchant_country"):
         click.echo("No classifiable manual-send observation found.", err=True)
         sys.exit(1)
 
-    merchant_country = observation["merchant_country"]
+    merchant_country = classification["merchant_country"]
     registry = load_qualification_registry(Path(qualification_registry))
-    update_manual_send_qualification(registry, merchant_country, observation)
+    update_manual_send_qualification(registry, merchant_country, classification)
     save_qualification_registry(registry, Path(qualification_registry))
     click.echo(json.dumps(registry[merchant_country], indent=2))
 
@@ -2211,6 +2384,153 @@ def _emit_manual_summary(run_id: str, results: dict[str, Any]) -> None:
         report["formula"]["consistency_checks"] = _manual_consistency_checks(historical_cases, formula)
 
     click.echo(json.dumps(report, indent=2))
+
+
+def _parse_requested_merchants(merchants: str | None, merchant: str | None) -> list[str] | None:
+    """Return a list of requested merchant country codes, or None for default selection."""
+    if merchants and merchant:
+        raise click.UsageError("Use either --merchants or --merchant, not both.")
+    if merchant:
+        return [merchant.strip().upper()]
+    if merchants:
+        return [m.strip().upper() for m in merchants.split(",") if m.strip()]
+    return None
+
+
+def _filter_representative_merchants(
+    requested: list[str] | None,
+    merchant_accounts: dict[str, Account],
+    registry: dict[str, Any],
+) -> list[str]:
+    """Resolve requested merchant codes to representative, configured merchants.
+
+    Unknown or non-representative codes are rejected rather than silently skipped.
+    """
+    configured = set(merchant_accounts.keys())
+    candidates = (
+        requested
+        if requested is not None
+        else [m for m, q in sorted(registry.items()) if q.get("status") == QualificationStatus.REPRESENTATIVE]
+    )
+
+    selected: list[str] = []
+    for m in candidates:
+        if m not in configured:
+            raise click.UsageError(f"Merchant {m} is not configured in the accounts CSV.")
+        entry = registry.get(m, {})
+        if entry.get("status") != QualificationStatus.REPRESENTATIVE:
+            raise click.UsageError(f"Merchant {m} is not qualified as representative (status: {entry.get('status')}).")
+        if m not in selected:
+            selected.append(m)
+    return selected
+
+
+def _is_hard_excluded_for_diagnostic(entry: dict[str, Any]) -> bool:
+    """Return True for statuses that are never eligible for a diagnostic run."""
+    status = entry.get("status")
+    return status in {
+        QualificationStatus.ACCOUNT_CONFIGURATION_BLOCKED,
+        QualificationStatus.SANDBOX_CHECKOUT_LIMITATION,
+        QualificationStatus.DATASET_NOT_CALCULABLE,
+        QualificationStatus.CAPABILITY_UNAVAILABLE,
+        "compliance_violation",
+    }
+
+
+def _select_regional_pilot_merchants(
+    requested: list[str] | None,
+    configured_merchants: set[str],
+    registry: dict[str, Any],
+    include_unsuitable: bool,
+    diagnostic_sandbox_pricing: bool,
+) -> list[str]:
+    """Resolve and validate the merchant list for a regional-pilot run."""
+    if requested is not None:
+        selected: list[str] = []
+        for m in requested:
+            if m not in configured_merchants:
+                raise click.UsageError(f"Merchant {m} is not configured in the accounts CSV.")
+            entry = registry.get(m, {})
+            if include_unsuitable:
+                selected.append(m)
+            elif diagnostic_sandbox_pricing:
+                if _is_hard_excluded_for_diagnostic(entry):
+                    raise click.UsageError(f"Merchant {m} is not eligible for diagnostic sandbox-pricing mode.")
+                selected.append(m)
+            else:
+                if entry.get("status") != QualificationStatus.REPRESENTATIVE:
+                    raise click.UsageError(
+                        f"Merchant {m} is not qualified as representative (status: {entry.get('status')})."
+                    )
+                selected.append(m)
+        return selected
+
+    # Default selection from the regional pilot list.
+    candidates = REGIONAL_PILOT_MERCHANTS
+    if include_unsuitable:
+        return [m for m in candidates if m in configured_merchants]
+    if diagnostic_sandbox_pricing:
+        return [
+            m
+            for m in candidates
+            if m in configured_merchants and is_diagnostic_sandbox_pricing_merchant(registry.get(m, {}))
+        ]
+    return [m for m in candidates if m in configured_merchants and not is_merchant_excluded(m, registry)]
+
+
+def _build_diagnostic_pilot_plan(
+    run_id: str,
+    merchant_countries: list[str],
+    buyer_countries: set[str],
+    adapter: QuoteAdapter,
+    amounts: list[str],
+    controls: list[str],
+    max_new_captures: int,
+) -> list[Case]:
+    """Build a diagnostic matrix for each selected merchant.
+
+    The merchant's own country is used as the primary (domestic) buyer; the
+    requested control buyers provide cross-border controls.
+    """
+    plan: list[Case] = []
+    for merchant in merchant_countries:
+        currency = currency_for_country(merchant)
+        available_controls = [b for b in controls if b in buyer_countries and b != merchant]
+        control_buyers = [merchant, *available_controls]
+        plan.extend(
+            build_diagnostic_plan(
+                run_id=run_id,
+                merchant_country=merchant,
+                diagnostic_amounts=amounts,
+                control_buyers=control_buyers,
+                currency=currency,
+                adapter=adapter,
+                max_new_captures=max_new_captures,
+            )
+        )
+    return plan
+
+
+def _tag_public_rate_validation(plan: list[Case], registry: dict[str, Any]) -> None:
+    """Tag planned cases as public-rate validation and record planning-time registry status."""
+    for case in plan:
+        case.execution_classification = "public_rate_validation"
+        entry = registry.get(case.merchant_country, {})
+        case.planning_time_registry_status = entry.get("status")
+
+
+def _tag_diagnostic_sandbox_pricing(plan: list[Case], registry: dict[str, Any]) -> None:
+    """Tag planned cases as diagnostic sandbox-pricing observations."""
+    for case in plan:
+        case.execution_classification = "diagnostic_sandbox_pricing"
+        entry = registry.get(case.merchant_country, {})
+        case.planning_time_registry_status = entry.get("status")
+        case.pilot_metadata["diagnostic_sandbox_pricing"] = True
+        observed = (entry.get("manual_send_observation") or {}).get("observed_account_formula", {})
+        if observed.get("percentage"):
+            case.pilot_metadata["account_specific_base_rate"] = (
+                f"{observed['percentage']}% + {observed['fixed']['currency']} {observed['fixed']['value']}"
+            )
 
 
 def _mark_diagnostic_sandbox_pricing(plan: list[Case], registry: dict[str, Any]) -> None:

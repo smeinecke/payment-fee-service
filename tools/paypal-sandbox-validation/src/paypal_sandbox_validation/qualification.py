@@ -38,6 +38,8 @@ def _redacted_case_dict(case: Case) -> dict[str, Any]:
         "currency": case.currency,
         "product_id": case.product_id,
         "variant_id": case.variant_id,
+        "execution_classification": case.execution_classification,
+        "planning_time_registry_status": case.planning_time_registry_status,
         "status": case.status.value,
         "create_attempts": case.create_attempts,
         "capture_attempts": case.capture_attempts,
@@ -92,34 +94,111 @@ def is_merchant_excluded(merchant: str, registry: dict[str, Any], override: bool
     return entry.get("status") != QualificationStatus.REPRESENTATIVE
 
 
-def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any] | None:
-    """Build a secret-free pricing observation from fresh pre-submission manual-send cases.
+def is_diagnostic_sandbox_pricing_merchant(entry: dict[str, Any]) -> bool:
+    """Return True when a registry entry may be included in diagnostic sandbox-pricing runs.
 
-    The observed formula is inferred only from cases whose prediction existed before
-    the original Playwright submission. Historical/reused observations are not used for
-    inference; they appear only as consistency checks.
+    Diagnostic sandbox-pricing mode includes only entries with an explicit sandbox
+    pricing signal. Blocked, not-calculable, capability-unavailable, compliance
+    violation and inconclusive merchants are excluded unless one of the sandbox
+    pricing signals is present.
     """
-    fresh_cases = [c for c in cases if c.prediction_provenance == "pre_submission_prediction" and c.paypal_evidence]
-    if len(fresh_cases) < 2:
-        return None
+    status = entry.get("status")
+    if status == QualificationStatus.SANDBOX_SPECIFIC_PRICING:
+        return True
+    if entry.get("manual_send_to_business") == QualificationStatus.SANDBOX_SPECIFIC_PRICING.value:
+        return True
+    observation = entry.get("manual_send_observation") or {}
+    if observation.get("classification") == "sandbox_account_pricing_difference":
+        return True
+    if status in {
+        QualificationStatus.ACCOUNT_CONFIGURATION_BLOCKED,
+        QualificationStatus.SANDBOX_CHECKOUT_LIMITATION,
+        QualificationStatus.DATASET_NOT_CALCULABLE,
+        QualificationStatus.CAPABILITY_UNAVAILABLE,
+        QualificationStatus.INCONCLUSIVE,
+        "compliance_violation",
+    }:
+        return False
+    return False
 
-    formula = infer_manual_formula(fresh_cases)
+
+def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any]:
+    """Classify manual-send pricing against the public formula.
+
+    The observed formula is inferred only from fresh pre-submission cases that
+    have no FX, payer-country mismatch, or evidence invariant failure. It is
+    reported as sandbox-specific pricing only when at least two independent
+    fresh observations exist, the observed formula is stable, and at least one
+    observation differs from the public prediction with a non-zero minor-unit
+    delta. If every fresh observation matches the public formula, the merchant
+    is representative for manual-send. Otherwise the result is inconclusive.
+    """
+    fresh = [c for c in cases if c.prediction_provenance == "pre_submission_prediction" and c.paypal_evidence]
+    if len(fresh) < 2:
+        return _manual_inconclusive(fresh, "fewer than two fresh observations")
+
+    valid_fresh: list[Case] = []
+    invariant_failure = False
+    for c in fresh:
+        validation = validate_case_constraints(c)
+        if not validation["valid"]:
+            invariant_failure = True
+            continue
+        valid_fresh.append(c)
+
+    if invariant_failure:
+        return _manual_inconclusive(valid_fresh, "evidence invariant failure detected")
+    if len(valid_fresh) < 2:
+        return _manual_inconclusive(valid_fresh, "fewer than two valid fresh observations")
+
+    public_matches: list[bool] = []
+    public_amounts: list[dict[str, Any]] = []
+    for c in valid_fresh:
+        ev = c.paypal_evidence or {}
+        q = c.quote or {}
+        gross = _decimal(ev.get("gross_amount", {}).get("value"))
+        observed_fee = _decimal(ev.get("paypal_fee", {}).get("value"))
+        public_fee = _decimal((q.get("processing_fee") or {}).get("value"))
+        if gross is None or observed_fee is None or public_fee is None:
+            return _manual_inconclusive(valid_fresh, "missing fee values")
+        public_amounts.append({"gross": gross, "observed": observed_fee, "public": public_fee})
+        public_matches.append(
+            observed_fee.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            == public_fee.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
+
+    if all(public_matches):
+        return _manual_classification(
+            valid_fresh,
+            status=QualificationStatus.REPRESENTATIVE.value,
+            reason="Every fresh observation matches the public formula with zero minor-unit delta.",
+        )
+
+    formula = infer_manual_formula(valid_fresh)
     if not formula:
-        return None
+        return _manual_inconclusive(valid_fresh, "could not infer a stable observed formula")
 
     inferred = formula.get("inferred_from_observations") or {}
     try:
-        observed_pct = (Decimal(inferred["base_percentage"]) * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        observed_fixed = Decimal(inferred["fixed_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        slope = Decimal(inferred["base_percentage"])
+        intercept = Decimal(inferred["fixed_amount"])
     except Exception:
-        return None
+        return _manual_inconclusive(valid_fresh, "inferred formula is incomplete")
 
-    currency = fresh_cases[0].currency
+    for amounts in public_amounts:
+        expected = (amounts["gross"] * slope + intercept).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if expected != amounts["observed"].quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+            return _manual_inconclusive(valid_fresh, "observed formula is unstable across amounts")
+
+    observed_pct = (slope * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    observed_fixed = intercept.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    currency = valid_fresh[0].currency
     return {
-        "merchant_country": fresh_cases[0].merchant_country,
+        "merchant_country": valid_fresh[0].merchant_country,
         "execution_path": "manual_send_to_business",
-        "product_id": fresh_cases[0].product_id,
-        "variant_id": fresh_cases[0].variant_id,
+        "product_id": valid_fresh[0].product_id,
+        "variant_id": valid_fresh[0].variant_id,
+        "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
         "public_formula": {
             "percentage": formula.get("base_percentage"),
             "fixed": {
@@ -137,33 +216,93 @@ def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any] | None:
         "classification": "sandbox_account_pricing_difference",
         "confidence": "high",
         "usable_for_public_rate_validation": False,
+        "reason": (
+            f"This specific {valid_fresh[0].merchant_country} Sandbox merchant account applied a stable "
+            f"{observed_pct}% + {currency} {observed_fixed} pricing formula, which differs from the public "
+            f"{formula.get('base_percentage')}% + {currency} {formula.get('fixed_amount')} formula."
+        ),
+    }
+
+
+def _manual_classification(
+    cases: list[Case],
+    status: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Build a representative/inconclusive manual-send classification."""
+    if not cases:
+        return _manual_inconclusive([], reason)
+    formula = infer_manual_formula(cases) or {}
+    currency = cases[0].currency
+    public_pct = formula.get("base_percentage")
+    public_fixed = formula.get("fixed_amount")
+    observed_pct = public_pct
+    observed_fixed = public_fixed
+    inferred = formula.get("inferred_from_observations") or {}
+    try:
+        inferred_slope = Decimal(inferred["base_percentage"])
+        inferred_intercept = Decimal(inferred["fixed_amount"])
+        observed_pct = str((inferred_slope * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        observed_fixed = str(inferred_intercept.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    except Exception:
+        pass
+    classification = "representative" if status == QualificationStatus.REPRESENTATIVE.value else "inconclusive"
+    return {
+        "merchant_country": cases[0].merchant_country,
+        "execution_path": "manual_send_to_business",
+        "product_id": cases[0].product_id,
+        "variant_id": cases[0].variant_id,
+        "status": status,
+        "public_formula": {
+            "percentage": public_pct,
+            "fixed": {"value": public_fixed, "currency": currency},
+        },
+        "observed_account_formula": {
+            "percentage": observed_pct,
+            "fixed": {"value": observed_fixed, "currency": currency},
+        },
+        "classification": classification,
+        "confidence": "high" if status == QualificationStatus.REPRESENTATIVE.value else "low",
+        "usable_for_public_rate_validation": status == QualificationStatus.REPRESENTATIVE.value,
+        "reason": reason,
+    }
+
+
+def _manual_inconclusive(cases: list[Case], reason: str) -> dict[str, Any]:
+    """Return an inconclusive manual-send classification."""
+    if cases:
+        return _manual_classification(cases, QualificationStatus.INCONCLUSIVE.value, reason)
+    return {
+        "merchant_country": None,
+        "execution_path": "manual_send_to_business",
+        "status": QualificationStatus.INCONCLUSIVE.value,
+        "classification": "inconclusive",
+        "confidence": "low",
+        "usable_for_public_rate_validation": False,
+        "reason": reason,
     }
 
 
 def update_manual_send_qualification(
     registry: dict[str, Any],
     merchant_country: str,
-    observation: dict[str, Any],
+    classification: dict[str, Any],
 ) -> dict[str, Any]:
-    """Update the qualification registry with a manual-send pricing classification.
+    """Update the qualification registry with a manual-send classification.
 
-    Preserves any existing orders_v2_checkout diagnosis and marks the merchant as
-    not representative for public-rate validation.
+    Preserves any existing orders_v2_checkout diagnosis and marks the merchant
+    as not representative for public-rate validation when sandbox-specific.
     """
     entry = registry.get(merchant_country, {})
+    status = classification.get("status", QualificationStatus.INCONCLUSIVE.value)
     entry.update(
         {
             "merchant_country": merchant_country,
-            "manual_send_to_business": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
-            "representative_for_public_rates": False,
-            "manual_send_observation": observation,
-            "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
-            "reason": (
-                f"This specific {merchant_country} Sandbox merchant account applied a stable "
-                f"{observation['observed_account_formula']['percentage']}% + "
-                f"{observation['observed_account_formula']['fixed']['currency']} "
-                f"{observation['observed_account_formula']['fixed']['value']} pricing formula."
-            ),
+            "manual_send_to_business": status,
+            "representative_for_public_rates": status == QualificationStatus.REPRESENTATIVE.value,
+            "manual_send_observation": classification,
+            "status": status,
+            "reason": classification.get("reason", "Manual-send classification updated."),
         }
     )
     if "orders_v2_checkout" not in entry:
@@ -557,24 +696,26 @@ def save_qualification_report(
 def validation_summary(cases: list[Case], registry: dict[str, Any]) -> dict[str, Any]:
     """Aggregate counts from a validation run.
 
-    Only merchants that are not explicitly excluded from public-rate validation
-    contribute to the public-rate match counters. Sandbox-pricing/diagnostic
-    cases are counted separately so they cannot contaminate acceptance stats.
+    Counters use the immutable execution_classification stored on each case at
+    planning time, not the current mutable registry. This keeps diagnostic and
+    sandbox-pricing observations from contaminating public-rate acceptance stats.
     """
-
-    def _public_rate_eligible(c: Case) -> bool:
-        return not is_merchant_excluded(c.merchant_country, registry)
-
     completed = [c for c in cases if c.status == CaseStatus.RECONCILED]
-    public_rate_completed = [c for c in completed if _public_rate_eligible(c)]
-    diagnostic_completed = [c for c in completed if not _public_rate_eligible(c)]
+    public_rate_completed = [c for c in completed if c.execution_classification == "public_rate_validation"]
+    diagnostic_completed = [c for c in completed if c.execution_classification == "diagnostic_sandbox_pricing"]
 
-    public_rate_merchants = {c.merchant_country for c in cases if _public_rate_eligible(c)}
-    diagnostic_merchants = {c.merchant_country for c in cases if not _public_rate_eligible(c)}
+    public_rate_merchants = {
+        c.merchant_country for c in cases if c.execution_classification == "public_rate_validation"
+    }
+    diagnostic_merchants = {
+        c.merchant_country for c in cases if c.execution_classification == "diagnostic_sandbox_pricing"
+    }
 
     domestic_matches = 0
     surcharge_matches = 0
     fee_mismatches = 0
+    diagnostic_matches = 0
+    diagnostic_mismatches = 0
     for c in public_rate_completed:
         rec = c.reconciliation or {}
         if rec.get("status") == "match":
@@ -585,12 +726,21 @@ def validation_summary(cases: list[Case], registry: dict[str, Any]) -> dict[str,
         elif rec.get("status") in {"fee_mismatch", "net_amount_mismatch"}:
             fee_mismatches += 1
 
+    for c in diagnostic_completed:
+        rec = c.reconciliation or {}
+        if rec.get("status") == "match":
+            diagnostic_matches += 1
+        elif rec.get("status") in {"fee_mismatch", "net_amount_mismatch"}:
+            diagnostic_mismatches += 1
+
     return {
         "representative_merchants": len(public_rate_merchants),
         "diagnostic_merchants": len(diagnostic_merchants),
         "captures_completed": len(completed),
         "representative_captures_completed": len(public_rate_completed),
         "diagnostic_captures_completed": len(diagnostic_completed),
+        "diagnostic_matches": diagnostic_matches,
+        "diagnostic_mismatches": diagnostic_mismatches,
         "domestic_matches": domestic_matches,
         "surcharge_matches": surcharge_matches,
         "fee_mismatches": fee_mismatches,
@@ -644,22 +794,29 @@ def _render_validation_markdown(report: dict[str, Any]) -> str:
             "",
             "## Representative merchant cases",
             "",
-            "| Merchant | Case | Buyer | Status | Reconciliation |",
-            "| --- | --- | --- | --- | --- |",
+            "| Merchant | Case | Buyer | Classification | Status | Reconciliation |",
+            "| --- | --- | --- | --- | --- | --- |",
         ]
     )
     for merchant, cases in sorted(report["merchant_cases"].items()):
         for c in cases:
             rec = c.get("reconciliation") or {}
-            lines.append(
-                f"| {merchant} | `{c['case_id']}` | {c['buyer_country']} | {c['status']} | {rec.get('status')} |"
+            line = (
+                f"| {merchant} | `{c['case_id']}` | {c['buyer_country']} "
+                f"| {c.get('execution_classification')} | {c['status']} "
+                f"| {rec.get('status')} |"
             )
+            lines.append(line)
     lines.append("")
     return "\n".join(lines)
 
 
 def _case_observation_fixture(case: Case) -> dict[str, Any] | None:
-    """Build a secret-free positive observation fixture from a completed validation case."""
+    """Build a secret-free positive observation fixture from a completed validation case.
+
+    Promotion is allowed only when the case was planned as public-rate validation,
+    the merchant was representative at planning time, and the case reconciled cleanly.
+    """
     if case.status != CaseStatus.RECONCILED:
         return None
     rec = case.reconciliation or {}
@@ -668,9 +825,11 @@ def _case_observation_fixture(case: Case) -> dict[str, Any] | None:
     validation = validate_case_constraints(case)
     if not validation["valid"]:
         return None
-
-    registry = load_qualification_registry()
-    if registry.get(case.merchant_country, {}).get("status") != QualificationStatus.REPRESENTATIVE:
+    if case.execution_classification != "public_rate_validation":
+        return None
+    if case.planning_time_registry_status != QualificationStatus.REPRESENTATIVE.value:
+        return None
+    if case.pilot_metadata.get("reused_observation"):
         return None
 
     quote = case.quote or {}
@@ -721,6 +880,8 @@ def promote_observation_fixtures(
 
     paths: list[Path] = []
     for case in cases:
+        if case.pilot_metadata.get("reused_observation"):
+            continue
         fixture = _case_observation_fixture(case)
         if fixture:
             path = fixtures_dir / f"{case.run_id}-{case.case_id}.json"

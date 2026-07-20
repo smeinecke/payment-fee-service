@@ -36,6 +36,8 @@ def _mock_case(
     reconciliation_status: str = "match",
     paypal_issue: str | None = None,
     payer_country: str | None = None,
+    execution_classification: str = "public_rate_validation",
+    planning_time_registry_status: str | None = "representative",
 ) -> Case:
     if payer_country is None:
         payer_country = buyer
@@ -76,6 +78,8 @@ def _mock_case(
         paypal_evidence=evidence,
         reconciliation={"status": reconciliation_status},
         paypal_issue=paypal_issue,
+        execution_classification=execution_classification,
+        planning_time_registry_status=planning_time_registry_status,
     )
 
 
@@ -169,7 +173,16 @@ def test_observation_fixture_eligibility(tmp_path: Path, monkeypatch) -> None:
         lambda _path=None: {"US": {"status": QualificationStatus.REPRESENTATIVE}},
     )
     representative_match = _mock_case("US", "US", "10.00", "USD", "0.84", "0.84")
-    excluded = _mock_case("GB", "AU", "10.00", "GBP", "0.59", "0.79")
+    excluded = _mock_case(
+        "GB",
+        "AU",
+        "10.00",
+        "GBP",
+        "0.59",
+        "0.79",
+        execution_classification="diagnostic_sandbox_pricing",
+        planning_time_registry_status="sandbox_specific_pricing",
+    )
     mismatch = _mock_case("US", "AU", "10.00", "USD", "0.84", "0.99")
     mismatch.reconciliation = {"status": "fee_mismatch"}
 
@@ -283,13 +296,39 @@ def test_classify_manual_send_pricing_uses_only_fresh_observations() -> None:
     ]
     historical = _mock_manual_send_case("1.00", "0.37", "0.37", provenance="historical_observation_requoted")
     observation = classify_manual_send_pricing(fresh_cases + [historical])
-    assert observation is not None
+    assert observation["status"] == "sandbox_specific_pricing"
     assert observation["public_formula"]["percentage"] == "2.49"
     assert observation["public_formula"]["fixed"]["value"] == "0.35"
     assert observation["observed_account_formula"]["percentage"] == "1.90"
     assert observation["observed_account_formula"]["fixed"]["value"] == "0.35"
     assert observation["classification"] == "sandbox_account_pricing_difference"
     assert observation["usable_for_public_rate_validation"] is False
+
+
+def test_classify_manual_send_pricing_representative() -> None:
+    """When every fresh observation matches the public formula the merchant is representative."""
+    cases = [
+        _mock_manual_send_case("1.00", "0.37", "0.37"),
+        _mock_manual_send_case("10.00", "0.60", "0.60"),
+        _mock_manual_send_case("100.00", "2.84", "2.84"),
+    ]
+    classification = classify_manual_send_pricing(cases)
+    assert classification["status"] == "representative"
+    assert classification["classification"] == "representative"
+    assert classification["usable_for_public_rate_validation"] is True
+
+
+def test_classify_manual_send_pricing_inconclusive_when_unstable() -> None:
+    """A non-linear set of observations cannot be reported as sandbox-specific."""
+    cases = [
+        _mock_manual_send_case("1.00", "0.37", "0.37"),
+        _mock_manual_send_case("10.00", "0.54", "0.60"),
+        _mock_manual_send_case("100.00", "2.00", "2.84"),
+    ]
+    classification = classify_manual_send_pricing(cases)
+    assert classification["status"] == "inconclusive"
+    assert classification["classification"] == "inconclusive"
+    assert classification["usable_for_public_rate_validation"] is False
 
 
 def test_update_manual_send_qualification_marks_de_not_representative() -> None:
@@ -299,6 +338,7 @@ def test_update_manual_send_qualification_marks_de_not_representative() -> None:
         "execution_path": "manual_send_to_business",
         "product_id": "goods_and_services",
         "variant_id": "standard",
+        "status": "sandbox_specific_pricing",
         "public_formula": {"percentage": "2.49", "fixed": {"value": "0.35", "currency": "EUR"}},
         "observed_account_formula": {"percentage": "1.90", "fixed": {"value": "0.35", "currency": "EUR"}},
         "classification": "sandbox_account_pricing_difference",
@@ -316,7 +356,16 @@ def test_update_manual_send_qualification_marks_de_not_representative() -> None:
 def test_validation_summary_excludes_diagnostic_merchants() -> None:
     """Diagnostic/sandbox-pricing matches do not count as public-rate matches."""
     us = _mock_case("US", "US", "10.00", "USD", "0.84", "0.84")
-    de_diagnostic = _mock_case("DE", "US", "10.00", "EUR", "0.54", "0.54")
+    de_diagnostic = _mock_case(
+        "DE",
+        "US",
+        "10.00",
+        "EUR",
+        "0.54",
+        "0.54",
+        execution_classification="diagnostic_sandbox_pricing",
+        planning_time_registry_status="sandbox_specific_pricing",
+    )
     de_diagnostic.reconciliation = {"status": "match"}
     registry = {
         "US": {"status": QualificationStatus.REPRESENTATIVE},

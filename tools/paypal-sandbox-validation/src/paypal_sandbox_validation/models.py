@@ -143,6 +143,8 @@ class Case(BaseModel):
     prediction_sha256: str | None = None
     prediction_created_at: str | None = None
     prediction_unchanged_after_observation: bool | None = None
+    execution_classification: str = "public_rate_validation"
+    planning_time_registry_status: str | None = None
     pilot_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

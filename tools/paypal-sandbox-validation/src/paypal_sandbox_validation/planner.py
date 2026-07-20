@@ -220,6 +220,8 @@ def _case_from_quote(
     quote: dict[str, Any],
     rationale: str,
     distinct: bool = False,
+    execution_classification: str = "public_rate_validation",
+    planning_time_registry_status: str | None = None,
 ) -> Case:
     meta = quote.get("_schedule_metadata") or {}
     request = quote.get("_request", {})
@@ -237,6 +239,8 @@ def _case_from_quote(
         variant_id=quote.get("_scenario", {}).get("variant_id", ""),
         status=CaseStatus.PLANNED,
         quote=quote,
+        execution_classification=execution_classification,
+        planning_time_registry_status=planning_time_registry_status,
         expected_payer_region=transaction.get("payer_region"),
         expected_surcharge_components=len(surcharge_components),
         expected_surcharge_amount=surcharge_components[0].get("amount") if surcharge_components else None,
