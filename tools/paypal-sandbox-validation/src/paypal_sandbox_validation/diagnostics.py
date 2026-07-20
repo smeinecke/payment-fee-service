@@ -15,8 +15,7 @@ from typing import Any
 
 from .models import Case
 from .persistence import load_case, load_results, run_dir
-
-TWO_PLACES = Decimal("0.01")
+from .quote_adapter import currency_exponent, minor_units, quantize_currency
 
 
 def load_original_case(run_id: str, case_id: str) -> Case:
@@ -84,7 +83,8 @@ def validate_case_constraints(case: Case) -> dict[str, Any]:
         result["classification"] = "harness_evidence_defect"
         return result
 
-    if (gross_value - fee_value).quantize(TWO_PLACES) != net_value.quantize(TWO_PLACES):
+    currency = case.currency
+    if minor_units(gross_value - fee_value, currency) != minor_units(net_value, currency):
         result["valid"] = False
         result["classification"] = "paypal_api_evidence_invalid"
         return result
@@ -95,7 +95,7 @@ def validate_case_constraints(case: Case) -> dict[str, Any]:
         comp_values = [_decimal(c.get("amount")) for c in components]
         comp_total = sum((v for v in comp_values if v is not None), Decimal("0"))
         proc_fee = _decimal(quote.get("processing_fee", {}).get("value"))
-        if proc_fee is not None and comp_total.quantize(TWO_PLACES) != proc_fee.quantize(TWO_PLACES):
+        if proc_fee is not None and minor_units(comp_total, currency) != minor_units(proc_fee, currency):
             result["valid"] = False
             result["classification"] = "harness_evidence_defect"
             return result
@@ -109,6 +109,7 @@ def decompose_case(case: Case) -> dict[str, Any]:
     quote = case.quote or {}
     components = quote.get("components", [])
     meta = quote.get("_schedule_metadata", {})
+    currency = case.currency
 
     gross = _decimal(evidence.get("gross_amount", {}).get("value"))
     paypal_fee = _decimal(evidence.get("paypal_fee", {}).get("value"))
@@ -124,15 +125,13 @@ def decompose_case(case: Case) -> dict[str, Any]:
     library_base_pct_amount = None
     library_base_total = None
     if gross is not None and base_pct is not None:
-        library_base_pct_amount = (gross * base_pct / Decimal(100)).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+        library_base_pct_amount = quantize_currency(gross * base_pct / Decimal(100), currency)
         base_with_fixed = (library_base_pct_amount + fixed) if fixed is not None else library_base_pct_amount
-        library_base_total = base_with_fixed.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+        library_base_total = quantize_currency(base_with_fixed, currency)
 
     library_surcharge_pct_amount = None
     if gross is not None and surcharge_pct is not None:
-        library_surcharge_pct_amount = (gross * surcharge_pct / Decimal(100)).quantize(
-            TWO_PLACES, rounding=ROUND_HALF_UP
-        )
+        library_surcharge_pct_amount = quantize_currency(gross * surcharge_pct / Decimal(100), currency)
 
     component_unrounded = []
     component_rounded = []
@@ -155,9 +154,7 @@ def decompose_case(case: Case) -> dict[str, Any]:
 
     total_before_cap = None
     if library_base_total is not None and library_surcharge_pct_amount is not None:
-        total_before_cap = (library_base_total + library_surcharge_pct_amount).quantize(
-            TWO_PLACES, rounding=ROUND_HALF_UP
-        )
+        total_before_cap = quantize_currency(library_base_total + library_surcharge_pct_amount, currency)
     elif library_base_total is not None:
         total_before_cap = library_base_total
 
@@ -173,7 +170,7 @@ def decompose_case(case: Case) -> dict[str, Any]:
         if fixed is not None:
             raw_base += fixed
         raw_total = raw_base + (gross * surcharge_pct / Decimal(100)) if surcharge_pct is not None else raw_base
-        aggregate = raw_total.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+        aggregate = quantize_currency(raw_total, currency)
         if total_before_cap is not None and aggregate == total_before_cap:
             rounding_point = "after component aggregation"
 
@@ -220,13 +217,18 @@ def decompose_case(case: Case) -> dict[str, Any]:
     }
 
 
-def _rounded_fee(amount: Decimal, percentage: Decimal | None, fixed: Decimal | None) -> Decimal:
+def _rounded_fee(
+    amount: Decimal,
+    percentage: Decimal | None,
+    fixed: Decimal | None,
+    currency: str,
+) -> Decimal:
     raw = Decimal("0")
     if percentage is not None:
         raw += amount * percentage / Decimal(100)
     if fixed is not None:
         raw += fixed
-    return raw.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+    return quantize_currency(raw, currency)
 
 
 def _percentage_plus_fixed_candidates(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -234,6 +236,7 @@ def _percentage_plus_fixed_candidates(observations: list[dict[str, Any]]) -> lis
     amounts = [_decimal(o["amount"]) for o in observations]
     fees = [_decimal(o["paypal_fee"]) for o in observations]
     countries = [o.get("buyer_country") for o in observations]
+    currency = (observations[0].get("currency") if observations else None) or "USD"
 
     points = [(a, f) for a, f in zip(amounts, fees, strict=False) if a is not None and f is not None]
     if len(points) < 2:
@@ -248,24 +251,27 @@ def _percentage_plus_fixed_candidates(observations: list[dict[str, Any]]) -> lis
         return []
     # (f2 - f1) / (a2 - a1) is the fraction; convert to percentage points.
     p = ((f2 - f1) / (a2 - a1) * Decimal(100)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-    fixed = (f1 - (p / Decimal(100)) * a1).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+    fixed = quantize_currency(f1 - (p / Decimal(100)) * a1, currency)
 
     candidate = {
         "formula_type": "percentage_plus_fixed",
         "percentage": str(p),
         "fixed": str(fixed),
+        "currency": currency,
         "predictions": [],
         "errors_minor": [],
         "max_error_minor": None,
         "fit": False,
     }
-    max_err = Decimal("0")
+    max_err_minor = 0
     for a, f, country in zip(amounts, fees, countries, strict=False):
         if a is None or f is None:
             continue
-        pred = _rounded_fee(a, p, fixed)
-        err = (pred - f).quantize(TWO_PLACES)
-        minor = int(abs(err) * Decimal(100))
+        pred = _rounded_fee(a, p, fixed, currency)
+        pred_minor = minor_units(pred, currency)
+        obs_minor = minor_units(f, currency)
+        err_minor = pred_minor - obs_minor
+        err = quantize_currency(Decimal(err_minor) / (Decimal(10) ** currency_exponent(currency)), currency)
         candidate["predictions"].append(
             {
                 "amount": str(a),
@@ -273,19 +279,23 @@ def _percentage_plus_fixed_candidates(observations: list[dict[str, Any]]) -> lis
                 "predicted": str(pred),
                 "observed": str(f),
                 "error": str(err),
-                "error_minor_units": minor,
+                "error_minor_units": abs(err_minor),
             }
         )
-        max_err = max(max_err, abs(err))
-        candidate["errors_minor"].append(minor)
+        max_err_minor = max(max_err_minor, abs(err_minor))
+        candidate["errors_minor"].append(abs(err_minor))
 
-    candidate["max_error_minor"] = int(max_err * Decimal(100)) if max_err else 0
+    candidate["max_error_minor"] = max_err_minor
     candidate["fit"] = all(e == 0 for e in candidate["errors_minor"])
     return [candidate]
 
 
 def _base_plus_surcharge_candidates(
-    observations: list[dict[str, Any]], base_pct: Decimal | None, surcharge_pct: Decimal | None, fixed: Decimal | None
+    observations: list[dict[str, Any]],
+    base_pct: Decimal | None,
+    surcharge_pct: Decimal | None,
+    fixed: Decimal | None,
+    currency: str,
 ) -> list[dict[str, Any]]:
     """Evaluate the library's base + surcharge + fixed model against observations."""
     if base_pct is None or surcharge_pct is None or fixed is None:
@@ -296,22 +306,25 @@ def _base_plus_surcharge_candidates(
         "base_percentage": str(base_pct),
         "surcharge_percentage": str(surcharge_pct),
         "fixed": str(fixed),
+        "currency": currency,
         "predictions": [],
         "errors_minor": [],
         "max_error_minor": None,
         "fit": False,
     }
-    max_err = Decimal("0")
+    max_err_minor = 0
     for o in observations:
         a = _decimal(o["amount"])
         f = _decimal(o["paypal_fee"])
         if a is None or f is None:
             continue
-        base_part = (a * base_pct / Decimal(100)).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-        surcharge_part = (a * surcharge_pct / Decimal(100)).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-        pred = (base_part + surcharge_part + fixed).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-        err = (pred - f).quantize(TWO_PLACES)
-        minor = int(abs(err) * Decimal(100))
+        base_part = quantize_currency(a * base_pct / Decimal(100), currency)
+        surcharge_part = quantize_currency(a * surcharge_pct / Decimal(100), currency)
+        pred = quantize_currency(base_part + surcharge_part + fixed, currency)
+        pred_minor = minor_units(pred, currency)
+        obs_minor = minor_units(f, currency)
+        err_minor = pred_minor - obs_minor
+        err = quantize_currency(Decimal(err_minor) / (Decimal(10) ** currency_exponent(currency)), currency)
         candidate["predictions"].append(
             {
                 "amount": str(a),
@@ -319,13 +332,13 @@ def _base_plus_surcharge_candidates(
                 "predicted": str(pred),
                 "observed": str(f),
                 "error": str(err),
-                "error_minor_units": minor,
+                "error_minor_units": abs(err_minor),
             }
         )
-        max_err = max(max_err, abs(err))
-        candidate["errors_minor"].append(minor)
+        max_err_minor = max(max_err_minor, abs(err_minor))
+        candidate["errors_minor"].append(abs(err_minor))
 
-    candidate["max_error_minor"] = int(max_err * Decimal(100)) if max_err else 0
+    candidate["max_error_minor"] = max_err_minor
     candidate["fit"] = all(e == 0 for e in candidate["errors_minor"])
     return [candidate]
 
@@ -341,9 +354,10 @@ def infer_formula(
     Each observation must contain ``amount``, ``paypal_fee``, ``buyer_country``,
     and ``payer_country``.
     """
+    currency = (observations[0].get("currency") if observations else None) or "USD"
     candidates = []
     candidates.extend(_percentage_plus_fixed_candidates(observations))
-    candidates.extend(_base_plus_surcharge_candidates(observations, base_pct, surcharge_pct, fixed))
+    candidates.extend(_base_plus_surcharge_candidates(observations, base_pct, surcharge_pct, fixed, currency))
 
     # Pick best candidate: first formula that fits exactly, else lowest max error.
     best = None
@@ -412,10 +426,12 @@ def classify_root_cause(
             "explanation": "Could not infer a stable formula from diagnostic observations.",
         }
 
-    # Compare the observed formula with the library's expected decomposition.
     library_pct = decomposition["library_base"]["percentage"]
     library_fixed = decomposition["library_base"]["direct_fixed_amount"]
     library_surcharge_pct = decomposition["library_surcharge"]["percentage"]
+    library_total = decomposition["library"]["final_fee"]
+    paypal_fee = decomposition["paypal"]["fee"]
+    currency = case.currency
 
     if best["formula_type"] == "percentage_plus_fixed":
         obs_pct = best.get("percentage")
@@ -429,7 +445,7 @@ def classify_root_cause(
         obs_pct = None
         obs_fixed = None
 
-    # Stable observed formula differs from the published rule -> account config or sandbox behavior.
+    # Stable observed formula takes precedence; it pinpoints account config or schedule defects.
     if formula.get("stable_linear_formula_found"):
         # If the observed formula equals the published base-only formula, the
         # surcharge component is missing in PayPal's settlement.
@@ -442,18 +458,74 @@ def classify_root_cause(
                     "surcharge schedule is not being applied by PayPal for this merchant."
                 ),
             }
+        # If the observed total percentage equals the base plus the published surcharge,
+        # the surcharge is applied as a single combined rate.
+        if (
+            obs_pct is not None
+            and library_pct is not None
+            and library_surcharge_pct is not None
+            and _decimal(obs_pct) is not None
+            and _decimal(library_pct) is not None
+            and _decimal(library_surcharge_pct) is not None
+            and _decimal(obs_pct) == _decimal(library_pct) + _decimal(library_surcharge_pct)
+            and obs_fixed == library_fixed
+        ):
+            return {
+                "category": "payment_fee_data_defect",
+                "confidence": "high",
+                "explanation": (
+                    "PayPal applied the published base rate plus a 1.00pp surcharge as a single "
+                    "combined rate; the surcharge schedule is not itemised separately."
+                ),
+            }
         # A completely different stable formula strongly suggests a custom/negotiated
         # merchant rate in the Sandbox account.
         return {
             "category": "sandbox_account_configuration",
             "confidence": "high",
             "explanation": (
-                f"PayPal applied a stable formula of {best.get('percentage')}% + {best.get('fixed')} "
+                f"PayPal applied a stable formula of {obs_pct}% + {obs_fixed} "
                 f"instead of the published {library_pct}% + {library_fixed} base and "
                 f"{library_surcharge_pct}% surcharge. This is consistent with custom or "
                 "negotiated pricing on the Sandbox merchant account."
             ),
         }
+
+    # Without a stable formula, compare the single observed fee against the library components.
+    if paypal_fee is not None and library_total is not None:
+        paypal_fee_minor = minor_units(paypal_fee, currency)
+        base_total_minor = minor_units(decomposition["library_base"]["total"], currency)
+        total_minor = minor_units(library_total, currency)
+
+        if (
+            base_total_minor is not None
+            and paypal_fee_minor == base_total_minor
+            and library_surcharge_pct
+            and _decimal(library_surcharge_pct)
+        ):
+            return {
+                "category": "payment_fee_data_defect",
+                "confidence": "high",
+                "explanation": (
+                    "Observed fee matches the library base-only amount; the published "
+                    "surcharge schedule is not being applied by PayPal for this merchant."
+                ),
+            }
+
+        if (
+            total_minor is not None
+            and paypal_fee_minor == total_minor
+            and library_surcharge_pct
+            and _decimal(library_surcharge_pct)
+        ):
+            return {
+                "category": "payment_fee_data_defect",
+                "confidence": "high",
+                "explanation": (
+                    "PayPal applied the total base-plus-surcharge amount, but the surcharge "
+                    "is not itemised separately; it is rolled into the collected fee."
+                ),
+            }
 
     # If best candidate is not a perfect fit, but the only candidate is the library formula
     # with an error, it may be a rounding/precision defect.
@@ -510,9 +582,11 @@ def generate_diagnostic_reports(
         "expected_fee": decomposition["library"]["final_fee"],
         "observed_fee": decomposition["paypal"]["fee"],
         "absolute_delta": str(delta),
-        "delta_minor_units": int((delta.quantize(TWO_PLACES) * Decimal(100)).to_integral_value()),
+        "delta_minor_units": minor_units(delta, case.currency),
         "effective_percentage_after_fixed": str(
-            (((fee_d - fixed_d) / amount_d) * Decimal(100)).quantize(Decimal("0.01")) if amount_d else None
+            (((fee_d - fixed_d) / amount_d) * Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if amount_d
+            else None
         ),
         "formula": formula,
         "root_cause": root_cause,

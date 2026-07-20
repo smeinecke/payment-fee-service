@@ -142,6 +142,30 @@ def test_classify_sandbox_specific_pricing() -> None:
     assert result["status"] == QualificationStatus.SANDBOX_SPECIFIC_PRICING
 
 
+def test_classify_jpy_zero_decimal_representative() -> None:
+    """JPY zero-decimal observations are compared using integer minor units."""
+    jp = _mock_case("JP", "JP", "1000", "JPY", "32", "32")
+    jp_us = _mock_case("JP", "US", "1000", "JPY", "32", "32")
+
+    class _JPYAdapter:
+        def build_quote(
+            self, merchant_country: str, buyer_country: str, amount: str, currency: str, **_: Any
+        ) -> dict[str, Any]:
+            return {
+                "status": "exact_for_public_rate",
+                "amount": {"value": amount, "currency": currency},
+                "processing_fee": {"value": "32", "currency": currency},
+                "gross_amount": {"value": amount, "currency": currency},
+                "net_amount": {"value": str(1000 - 32), "currency": currency},
+                "components": [{"type": "processing", "amount": "32", "currency": currency}],
+                "_schedule_metadata": {"base_percentage": "3.0", "fixed_amount": "0"},
+                "data": {"content_sha256": "sha", "data_ref": "local"},
+            }
+
+    result = classify_qualification("JP", [jp, jp_us], _JPYAdapter())
+    assert result["status"] == QualificationStatus.REPRESENTATIVE
+
+
 def test_classify_inconclusive_with_one_observation() -> None:
     adapter = QuoteAdapter()
     only = _mock_case("US", "US", "10.00", "USD", "0.84", "0.84")
@@ -222,10 +246,24 @@ def test_validation_summary_counts() -> None:
     mismatch.reconciliation = {"status": "fee_mismatch"}
     registry = {"US": {"status": QualificationStatus.REPRESENTATIVE}}
     summary = validation_summary([us, us_au, mismatch], registry)
-    assert summary["captures_completed"] == 3
+    assert summary["live_captures_completed"] == 3
+    assert summary["cases_reconciled"] == 3
     assert summary["domestic_matches"] == 1
     assert summary["surcharge_matches"] == 1
     assert summary["fee_mismatches"] == 1
+
+
+def test_validation_summary_separates_live_and_reused_counters() -> None:
+    live = _mock_case("US", "US", "10.00", "USD", "0.84", "0.84")
+    reused = _mock_case("US", "AU", "10.00", "USD", "0.99", "0.99")
+    reused.pilot_metadata["reused_observation"] = True
+    reused.reconciliation = {"status": "historical_observation_current_mismatch"}
+    registry = {"US": {"status": QualificationStatus.REPRESENTATIVE}}
+    summary = validation_summary([live, reused], registry)
+    assert summary["cases_reconciled"] == 2
+    assert summary["live_captures_completed"] == 1
+    assert summary["historical_observations_reused"] == 1
+    assert summary["historical_observation_current_mismatches"] == 1
 
 
 def test_library_observations_match_public_schedule() -> None:

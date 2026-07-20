@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -385,10 +385,25 @@ def validate_amount_for_currency(amount: str, currency: str) -> None:
             raise ValueError(f"{currency} amount {amount} must be an integer")
 
 
-def minor_units(value: Decimal | str, currency: str) -> int:
+def currency_exponent(currency: str | None) -> int:
+    """Return the number of minor-unit digits for a currency."""
+    c = (currency or "USD").upper()
+    if c in ZERO_DECIMAL_CURRENCIES:
+        return 0
+    if c in {"BHD", "JOD", "KWD", "OMR", "TND"}:
+        return 3
+    return 2
+
+
+def quantize_currency(value: Decimal | str, currency: str) -> Decimal:
+    """Round a value to the currency's minor-unit precision."""
     dec = value if isinstance(value, Decimal) else Decimal(str(value))
-    if currency in ZERO_DECIMAL_CURRENCIES:
-        return int(dec)
-    if currency in {"BHD", "JOD", "KWD", "OMR", "TND"}:
-        return int(dec * Decimal("1000"))
-    return int(dec * Decimal("100"))
+    exponent = currency_exponent(currency)
+    return dec.quantize(Decimal(10) ** -exponent, rounding=ROUND_HALF_UP)
+
+
+def minor_units(value: Decimal | str, currency: str) -> int:
+    """Convert a value to integer minor units using the currency's precision."""
+    quantized = quantize_currency(value, currency)
+    exponent = currency_exponent(currency)
+    return int(quantized * (Decimal(10) ** exponent))

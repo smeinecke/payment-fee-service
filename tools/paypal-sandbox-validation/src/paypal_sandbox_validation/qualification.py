@@ -22,7 +22,7 @@ from .diagnostics import (
 from .manual_flow import infer_formula as infer_manual_formula
 from .models import Case, CaseStatus, QualificationStatus
 from .planner import _case_from_quote, _quote_signature
-from .quote_adapter import QuoteAdapter
+from .quote_adapter import QuoteAdapter, minor_units, quantize_currency
 
 DEFAULT_REGISTRY_PATH = Path("artifacts/paypal-sandbox-qualification/merchant-qualification.json")
 
@@ -153,6 +153,7 @@ def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any]:
 
     public_matches: list[bool] = []
     public_amounts: list[dict[str, Any]] = []
+    currency = valid_fresh[0].currency
     for c in valid_fresh:
         ev = c.paypal_evidence or {}
         q = c.quote or {}
@@ -162,10 +163,7 @@ def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any]:
         if gross is None or observed_fee is None or public_fee is None:
             return _manual_inconclusive(valid_fresh, "missing fee values")
         public_amounts.append({"gross": gross, "observed": observed_fee, "public": public_fee})
-        public_matches.append(
-            observed_fee.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            == public_fee.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        )
+        public_matches.append(minor_units(observed_fee, currency) == minor_units(public_fee, currency))
 
     if all(public_matches):
         return _manual_classification(
@@ -186,13 +184,12 @@ def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any]:
         return _manual_inconclusive(valid_fresh, "inferred formula is incomplete")
 
     for amounts in public_amounts:
-        expected = (amounts["gross"] * slope + intercept).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if expected != amounts["observed"].quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+        expected = quantize_currency(amounts["gross"] * slope + intercept, currency)
+        if minor_units(expected, currency) != minor_units(amounts["observed"], currency):
             return _manual_inconclusive(valid_fresh, "observed formula is unstable across amounts")
 
     observed_pct = (slope * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    observed_fixed = intercept.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    currency = valid_fresh[0].currency
+    observed_fixed = quantize_currency(intercept, currency)
     return {
         "merchant_country": valid_fresh[0].merchant_country,
         "execution_path": "manual_send_to_business",
@@ -243,7 +240,7 @@ def _manual_classification(
         inferred_slope = Decimal(inferred["base_percentage"])
         inferred_intercept = Decimal(inferred["fixed_amount"])
         observed_pct = str((inferred_slope * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-        observed_fixed = str(inferred_intercept.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        observed_fixed = str(quantize_currency(inferred_intercept, currency))
     except Exception:
         pass
     classification = "representative" if status == QualificationStatus.REPRESENTATIVE.value else "inconclusive"
@@ -328,7 +325,7 @@ def _observation_from_case(case: Case) -> dict[str, Any] | None:
         return None
     return {
         "amount": gross.get("value"),
-        "currency": gross.get("currency_code"),
+        "currency": gross.get("currency_code") or case.currency,
         "paypal_fee": fee.get("value"),
         "buyer_country": case.buyer_country,
         "observed_payer_country": evidence.get("payer_country"),
@@ -436,7 +433,7 @@ def classify_qualification(
             all_match = False
             continue
         matched_buyers += 1
-        if paypal_fee.quantize(Decimal("0.01")) != lib_fee.quantize(Decimal("0.01")):
+        if minor_units(paypal_fee, currency) != minor_units(lib_fee, currency):
             all_match = False
 
     if all_match and matched_buyers == len(paypal_by_buyer) and matched_buyers >= 2:
@@ -448,8 +445,8 @@ def classify_qualification(
 
     # Sandbox-specific pricing: PayPal ignores payer-region schedule differences.
     if len(buyers) >= 2:
-        unique_paypal_fees = set(paypal_by_buyer.values())
-        unique_library_fees = set(library_by_buyer.values())
+        unique_paypal_fees = {minor_units(v, currency) for v in paypal_by_buyer.values()}
+        unique_library_fees = {minor_units(v, currency) for v in library_by_buyer.values()}
         paypal_constant = len(unique_paypal_fees) == 1
         library_varies = len(unique_library_fees) > 1
 
@@ -468,10 +465,20 @@ def classify_qualification(
             domestic_paypal = paypal_by_buyer.get(merchant_country)
             domestic_lib = library_by_buyer.get(merchant_country)
             foreign_buyers = [b for b in buyers if b != merchant_country]
-            if domestic_paypal is not None and domestic_lib is not None and domestic_paypal == domestic_lib:
-                foreign_match = all(paypal_by_buyer.get(b) == domestic_paypal for b in foreign_buyers)
+            if (
+                domestic_paypal is not None
+                and domestic_lib is not None
+                and minor_units(domestic_paypal, currency) == minor_units(domestic_lib, currency)
+            ):
+                foreign_match = all(
+                    minor_units(paypal_by_buyer.get(b), currency) == minor_units(domestic_paypal, currency)
+                    for b in foreign_buyers
+                    if paypal_by_buyer.get(b) is not None
+                )
                 foreign_lib_differs = any(
-                    library_by_buyer.get(b) != domestic_lib for b in foreign_buyers if b in library_by_buyer
+                    minor_units(library_by_buyer.get(b), currency) != minor_units(domestic_lib, currency)
+                    for b in foreign_buyers
+                    if b in library_by_buyer
                 )
                 if foreign_match and foreign_lib_differs:
                     return {
@@ -693,12 +700,17 @@ def save_qualification_report(
     return {"json": json_path, "md": md_path}
 
 
-def validation_summary(cases: list[Case], registry: dict[str, Any]) -> dict[str, Any]:
+def validation_summary(
+    cases: list[Case],
+    registry: dict[str, Any],
+    fixture_paths: list[Path] | None = None,
+) -> dict[str, Any]:
     """Aggregate counts from a validation run.
 
     Counters use the immutable execution_classification stored on each case at
     planning time, not the current mutable registry. This keeps diagnostic and
     sandbox-pricing observations from contaminating public-rate acceptance stats.
+    Live captures and historical fixture reuse are reported separately.
     """
     completed = [c for c in cases if c.status == CaseStatus.RECONCILED]
     public_rate_completed = [c for c in completed if c.execution_classification == "public_rate_validation"]
@@ -711,9 +723,13 @@ def validation_summary(cases: list[Case], registry: dict[str, Any]) -> dict[str,
         c.merchant_country for c in cases if c.execution_classification == "diagnostic_sandbox_pricing"
     }
 
+    live_public_completed = [c for c in public_rate_completed if not c.pilot_metadata.get("reused_observation")]
+    reused_public_completed = [c for c in public_rate_completed if c.pilot_metadata.get("reused_observation")]
+
     domestic_matches = 0
     surcharge_matches = 0
     fee_mismatches = 0
+    historical_mismatches = 0
     diagnostic_matches = 0
     diagnostic_mismatches = 0
     for c in public_rate_completed:
@@ -723,6 +739,8 @@ def validation_summary(cases: list[Case], registry: dict[str, Any]) -> dict[str,
                 domestic_matches += 1
             else:
                 surcharge_matches += 1
+        elif rec.get("status") == "historical_observation_current_mismatch":
+            historical_mismatches += 1
         elif rec.get("status") in {"fee_mismatch", "net_amount_mismatch"}:
             fee_mismatches += 1
 
@@ -733,17 +751,26 @@ def validation_summary(cases: list[Case], registry: dict[str, Any]) -> dict[str,
         elif rec.get("status") in {"fee_mismatch", "net_amount_mismatch"}:
             diagnostic_mismatches += 1
 
+    positive_fixtures = 0
+    if fixture_paths:
+        positive_fixtures = sum(1 for p in fixture_paths if p.parent.name != "diagnostics")
+
     return {
         "representative_merchants": len(public_rate_merchants),
         "diagnostic_merchants": len(diagnostic_merchants),
-        "captures_completed": len(completed),
-        "representative_captures_completed": len(public_rate_completed),
+        "cases_reconciled": len(completed),
+        "captures_completed": len(live_public_completed),
+        "live_captures_completed": len(live_public_completed),
+        "representative_captures_completed": len(live_public_completed),
+        "historical_observations_reused": len(reused_public_completed),
+        "new_positive_fixtures_generated": positive_fixtures,
         "diagnostic_captures_completed": len(diagnostic_completed),
         "diagnostic_matches": diagnostic_matches,
         "diagnostic_mismatches": diagnostic_mismatches,
         "domestic_matches": domestic_matches,
         "surcharge_matches": surcharge_matches,
         "fee_mismatches": fee_mismatches,
+        "historical_observation_current_mismatches": historical_mismatches,
     }
 
 

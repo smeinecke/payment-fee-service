@@ -458,6 +458,7 @@ def build_diagnostic_plan(
     currency: str,
     adapter: QuoteAdapter,
     max_new_captures: int = 5,
+    primary_buyer: str | None = None,
 ) -> list[Case]:
     """Build a bounded diagnostic plan for a specific merchant.
 
@@ -468,8 +469,7 @@ def build_diagnostic_plan(
     plan: list[Case] = []
     index = 0
 
-    # Try to infer the primary diagnostic buyer from the adapter; default to AU.
-    primary_buyer = control_buyers[0] if control_buyers else "AU"
+    primary_buyer = primary_buyer or (control_buyers[0] if control_buyers else "AU")
 
     for amount in diagnostic_amounts:
         if len(plan) >= max_new_captures:

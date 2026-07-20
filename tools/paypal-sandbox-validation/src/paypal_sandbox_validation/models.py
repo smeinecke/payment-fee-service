@@ -194,6 +194,7 @@ class ReconciliationStatus(StrEnum):
     UNSUPPORTED_PAYMENT_TYPE = "unsupported_payment_type"
     INCOMPLETE_PAYMENT = "incomplete_payment"
     PREDICTION_CHANGED = "prediction_changed"
+    HISTORICAL_OBSERVATION_CURRENT_MISMATCH = "historical_observation_current_mismatch"
 
 
 class ReconciliationResult(BaseModel):

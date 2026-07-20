@@ -125,6 +125,9 @@ def test_quote_adapter_zero_decimal_jpy() -> None:
     assert minor_units("1000", "JPY") == 1000
     assert minor_units("10.00", "EUR") == 1000
     assert minor_units("10.000", "BHD") == 10000
+    assert minor_units("10.0049", "BHD") == 10005
+    assert minor_units("0.845", "USD") == 85
+    assert minor_units("0.844", "USD") == 84
 
 
 def test_reconcile_match() -> None:

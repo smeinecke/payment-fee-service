@@ -5,7 +5,7 @@ from click.exceptions import UsageError
 from paypal_sandbox_validation.cli import (
     _filter_representative_merchants,
     _parse_requested_merchants,
-    _select_regional_pilot_merchants,
+    _select_target_merchants,
 )
 from paypal_sandbox_validation.models import Account, AccountType, QualificationStatus
 from paypal_sandbox_validation.qualification import (
@@ -124,13 +124,13 @@ def test_diagnostic_sandbox_pricing_registry_sample() -> None:
     assert eligible == {"DE", "GB"}
 
 
-def test_select_regional_pilot_merchants_explicit_us_only() -> None:
+def test_select_target_merchants_explicit_us_only() -> None:
     registry = {
         "US": {"status": QualificationStatus.REPRESENTATIVE},
         "CA": {"status": QualificationStatus.REPRESENTATIVE},
         "DE": {"status": QualificationStatus.SANDBOX_SPECIFIC_PRICING},
     }
-    selected = _select_regional_pilot_merchants(
+    selected = _select_target_merchants(
         requested=["US"],
         configured_merchants={"US", "CA", "DE"},
         registry=registry,
@@ -140,12 +140,12 @@ def test_select_regional_pilot_merchants_explicit_us_only() -> None:
     assert selected == ["US"]
 
 
-def test_select_regional_pilot_merchants_diagnostic_allows_inconclusive_explicit() -> None:
+def test_select_target_merchants_diagnostic_allows_inconclusive_explicit() -> None:
     """An explicit diagnostic merchant may be inconclusive so it can be classified."""
     registry = {
         "AU": {"status": QualificationStatus.INCONCLUSIVE},
     }
-    selected = _select_regional_pilot_merchants(
+    selected = _select_target_merchants(
         requested=["AU"],
         configured_merchants={"AU"},
         registry=registry,
@@ -155,12 +155,12 @@ def test_select_regional_pilot_merchants_diagnostic_allows_inconclusive_explicit
     assert selected == ["AU"]
 
 
-def test_select_regional_pilot_merchants_diagnostic_rejects_blocked_explicit() -> None:
+def test_select_target_merchants_diagnostic_rejects_blocked_explicit() -> None:
     registry = {
         "ES": {"status": "compliance_violation"},
     }
     with pytest.raises(UsageError):
-        _select_regional_pilot_merchants(
+        _select_target_merchants(
             requested=["ES"],
             configured_merchants={"ES"},
             registry=registry,

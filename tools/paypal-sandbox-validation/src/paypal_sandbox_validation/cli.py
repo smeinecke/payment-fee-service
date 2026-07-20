@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from datetime import UTC, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -85,7 +85,7 @@ from paypal_sandbox_validation.qualification import (
     save_validation_report,
     validation_summary,
 )
-from paypal_sandbox_validation.quote_adapter import QuoteAdapter, QuoteResolutionError
+from paypal_sandbox_validation.quote_adapter import QuoteAdapter, QuoteResolutionError, minor_units, quantize_currency
 from paypal_sandbox_validation.reconciliation import reconcile
 from paypal_sandbox_validation.redaction import mask_value, redact_path, sanitize_dict, sanitize_paypal_order
 from paypal_sandbox_validation.reporting import build_summary, save_junit, save_summary, save_summary_markdown
@@ -648,7 +648,7 @@ def regional_pilot_cmd(
     registry = load_qualification_registry(Path(qualification_registry))
 
     requested = _parse_requested_merchants(merchants, merchant)
-    regional_merchants = _select_regional_pilot_merchants(
+    regional_merchants = _select_target_merchants(
         requested=requested,
         configured_merchants=configured_merchants,
         registry=registry,
@@ -730,6 +730,13 @@ def regional_pilot_cmd(
     default=None,
     help="Comma-separated merchant countries to qualify (default: all configured except known exclusions).",
 )
+@click.option(
+    "--merchant",
+    type=str,
+    default=None,
+    help="Single-merchant alias for --merchants.",
+)
+@click.option("--max-merchants", type=int, default=0)
 @click.option("--max-cases-per-merchant", type=int, default=3)
 @click.option("--headful", is_flag=True, default=False)
 @click.option("--headed", is_flag=True, default=False)
@@ -750,6 +757,8 @@ def regional_pilot_cmd(
 def qualify_cmd(
     accounts_csv: str,
     merchants: str | None,
+    merchant: str | None,
+    max_merchants: int,
     max_cases_per_merchant: int,
     headful: bool,
     headed: bool,
@@ -767,35 +776,22 @@ def qualify_cmd(
         sys.exit(1)
 
     merchant_accounts = {a.country_code: a for a in accounts if a.is_business()}
+    configured_merchants = set(merchant_accounts.keys())
     buyer_accounts = {a.country_code: a for a in accounts if a.is_personal()}
     buyer_countries = {a.country_code for a in buyer_accounts.values()}
 
     registry = load_qualification_registry(Path(qualification_registry))
 
-    if merchants:
-        target_merchants = [m.strip().upper() for m in merchants.split(",") if m.strip()]
-    else:
-
-        def _allowed_qual(m: str) -> bool:
-            if m not in merchant_accounts:
-                return False
-            entry = registry.get(m, {})
-            if include_unsuitable:
-                return True
-            if diagnostic_sandbox_pricing:
-                return is_diagnostic_sandbox_pricing_merchant(entry)
-            return not is_merchant_excluded(m, registry)
-
-        target_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if _allowed_qual(m)]
-
-    for m in target_merchants:
-        if m not in merchant_accounts:
-            raise click.UsageError(f"Merchant {m} is not configured in the accounts CSV.")
-        entry = registry.get(m, {})
-        if diagnostic_sandbox_pricing and not is_diagnostic_sandbox_pricing_merchant(entry):
-            raise click.UsageError(f"Merchant {m} is not eligible for diagnostic sandbox-pricing mode.")
-        if not diagnostic_sandbox_pricing and not include_unsuitable and is_merchant_excluded(m, registry):
-            raise click.UsageError(f"Merchant {m} is excluded from qualification (status: {entry.get('status')}).")
+    requested = _parse_requested_merchants(merchants, merchant)
+    target_merchants = _select_target_merchants(
+        requested=requested,
+        configured_merchants=configured_merchants,
+        registry=registry,
+        include_unsuitable=include_unsuitable,
+        diagnostic_sandbox_pricing=diagnostic_sandbox_pricing,
+    )
+    if max_merchants:
+        target_merchants = target_merchants[:max_merchants]
 
     click.echo(f"Selected qualification merchants: {target_merchants}")
 
@@ -940,7 +936,7 @@ def regional_validation_cmd(
             adapter=adapter,
         )
         _tag_public_rate_validation(plan, registry)
-        _attempt_public_rate_reuse(plan, registry)
+        _attempt_public_rate_reuse(plan, registry, adapter)
         save_plan(run_id, plan)
 
     config = RunConfig(
@@ -974,11 +970,11 @@ def regional_validation_cmd(
     cases = [Case.model_validate({k: v for k, v in c.items() if k in Case.model_fields}) for c in results["cases"]]
     report_paths = save_validation_report(run_id, cases, registry)
     fixture_paths = promote_observation_fixtures(cases)
-    summary = validation_summary(cases, registry)
+    summary = validation_summary(cases, registry, fixture_paths=fixture_paths)
     click.echo("Regional validation complete.")
     click.echo(f"Run ID: {run_id}")
     click.echo(f"Report: {report_paths['md']}")
-    click.echo(f"Observation fixtures: {len(fixture_paths)}")
+    click.echo(f"New positive fixtures: {summary.get('new_positive_fixtures_generated', 0)}")
     click.echo(json.dumps(summary, indent=2))
 
 
@@ -1013,14 +1009,20 @@ def _merge_existing_case(case: Case, existing: dict[str, Any]) -> Case:
     return case
 
 
-def _attempt_public_rate_reuse(plan: list[Case], registry: dict[str, Any]) -> None:
+def _attempt_public_rate_reuse(
+    plan: list[Case],
+    registry: dict[str, Any],
+    adapter: QuoteAdapter,
+    fixtures_dir: Path | None = None,
+) -> None:
     """Hydrate planned public-rate cases from existing positive observation fixtures.
 
-    A fixture can be reused when it matches the planned merchant, buyer, amount,
-    currency, product and variant and is a positive public-rate match. Reused
-    cases are tagged so they are not promoted as new fixtures.
+    A fixture supplies historical PayPal evidence only. A new quote is built from
+    the current dataset and the historical observation is reconciled against it.
+    If the current prediction no longer matches, the case is recorded as a
+    historical-observation current mismatch and is not promoted as a new fixture.
     """
-    fixtures_dir = Path("artifacts/paypal-sandbox-observations")
+    fixtures_dir = fixtures_dir or Path("artifacts/paypal-sandbox-observations")
     if not fixtures_dir.exists():
         return
 
@@ -1062,15 +1064,36 @@ def _attempt_public_rate_reuse(plan: list[Case], registry: dict[str, Any]) -> No
             net = str(Decimal(amount) - Decimal(fee))
         except Exception:
             net = amount
-        case.paypal_evidence = {
+
+        # Build a new quote from the current dataset revision and reconcile.
+        try:
+            new_quote = adapter.build_quote(case.merchant_country, case.buyer_country, amount, currency)
+        except Exception:
+            new_quote = {}
+        case.quote = new_quote
+
+        paypal_evidence = {
             "status": "COMPLETED",
             "gross_amount": {"value": amount, "currency_code": currency},
             "paypal_fee": {"value": fee, "currency_code": currency},
             "net_amount": {"value": net, "currency_code": currency},
             "payer_country": fixture.get("observed_payer_country"),
         }
+        case.paypal_evidence = paypal_evidence
         case.observed_payer_country = fixture.get("observed_payer_country")
-        case.reconciliation = {"status": "match"}
+
+        rec = reconcile(
+            paypal_evidence,
+            new_quote,
+            case.merchant_country,
+            case.buyer_country,
+            observed_payer_country=fixture.get("observed_payer_country"),
+        )
+        rec_data = rec.model_dump()
+        if rec.status != ReconciliationStatus.MATCH:
+            rec_data["status"] = ReconciliationStatus.HISTORICAL_OBSERVATION_CURRENT_MISMATCH.value
+            rec_data["root_cause"] = "Historical observation does not match the current dataset prediction."
+        case.reconciliation = rec_data
         case.status = CaseStatus.RECONCILED
         case.create_attempts = 1
         case.capture_attempts = 1
@@ -1078,8 +1101,23 @@ def _attempt_public_rate_reuse(plan: list[Case], registry: dict[str, Any]) -> No
         case.capture_id = "reused"
         case.request_id_create = "reused"
         case.request_id_capture = "reused"
+
+        source_meta = fixture.get("data_revision")
+        current_meta = (new_quote.get("data") or {}).get("content_sha256")
         case.pilot_metadata["reused_observation"] = True
         case.pilot_metadata["reused_from_fixture"] = fixture_path.name
+        case.pilot_metadata["historical_fixture_result"] = fixture.get("result")
+        case.pilot_metadata["source_data_revision"] = source_meta
+        case.pilot_metadata["current_data_revision"] = current_meta
+        case.pilot_metadata["source_rule_ids"] = fixture.get("rule_ids")
+        case.pilot_metadata["current_rule_ids"] = [r.get("rule_id") for r in new_quote.get("matched_rules", [])]
+        case.pilot_metadata["source_schedule_ids"] = fixture.get("schedule_ids")
+        case.pilot_metadata["current_schedule_ids"] = [
+            (new_quote.get("_schedule_metadata") or {}).get("fixed_fee_schedule_id"),
+            (new_quote.get("_schedule_metadata") or {}).get("international_surcharge_schedule_id"),
+        ]
+        delta_minor = rec_data.get("delta_minor_units")
+        case.pilot_metadata["current_delta_minor_units"] = abs(delta_minor) if delta_minor is not None else None
 
 
 def _execute_plan(
@@ -2437,14 +2475,15 @@ def _is_hard_excluded_for_diagnostic(entry: dict[str, Any]) -> bool:
     }
 
 
-def _select_regional_pilot_merchants(
+def _select_target_merchants(
     requested: list[str] | None,
     configured_merchants: set[str],
     registry: dict[str, Any],
     include_unsuitable: bool,
     diagnostic_sandbox_pricing: bool,
+    default_candidates: list[str] | None = None,
 ) -> list[str]:
-    """Resolve and validate the merchant list for a regional-pilot run."""
+    """Resolve and validate the merchant list for regional-pilot and qualify runs."""
     if requested is not None:
         selected: list[str] = []
         for m in requested:
@@ -2466,7 +2505,7 @@ def _select_regional_pilot_merchants(
         return selected
 
     # Default selection from the regional pilot list.
-    candidates = REGIONAL_PILOT_MERCHANTS
+    candidates = default_candidates or REGIONAL_PILOT_MERCHANTS
     if include_unsuitable:
         return [m for m in candidates if m in configured_merchants]
     if diagnostic_sandbox_pricing:
@@ -2565,8 +2604,9 @@ def _manual_consistency_checks(
         observed = ev.get("paypal_fee", {}).get("value")
         if gross is None or observed is None:
             continue
+        currency = case.currency
         expected = (Decimal(gross) * slope + intercept).quantize(Decimal("0.0001"))
-        rounded = expected.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        rounded = quantize_currency(expected, currency)
         checks.append(
             {
                 "case_id": case.case_id,
@@ -2574,7 +2614,7 @@ def _manual_consistency_checks(
                 "observed_paypal_fee": str(observed),
                 "expected_paypal_fee": str(rounded),
                 "raw_expected": str(expected),
-                "matches": rounded == Decimal(observed),
+                "matches": minor_units(rounded, currency) == minor_units(observed, currency),
                 "note": "historical supporting observation",
             }
         )
