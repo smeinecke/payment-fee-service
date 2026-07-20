@@ -100,8 +100,7 @@ def parse_accounts_csv(csv_path: str | Path) -> list[Account]:
         missing = [h for h in EXPECTED_HEADERS if h not in headers]
         extra = [h for h in headers if h not in EXPECTED_HEADERS]
         raise ValueError(
-            f"Account CSV headers do not match expected schema. "
-            f"missing={missing}, extra={extra}, got={headers}"
+            f"Account CSV headers do not match expected schema. missing={missing}, extra={extra}, got={headers}"
         )
 
     rows: list[Account] = []
@@ -209,11 +208,7 @@ def validate_accounts(accounts: list[Account], *, require_complete: bool = False
     invalid_merchant_countries.update(incomplete_nvp)
     invalid_merchant_countries.update(invalid_business)
     for a in merchants:
-        if (
-            a.client_id in dup_client_ids
-            or a.nvp_user in dup_nvp_users
-            or a.primary_email_alias in dup_emails
-        ):
+        if a.client_id in dup_client_ids or a.nvp_user in dup_nvp_users or a.primary_email_alias in dup_emails:
             invalid_merchant_countries.add(a.country_code)
 
     invalid_buyer_countries: set[str] = set()
@@ -268,9 +263,7 @@ def summarize_accounts(accounts: list[Account]) -> dict[str, Any]:
         "merchant_count": len(merchants),
         "buyer_count": len(buyers),
         "rest_credential_pairs": sum(1 for a in merchants if a.client_id and a.secret),
-        "nvp_credential_triples": sum(
-            1 for a in merchants if a.nvp_user and a.nvp_password and a.nvp_signature
-        ),
+        "nvp_credential_triples": sum(1 for a in merchants if a.nvp_user and a.nvp_password and a.nvp_signature),
         "sample_merchants": [mask_client_id(a.client_id) if a.client_id else None for a in merchants[:3]],
         "sample_buyers": [mask_email(a.primary_email_alias) for a in buyers[:3]],
     }

@@ -56,8 +56,7 @@ class NVPResponse(BaseModel):
         if not self.errors:
             return None
         return "; ".join(
-            f"{e.get('ERRORCODE', '?')}: {e.get('SHORTMESSAGE', '')} ({e.get('LONGMESSAGE', '')})"
-            for e in self.errors
+            f"{e.get('ERRORCODE', '?')}: {e.get('SHORTMESSAGE', '')} ({e.get('LONGMESSAGE', '')})" for e in self.errors
         )
 
     def is_success(self) -> bool:
@@ -93,11 +92,13 @@ def _collect_errors(parsed: dict[str, str]) -> list[dict[str, str]]:
         code = parsed.get(f"L_ERRORCODE{idx}")
         if code is None:
             break
-        errors.append({
-            "ERRORCODE": code,
-            "SHORTMESSAGE": parsed.get(f"L_SHORTMESSAGE{idx}", ""),
-            "LONGMESSAGE": parsed.get(f"L_LONGMESSAGE{idx}", ""),
-        })
+        errors.append(
+            {
+                "ERRORCODE": code,
+                "SHORTMESSAGE": parsed.get(f"L_SHORTMESSAGE{idx}", ""),
+                "LONGMESSAGE": parsed.get(f"L_LONGMESSAGE{idx}", ""),
+            }
+        )
         idx += 1
     return errors
 
@@ -219,20 +220,22 @@ def extract_transaction_search_results(response: NVPResponse) -> list[dict[str, 
     transactions: list[dict[str, str]] = []
     index = 0
     while f"L_TRANSACTIONID{index}" in raw:
-        transactions.append({
-            "transaction_id": raw.get(f"L_TRANSACTIONID{index}", ""),
-            "timestamp": raw.get(f"L_TIMESTAMP{index}", ""),
-            "timezone": raw.get(f"L_TIMEZONE{index}", ""),
-            "type": raw.get(f"L_TYPE{index}", ""),
-            "email": raw.get(f"L_EMAIL{index}", ""),
-            "name": raw.get(f"L_NAME{index}", ""),
-            "transaction_class": raw.get(f"L_TRANSACTIONCLASS{index}", ""),
-            "status": raw.get(f"L_STATUS{index}", ""),
-            "amt": raw.get(f"L_AMT{index}", ""),
-            "currency_code": raw.get(f"L_CURRENCYCODE{index}", ""),
-            "fee_amt": raw.get(f"L_FEEAMT{index}", ""),
-            "net_amt": raw.get(f"L_NETAMT{index}", ""),
-        })
+        transactions.append(
+            {
+                "transaction_id": raw.get(f"L_TRANSACTIONID{index}", ""),
+                "timestamp": raw.get(f"L_TIMESTAMP{index}", ""),
+                "timezone": raw.get(f"L_TIMEZONE{index}", ""),
+                "type": raw.get(f"L_TYPE{index}", ""),
+                "email": raw.get(f"L_EMAIL{index}", ""),
+                "name": raw.get(f"L_NAME{index}", ""),
+                "transaction_class": raw.get(f"L_TRANSACTIONCLASS{index}", ""),
+                "status": raw.get(f"L_STATUS{index}", ""),
+                "amt": raw.get(f"L_AMT{index}", ""),
+                "currency_code": raw.get(f"L_CURRENCYCODE{index}", ""),
+                "fee_amt": raw.get(f"L_FEEAMT{index}", ""),
+                "net_amt": raw.get(f"L_NETAMT{index}", ""),
+            }
+        )
         index += 1
     return transactions
 
@@ -299,7 +302,7 @@ def extract_transaction_details(response: NVPResponse) -> dict[str, Any] | None:
         "country_code": raw.get("COUNTRYCODE"),
         "exchange_rate": raw.get("EXCHANGERATE"),
         "settle_amt": raw.get("SETTLEAMT"),
-        "settle_currency": raw.get("SETTLEAMT") and raw.get("CURRENCYCODE"),
+        "settle_currency": raw.get("SETTLEAMTCURRENCY"),
         "note": raw.get("NOTE"),
         "invnum": raw.get("INVNUM"),
         "custom": raw.get("CUSTOM"),
@@ -337,5 +340,3 @@ def poll_for_unique_transaction(
             return result
         time.sleep(delay_seconds)
     return result
-
-

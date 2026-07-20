@@ -21,6 +21,7 @@ from paypal_sandbox_validation.configuration import (
 )
 from paypal_sandbox_validation.manual_flow import (
     build_manual_plan,
+    infer_formula,
     run_manual_plan,
 )
 from paypal_sandbox_validation.models import (
@@ -2138,8 +2139,21 @@ def _emit_manual_summary(run_id: str, results: dict[str, Any]) -> None:
             "delta_minor_units": reconciliation.get("delta_minor_units"),
             "reconciliation_status": reconciliation.get("status"),
             "duplicate_prevention": (c.get("pilot_metadata") or {}).get("duplicate_prevention"),
+            "product_selection_source": c.get("product_selection_source"),
+            "product_selected_before_submission": c.get("product_selected_before_submission"),
+            "prediction_sha256": c.get("prediction_sha256"),
+            "prediction_unchanged_after_observation": c.get("prediction_unchanged_after_observation"),
         }
         report["cases"].append(case_report)
+
+    # Infer a single formula from reconciled cases if possible.
+    try:
+        case_models = [Case.model_validate(c) for c in cases]
+    except Exception:
+        case_models = []
+    formula = infer_formula(case_models)
+    if formula:
+        report["formula"] = formula
 
     click.echo(json.dumps(report, indent=2))
 

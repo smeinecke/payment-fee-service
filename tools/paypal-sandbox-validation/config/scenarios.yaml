@@ -23,8 +23,12 @@ manual_send_to_business:
   user_action: PAY_NOW
   shipping_preference: NO_SHIPPING
   intent: CAPTURE
+  execution_path: manual_send_to_business
+  expected_nvp_transaction_type: sendmoney
+  supported_nvp_payment_types:
+    - instant
   default:
-    product_id: other_commercial
+    product_id: goods_and_services
     variant_id: standard
 
 profiles:

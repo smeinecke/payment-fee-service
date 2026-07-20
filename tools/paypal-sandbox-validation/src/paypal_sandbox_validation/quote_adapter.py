@@ -71,17 +71,23 @@ class QuoteAdapter:
         return self._resolve_scenario_for(merchant_country, get_standard_wallet_scenario)
 
     def resolve_manual_scenario(self, merchant_country: str) -> dict[str, Any] | None:
+        """Return the explicit manual-send mapping for a merchant market.
+
+        Raises QuoteResolutionError if the configured product/variant is not
+        calculable; the observed PayPal fee must never be allowed to select a
+        different product.
+        """
         return self._resolve_scenario_for(
             merchant_country,
             get_manual_send_scenario,
-            preferred=["other_commercial", "goods_and_services", "paypal_checkout"],
+            fallback=False,
         )
 
     def _resolve_scenario_for(
         self,
         merchant_country: str,
         scenario_getter,
-        preferred: list[str] | None = None,
+        fallback: bool = True,
     ) -> dict[str, Any] | None:
         spec = scenario_getter(self.scenarios, merchant_country)
         if not spec:
@@ -93,8 +99,13 @@ class QuoteAdapter:
             variants = cap.calculable_products.get(product_id, [])
             if variant_id in variants:
                 return spec
-        # Fallback to a calculable wallet-like product/variant.
-        products = preferred or ["paypal_checkout", "other_commercial", "goods_and_services"]
+        if not fallback:
+            raise QuoteResolutionError(
+                f"Manual send scenario {product_id}/{variant_id} is not calculable for {merchant_country}",
+                status="account_capability_unavailable",
+            )
+        # Fallback to a calculable wallet-like product/variant (only for non-manual flows).
+        products = ["paypal_checkout", "other_commercial", "goods_and_services"]
         for product in products:
             variants = cap.calculable_products.get(product, [])
             if "standard" in variants:

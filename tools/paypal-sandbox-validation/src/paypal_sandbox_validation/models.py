@@ -135,6 +135,11 @@ class Case(BaseModel):
     nvp_transaction_id: str | None = Field(default=None, repr=False, exclude=True)
     evidence_source: str | None = None
     manual_submitted_at: str | None = None
+    product_selection_source: str = "explicit_execution_path_mapping"
+    product_selected_before_submission: bool = True
+    prediction_sha256: str | None = None
+    prediction_created_at: str | None = None
+    prediction_unchanged_after_observation: bool | None = None
     pilot_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -180,6 +185,10 @@ class ReconciliationStatus(StrEnum):
     FUNDING_SOURCE_NOT_SUPPORTED = "funding_source_not_supported_for_validation"
     UNSUPPORTED_PAYPAL_UI_STATE = "unsupported_paypal_ui_state"
     RECIPIENT_MISMATCH = "recipient_mismatch"
+    TRANSACTION_TYPE_MISMATCH = "transaction_type_mismatch"
+    UNSUPPORTED_PAYMENT_TYPE = "unsupported_payment_type"
+    INCOMPLETE_PAYMENT = "incomplete_payment"
+    PREDICTION_CHANGED = "prediction_changed"
 
 
 class ReconciliationResult(BaseModel):

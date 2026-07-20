@@ -19,6 +19,9 @@ SCENARIO_KEYS = {
     "intent",
     "default",
     "per_country",
+    "execution_path",
+    "expected_nvp_transaction_type",
+    "supported_nvp_payment_types",
 }
 
 LIVE_PATTERNS = [

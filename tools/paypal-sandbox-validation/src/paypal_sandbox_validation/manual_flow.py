@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from paypal_sandbox_validation.accounts import Account, parse_accounts_csv
+from paypal_sandbox_validation.configuration import get_manual_send_scenario
 from paypal_sandbox_validation.diagnostics import validate_case_constraints
 from paypal_sandbox_validation.manual_browser import ManualPaymentBrowser
 from paypal_sandbox_validation.models import Case, CaseStatus, ReconciliationStatus
@@ -17,9 +20,11 @@ from paypal_sandbox_validation.nvp import (
     poll_for_unique_transaction,
 )
 from paypal_sandbox_validation.persistence import (
+    load_json,
     load_manual_case,
     load_manual_plan,
     load_manual_private_state,
+    manual_artifact_root,
     save_manual_case,
     save_manual_private_state,
     save_manual_results,
@@ -76,61 +81,48 @@ def _detect_fx(details: dict[str, Any]) -> bool:
         return True
     settle_amt = details.get("settle_amt")
     settle_currency = details.get("settle_currency")
-    return bool(
-        settle_amt and settle_currency and settle_currency != details.get("currency_code")
-    )
+    return bool(settle_amt and settle_currency and settle_currency != details.get("currency_code"))
 
 
-def _resolve_manual_quote(
-    adapter: QuoteAdapter,
-    case: Case,
-    actual_fee: Decimal,
-) -> dict[str, Any] | None:
-    """Resolve the capability that matches the observed fee, preferring other_commercial.
+def _prediction_record(case: Case, quote: dict[str, Any]) -> dict[str, Any]:
+    """Return the subset of a quote that must remain stable after submission."""
+    meta = quote.get("_schedule_metadata") or {}
+    data = quote.get("data") or {}
+    return {
+        "product_id": case.product_id,
+        "variant_id": case.variant_id,
+        "base_rule_id": meta.get("base_rule_id"),
+        "fixed_fee_schedule_id": meta.get("fixed_fee_schedule_id"),
+        "international_surcharge_schedule_id": meta.get("international_surcharge_schedule_id"),
+        "payer_region": meta.get("payer_region"),
+        "base_percentage": meta.get("base_percentage"),
+        "fixed_amount": meta.get("fixed_amount"),
+        "surcharge_percentage": meta.get("surcharge_percentage"),
+        "predicted_total_fee": quote.get("processing_fee", {}).get("value"),
+        "predicted_net_amount": quote.get("net_amount", {}).get("value"),
+        "data_revision": data.get("content_sha256"),
+    }
 
-    Expected conceptual product is ``other_commercial / standard``. If that does not
-    match the observed fee, ``goods_and_services / standard`` is tried. If neither
-    matches, the other_commercial quote is returned so the mismatch is reported.
-    """
-    candidates = [
-        ("other_commercial", "standard"),
-        ("goods_and_services", "standard"),
-    ]
-    fallback: dict[str, Any] | None = None
-    fallback_product: str | None = None
-    fallback_variant: str | None = None
 
-    for product_id, variant_id in candidates:
-        try:
-            quote = adapter.build_quote(
-                case.merchant_country,
-                case.buyer_country,
-                case.amount,
-                case.currency,
-                product_id=product_id,
-                variant_id=variant_id,
-            )
-        except QuoteResolutionError:
-            continue
-        fee_value = quote.get("processing_fee", {}).get("value")
-        try:
-            if fee_value is not None and Decimal(str(fee_value)) == actual_fee:
-                case.product_id = product_id
-                case.variant_id = variant_id
-                return quote
-        except Exception:
-            pass
-        if fallback is None:
-            fallback = quote
-            fallback_product = product_id
-            fallback_variant = variant_id
+def _sha256(record: dict[str, Any]) -> str:
+    canonical = json.dumps(record, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    if fallback is None:
-        return None
 
-    case.product_id = fallback_product or "other_commercial"
-    case.variant_id = fallback_variant or "standard"
-    return fallback
+def _set_prediction(case: Case, quote: dict[str, Any]) -> None:
+    """Persist the pre-submission prediction and its integrity hash."""
+    case.quote = quote
+    case.product_selection_source = "explicit_execution_path_mapping"
+    case.product_selected_before_submission = True
+    case.prediction_created_at = datetime.now(UTC).isoformat()
+    case.prediction_sha256 = _sha256(_prediction_record(case, quote))
+
+
+def _verify_prediction_unchanged(case: Case) -> bool:
+    """Return True if the stored prediction hash still matches the quote."""
+    if not case.quote or not case.prediction_sha256:
+        return False
+    return _sha256(_prediction_record(case, case.quote)) == case.prediction_sha256
 
 
 def _quote_for_case(
@@ -171,7 +163,7 @@ def build_manual_plan(
     accounts_csv: str,
     cases: list[tuple[str, str, str, str]],
 ) -> list[Case]:
-    """Build a manual Send Money plan from explicit cases."""
+    """Build a manual Send Money plan from explicit cases using a fixed execution-path mapping."""
     accounts = parse_accounts_csv(accounts_csv)
     merchants = {a.country_code: a for a in accounts if a.is_business()}
     buyers = {a.country_code: a for a in accounts if a.is_personal()}
@@ -185,6 +177,31 @@ def build_manual_plan(
             continue
 
         case_id = _case_id(run_id, merchant_country, buyer_country, amount, currency)
+        product_id = "goods_and_services"
+        variant_id = "standard"
+        status = CaseStatus.PLANNED
+        paypal_issue: str | None = None
+        paypal_error: dict[str, Any] | None = None
+        quote: dict[str, Any] | None = None
+
+        try:
+            scenario = adapter.resolve_manual_scenario(merchant_country.upper())
+            product_id = scenario["product_id"]
+            variant_id = scenario["variant_id"]
+            quote = adapter.build_quote(
+                merchant_country=merchant_country.upper(),
+                buyer_country=buyer_country.upper(),
+                amount=amount,
+                currency=currency,
+                product_id=product_id,
+                variant_id=variant_id,
+            )
+            status = CaseStatus.PREDICTION_READY
+        except QuoteResolutionError as exc:
+            status = CaseStatus.FAILED
+            paypal_issue = ReconciliationStatus.ACCOUNT_CAPABILITY_UNAVAILABLE.value
+            paypal_error = {"message": str(exc), "status": exc.status}
+
         case = Case(
             case_id=case_id,
             run_id=run_id,
@@ -193,16 +210,17 @@ def build_manual_plan(
             amount=amount,
             currency=currency,
             execution_path="manual_send_to_business",
-            product_id="other_commercial",
-            variant_id="standard",
-            status=CaseStatus.PLANNED,
+            product_id=product_id,
+            variant_id=variant_id,
+            status=status,
         )
-        # Pre-compute a prediction quote; actual product is resolved from the fee.
-        quote = _quote_for_case(adapter, case, product_id="other_commercial", variant_id="standard")
-        if not quote:
-            case.status = CaseStatus.FAILED
-            case.paypal_issue = ReconciliationStatus.LIBRARY_NOT_CALCULABLE.value
-        case.quote = quote
+        if quote is not None:
+            _set_prediction(case, quote)
+        if paypal_issue:
+            case.paypal_issue = paypal_issue
+        if paypal_error:
+            case.paypal_error = paypal_error
+
         plan.append(case)
     return plan
 
@@ -259,6 +277,95 @@ def _lookup_transaction(
     }
 
 
+def _find_existing_transaction(
+    case: Case,
+    merchant: Account,
+    buyer: Account,
+) -> dict[str, Any]:
+    """Look for a previously reconciled manual-send transaction to reuse.
+
+    Reuse is allowed only when a persisted case with the same execution path,
+    product and variant reconciled with zero delta, and the corresponding
+    private transaction ID is available. This prevents the observed PayPal fee
+    from influencing product selection or reusing an incompatible transaction.
+    """
+    candidate = _find_persisted_reusable_case(case)
+    if not candidate:
+        return {"status": "nvp_transaction_not_found"}
+
+    tx_id = candidate["transaction_id"]
+    details_result = _fetch_details(case, merchant, tx_id)
+    if details_result.get("status") != "found":
+        return details_result
+
+    scenario = get_manual_send_scenario(adapter_scenarios(merchant.country_code), case.merchant_country)
+    if _validate_nvp_transaction(case, details_result["details"], scenario) is not None:
+        return {"status": "nvp_transaction_not_found"}
+
+    return {
+        "status": "found",
+        "transaction": {
+            "transaction_id": tx_id,
+            "timestamp": candidate.get("manual_submitted_at"),
+        },
+        "details": details_result["details"],
+    }
+
+
+def _find_persisted_reusable_case(case: Case) -> dict[str, Any] | None:
+    """Search persisted manual run artifacts for a matching reconciled case."""
+    root = manual_artifact_root()
+    candidates: list[tuple[float, dict[str, Any]]] = []
+
+    for run_dir in root.iterdir():
+        if not run_dir.is_dir() or run_dir.name == case.run_id:
+            continue
+        case_file = run_dir / "cases" / f"{case.case_id}.json"
+        private_file = run_dir / "private" / "nvp-private.json"
+        if not case_file.exists() or not private_file.exists():
+            continue
+        try:
+            private_state = load_json(private_file)
+            old = Case.model_validate(load_json(case_file))
+        except Exception:
+            continue
+
+        tx_id = private_state.get(case.case_id)
+        if not tx_id:
+            continue
+        if old.status != CaseStatus.RECONCILED:
+            continue
+        if old.product_id != case.product_id or old.variant_id != case.variant_id:
+            continue
+        if old.merchant_country != case.merchant_country or old.buyer_country != case.buyer_country:
+            continue
+        if old.amount != case.amount or old.currency != case.currency:
+            continue
+        if (old.reconciliation or {}).get("status") != "match":
+            continue
+        if (old.reconciliation or {}).get("delta_minor_units") != 0:
+            continue
+
+        mtime = case_file.stat().st_mtime
+        candidates.append((mtime, {"transaction_id": tx_id, "manual_submitted_at": old.manual_submitted_at}))
+
+    if not candidates:
+        return None
+    # Use the most recent matching persisted case.
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates[0][1]
+
+
+def adapter_scenarios(_country: str) -> dict[str, Any]:
+    """Load the shared scenarios configuration.
+
+    The country argument is reserved for future market-specific mapping files.
+    """
+    from paypal_sandbox_validation.configuration import load_scenarios
+
+    return load_scenarios()
+
+
 def _fetch_details(
     case: Case,
     merchant: Account,
@@ -278,12 +385,38 @@ def _fetch_details(
     return {"status": "found", "details": details}
 
 
+def _validate_nvp_transaction(
+    case: Case,
+    details: dict[str, Any],
+    scenario: dict[str, Any] | None,
+) -> str | None:
+    """Return a ReconciliationStatus value if NVP semantics are invalid, else None."""
+    expected_type = (scenario or {}).get("expected_nvp_transaction_type", "sendmoney")
+    supported_payment_types = (scenario or {}).get("supported_nvp_payment_types", ["instant"])
+
+    if details.get("transaction_type") != expected_type:
+        return ReconciliationStatus.TRANSACTION_TYPE_MISMATCH.value
+
+    payment_type = details.get("payment_type")
+    if payment_type not in supported_payment_types:
+        return ReconciliationStatus.UNSUPPORTED_PAYMENT_TYPE.value
+
+    if str(details.get("payment_status", "")).upper() != "COMPLETED":
+        return ReconciliationStatus.INCOMPLETE_PAYMENT.value
+
+    observed_country = details.get("country_code", "")
+    if observed_country and observed_country.upper() != case.buyer_country.upper():
+        return ReconciliationStatus.BUYER_COUNTRY_MISMATCH.value
+
+    return None
+
+
 def _run_reconciliation(
     case: Case,
     details: dict[str, Any],
     adapter: QuoteAdapter,
 ) -> Case:
-    """Reconcile NVP details with the payment-fee library."""
+    """Reconcile NVP details with the preselected payment-fee library prediction."""
     case.evidence_source = "nvp_get_transaction_details"
 
     if _detect_fx(details):
@@ -294,7 +427,7 @@ def _run_reconciliation(
         return case
 
     try:
-        actual_fee = Decimal(str(details.get("fee_amt", "0"))).copy_abs()
+        Decimal(str(details.get("fee_amt", "0"))).copy_abs()
     except Exception:
         case.status = CaseStatus.FAILED
         case.paypal_issue = ReconciliationStatus.PAYPAL_FEE_UNAVAILABLE.value
@@ -312,18 +445,33 @@ def _run_reconciliation(
 
     case.paypal_evidence = evidence
 
-    quote = _resolve_manual_quote(adapter, case, actual_fee)
-    if not quote:
+    scenario = get_manual_send_scenario(adapter.scenarios, case.merchant_country)
+    semantic_issue = _validate_nvp_transaction(case, details, scenario)
+    if semantic_issue:
         case.status = CaseStatus.FAILED
-        case.paypal_issue = ReconciliationStatus.LIBRARY_NOT_CALCULABLE.value
-        case.paypal_error = {"message": "No calculable product for manual path"}
+        case.paypal_issue = semantic_issue
+        case.paypal_error = {"message": "NVP transaction semantics do not match the configured scenario"}
         case.manual_state = "failed"
         return case
-    case.quote = quote
+
+    if not _verify_prediction_unchanged(case):
+        case.status = CaseStatus.FAILED
+        case.paypal_issue = ReconciliationStatus.PREDICTION_CHANGED.value
+        case.paypal_error = {"message": "Prediction record changed after observation"}
+        case.manual_state = "failed"
+        return case
+    case.prediction_unchanged_after_observation = True
+
+    if not case.quote:
+        case.status = CaseStatus.FAILED
+        case.paypal_issue = ReconciliationStatus.LIBRARY_NOT_CALCULABLE.value
+        case.paypal_error = {"message": "No preselected calculable quote for manual path"}
+        case.manual_state = "failed"
+        return case
 
     rec = reconcile(
         paypal_evidence=evidence,
-        quote=quote,
+        quote=case.quote,
         merchant_country=case.merchant_country,
         buyer_country=case.buyer_country,
         observed_payer_country=evidence.get("payer_country"),
@@ -335,6 +483,11 @@ def _run_reconciliation(
     if not validation["valid"]:
         case.status = CaseStatus.FAILED
         case.paypal_issue = validation["classification"]
+        case.paypal_error = {"message": validation.get("classification", "Case constraint validation failed")}
+
+    if case.status == CaseStatus.FAILED and not case.paypal_issue:
+        case.paypal_issue = rec.status.value
+        case.paypal_error = {"message": rec.root_cause or "Reconciliation failed"}
 
     case.manual_state = "reconciled" if case.status == CaseStatus.RECONCILED else "failed"
     return case
@@ -382,8 +535,20 @@ def run_manual_case(
                 case.manual_state = "merchant_transaction_found"
                 return _run_reconciliation(case, result["details"], adapter)
 
-    # Fresh path: perform the buyer-side Playwright send.
-    if case.status == CaseStatus.PLANNED:
+    # Fresh path: check for an existing reusable transaction before Playwright.
+    if case.status in {CaseStatus.PLANNED, CaseStatus.PREDICTION_READY}:
+        existing = _find_existing_transaction(case, merchant, buyer)
+        if existing.get("status") == "found":
+            tx_id = existing["transaction"]["transaction_id"]
+            case.nvp_transaction_id = tx_id
+            case.pilot_metadata["duplicate_prevention"] = "existing_transaction_reused"
+            save_manual_private_state(case.run_id, case.case_id, tx_id)
+            case.manual_submitted_at = existing["details"].get("order_time")
+            case.status = CaseStatus.MERCHANT_TRANSACTION_FOUND
+            case.manual_state = "merchant_transaction_found"
+            return _run_reconciliation(case, existing["details"], adapter)
+
+        # No existing transaction; perform the buyer-side Playwright send.
         result = browser.send_payment(
             buyer=buyer,
             merchant=merchant,
@@ -434,6 +599,86 @@ def run_manual_case(
     return _run_reconciliation(case, result["details"], adapter)
 
 
+def _decimal(value: Any) -> Decimal | None:
+    try:
+        return Decimal(str(value)) if value is not None else None
+    except Exception:
+        return None
+
+
+def infer_formula(cases: list[Case]) -> dict[str, Any] | None:
+    """Return the formula inferred from a set of manual-send cases.
+
+    Cases must share the same preselected product and variant and have PayPal
+    evidence. The returned formula combines the preselected fee-schedule
+    metadata with a least-squares fit to the observed gross/fee pairs, allowing
+    the actual sandbox fee curve to be compared with the library prediction
+    regardless of whether every amount matched.
+    """
+    eligible = [c for c in cases if c.paypal_evidence and c.quote]
+    if not eligible:
+        return None
+
+    product_ids = {c.product_id for c in eligible}
+    variant_ids = {c.variant_id for c in eligible}
+    if len(product_ids) != 1 or len(variant_ids) != 1:
+        return None
+
+    gross_values: list[Decimal] = []
+    fee_values: list[Decimal] = []
+    observations: list[dict[str, Any]] = []
+    for c in eligible:
+        ev = c.paypal_evidence or {}
+        q = c.quote or {}
+        gross = _decimal(ev.get("gross_amount", {}).get("value"))
+        fee = _decimal(ev.get("paypal_fee", {}).get("value"))
+        if gross is None or fee is None:
+            continue
+        gross_values.append(gross)
+        fee_values.append(fee)
+        observations.append(
+            {
+                "amount": str(gross),
+                "paypal_fee": str(fee),
+                "library_fee": q.get("processing_fee", {}).get("value"),
+                "reconciliation_status": (c.reconciliation or {}).get("status"),
+                "delta_minor_units": (c.reconciliation or {}).get("delta_minor_units"),
+            }
+        )
+
+    if len(gross_values) < 2:
+        return None
+
+    n = Decimal(len(gross_values))
+    mean_x = sum(gross_values) / n
+    mean_y = sum(fee_values) / n
+    numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(gross_values, fee_values, strict=True))
+    denominator = sum((x - mean_x) ** 2 for x in gross_values)
+    slope = Decimal("0") if denominator == 0 else numerator / denominator
+    intercept = mean_y - slope * mean_x
+
+    slope = slope.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    intercept = intercept.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+    meta = (eligible[0].quote or {}).get("_schedule_metadata") or {}
+    return {
+        "product_id": eligible[0].product_id,
+        "variant_id": eligible[0].variant_id,
+        "base_rule_id": meta.get("base_rule_id"),
+        "fixed_fee_schedule_id": meta.get("fixed_fee_schedule_id"),
+        "international_surcharge_schedule_id": meta.get("international_surcharge_schedule_id"),
+        "payer_region": meta.get("payer_region"),
+        "base_percentage": meta.get("base_percentage"),
+        "fixed_amount": meta.get("fixed_amount"),
+        "data_revision": (eligible[0].quote or {}).get("data", {}).get("content_sha256"),
+        "inferred_from_observations": {
+            "base_percentage": str(slope),
+            "fixed_amount": str(intercept),
+            "observations": observations,
+        },
+    }
+
+
 def run_manual_plan(
     run_id: str,
     accounts_csv: str,
@@ -463,17 +708,21 @@ def run_manual_plan(
                     case.paypal_error = {"message": "Missing account"}
                 else:
                     case = run_manual_case(case, buyer, merchant, adapter, browser)
-                save_manual_case(run_id, case)
+                save_manual_case(case.run_id, case)
 
             results.append(case.model_dump())
 
             rec = case.reconciliation or {}
-            if rec.get("status") in {
-                "fee_mismatch",
-                "net_amount_mismatch",
-                "currency_mismatch",
-                "buyer_country_mismatch",
-            } and stop_after_first_mismatch:
+            if (
+                rec.get("status")
+                in {
+                    "fee_mismatch",
+                    "net_amount_mismatch",
+                    "currency_mismatch",
+                    "buyer_country_mismatch",
+                }
+                and stop_after_first_mismatch
+            ):
                 break
 
     results_dict = {"run_id": run_id, "cases": results}

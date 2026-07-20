@@ -167,9 +167,7 @@ class ManualPaymentBrowser:
         self._new_context()
         page = self._require_page()
         if not account.primary_email_alias or not account.password:
-            raise ManualBrowserError(
-                f"Missing credentials for {account.country_code} {account.account_type.value}"
-            )
+            raise ManualBrowserError(f"Missing credentials for {account.country_code} {account.account_type.value}")
 
         url = (
             "https://www.sandbox.paypal.com/signin"
@@ -178,22 +176,16 @@ class ManualPaymentBrowser:
         self._validate_url(url)
         page.goto(url, timeout=120000)
 
-        email_input = page.locator(
-            "input[name='login_email'], input#email, input[type='email']"
-        ).first
+        email_input = page.locator("input[name='login_email'], input#email, input[type='email']").first
         if email_input.is_visible(timeout=10000):
             email_input.fill(account.primary_email_alias)
             next_btn = page.locator("button#btnNext").first
             if next_btn.is_visible(timeout=5000):
                 next_btn.click()
                 with contextlib.suppress(Exception):
-                    page.locator("div.transitioning.spinner").wait_for(
-                        state="hidden", timeout=15000
-                    )
+                    page.locator("div.transitioning.spinner").wait_for(state="hidden", timeout=15000)
 
-        pw_input = page.locator(
-            "input[name='login_password'], input#password, input[type='password']"
-        ).first
+        pw_input = page.locator("input[name='login_password'], input#password, input[type='password']").first
         pw_input.wait_for(state="visible", timeout=15000)
         pw_input.fill(account.password)
         page.locator("button#btnLogin").first.click()
@@ -232,9 +224,9 @@ class ManualPaymentBrowser:
 
         # Select the suggested contact if it appears; otherwise press Enter.
         recipient_name = f"{merchant.first_name} {merchant.last_name}".strip()
-        suggestion = page.locator("[peertype='USER']").filter(
-            has_text=recipient_name or merchant.primary_email_alias
-        ).first
+        suggestion = (
+            page.locator("[peertype='USER']").filter(has_text=recipient_name or merchant.primary_email_alias).first
+        )
         if suggestion.is_visible(timeout=5000):
             suggestion.click(force=True)
             page.wait_for_timeout(1000)
@@ -259,9 +251,7 @@ class ManualPaymentBrowser:
         patterns = ["Weiter", "Continue", "Next"]
         for pattern in patterns:
             try:
-                btn = page.locator("button").filter(
-                    has_text=re.compile(pattern, re.IGNORECASE)
-                ).first
+                btn = page.locator("button").filter(has_text=re.compile(pattern, re.IGNORECASE)).first
                 if btn.is_visible(timeout=3000):
                     return btn
             except Exception:
@@ -298,9 +288,7 @@ class ManualPaymentBrowser:
     def _select_balance_funding(self) -> None:
         page = self._require_page()
         # Wait for the funding source options.
-        page.locator("input[type='radio'][name='fundingOption']").first.wait_for(
-            state="visible", timeout=10000
-        )
+        page.locator("input[type='radio'][name='fundingOption']").first.wait_for(state="visible", timeout=10000)
 
         # Prefer the option whose label text suggests PayPal balance.
         radios = page.locator("input[type='radio'][name='fundingOption']").all()
@@ -366,10 +354,7 @@ class ManualPaymentBrowser:
                 "friends and family",
             ]
         )
-        if (
-            self._label("goods_and_services").lower() in lower
-            or self._label("goods_and_services_alt").lower() in lower
-        ):
+        if self._label("goods_and_services").lower() in lower or self._label("goods_and_services_alt").lower() in lower:
             return choice_present, "goods_and_services"
         if self._label("friends_and_family").lower() in lower:
             return choice_present, "friends_and_family"
@@ -377,9 +362,7 @@ class ManualPaymentBrowser:
             return choice_present, "unknown"
         return False, "automatic_business"
 
-    def _extract_buyer_review_evidence(
-        self, page: Page, amount: str, currency: str
-    ) -> dict[str, Any]:
+    def _extract_buyer_review_evidence(self, page: Page, amount: str, currency: str) -> dict[str, Any]:
         text = page.locator("body").inner_text()
         choice_present, payment_type = self._detect_payment_type(page)
 
@@ -397,9 +380,7 @@ class ManualPaymentBrowser:
 
     def _submit_payment(self) -> dict[str, Any]:
         page = self._require_page()
-        send_btn = page.locator("button").filter(
-            has_text=re.compile(r"^(Senden|Send)$", re.IGNORECASE)
-        ).first
+        send_btn = page.locator("button").filter(has_text=re.compile(r"^(Senden|Send)$", re.IGNORECASE)).first
         send_btn.wait_for(state="visible", timeout=10000)
         submitted_at = datetime.now(UTC).isoformat()
         send_btn.click(force=True)
@@ -410,10 +391,7 @@ class ManualPaymentBrowser:
         title = page.title()
         body_lower = page.locator("body").inner_text().lower()
         success = (
-            "erfolg" in title.lower()
-            or "success" in title.lower()
-            or "sent" in body_lower
-            or "gesendet" in body_lower
+            "erfolg" in title.lower() or "success" in title.lower() or "sent" in body_lower or "gesendet" in body_lower
         )
 
         return {
@@ -466,9 +444,7 @@ class ManualPaymentBrowser:
                 "sent_amount": sent_amount,
                 "currency": sent_currency,
                 "submitted_at": submit_result.get("submitted_at"),
-                "payment_type_choice_present": review_evidence[
-                    "payment_type_choice_present"
-                ],
+                "payment_type_choice_present": review_evidence["payment_type_choice_present"],
                 "payment_type_selected": review_evidence["payment_type_selected"],
                 "funding_source": "paypal_balance",
                 "review_evidence": review_evidence,

@@ -331,27 +331,35 @@ def test_resume_search_before_resend_does_not_call_browser(monkeypatch: pytest.M
     )
 
     class FakeCase:
-        def __init__(self) -> None:
+        def __init__(self, quote: dict[str, Any]) -> None:
             self.case_id = "c1"
             self.run_id = "r1"
             self.status = CaseStatus.PLANNED
-            self.manual_submitted_at = None
             self.merchant_country = "DE"
             self.buyer_country = "DE"
             self.amount = "1.00"
             self.currency = "EUR"
+            self.execution_path = "manual_send_to_business"
+            self.product_id = "goods_and_services"
+            self.variant_id = "standard"
             self.manual_payment_type = None
             self.funding_source = None
             self.evidence_source = None
             self.paypal_evidence = None
-            self.quote = None
+            self.quote = quote
             self.reconciliation = None
             self.paypal_error = None
             self.paypal_issue = None
             self.manual_state = None
+            self.manual_submitted_at = None
             self.buyer_ui_evidence = None
             self.nvp_transaction_id = None
             self.pilot_metadata: dict[str, Any] = {}
+            self.product_selection_source = "explicit_execution_path_mapping"
+            self.product_selected_before_submission = True
+            self.prediction_sha256 = None
+            self.prediction_created_at = None
+            self.prediction_unchanged_after_observation = None
 
     class FakeBrowser:
         called = False
@@ -388,13 +396,16 @@ def test_resume_search_before_resend_does_not_call_browser(monkeypatch: pytest.M
     from paypal_sandbox_validation.quote_adapter import QuoteAdapter
 
     adapter = QuoteAdapter()
+    quote = adapter.build_quote("DE", "DE", "1.00", "EUR", product_id="goods_and_services", variant_id="standard")
     browser = FakeBrowser()
-    fake_case = FakeCase()
+    fake_case = FakeCase(quote)
+    manual_flow._set_prediction(fake_case, quote)
     returned = manual_flow.run_manual_case(fake_case, buyer, merchant, adapter, browser)  # type: ignore[arg-type]
     assert FakeBrowser.called is False
     assert returned.reconciliation is not None
     assert returned.reconciliation["status"] == "match"
     assert returned.pilot_metadata["duplicate_prevention"] == "resumed_from_private_state"
+    assert returned.prediction_unchanged_after_observation is True
 
 
 def test_no_business_ui_method_in_manual_browser() -> None:
