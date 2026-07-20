@@ -136,7 +136,10 @@ class Case(BaseModel):
     evidence_source: str | None = None
     manual_submitted_at: str | None = None
     product_selection_source: str = "explicit_execution_path_mapping"
-    product_selected_before_submission: bool = True
+    prediction_provenance: str = "legacy_prediction_unknown"
+    prediction_created_before_original_submission: bool = False
+    prediction_created_before_observation_reuse: bool = False
+    original_submission_timestamp_known: bool = False
     prediction_sha256: str | None = None
     prediction_created_at: str | None = None
     prediction_unchanged_after_observation: bool | None = None

@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from datetime import UTC, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -467,6 +468,7 @@ REGIONAL_PILOT_MERCHANTS = [
     "CZ",
     "IL",
     "ZA",
+    "DE",
 ]
 
 
@@ -578,6 +580,12 @@ def surcharge_pilot_cmd(
 @click.option("--resume", type=str, default=None)
 @click.option("--include-unsuitable", is_flag=True, default=False)
 @click.option(
+    "--diagnostic-sandbox-pricing",
+    is_flag=True,
+    default=False,
+    help="Include merchants with sandbox-specific pricing (e.g. DE) as diagnostic cases.",
+)
+@click.option(
     "--qualification-registry",
     type=click.Path(dir_okay=False),
     default=default_qualification_path,
@@ -591,6 +599,7 @@ def regional_pilot_cmd(
     continue_after_mismatch: bool,
     resume: str | None,
     include_unsuitable: bool,
+    diagnostic_sandbox_pricing: bool,
     qualification_registry: str,
 ) -> None:
     """Execute the small regional Merchant pilot (two cases per qualified merchant)."""
@@ -605,12 +614,10 @@ def regional_pilot_cmd(
     configured_merchants = set(merchant_accounts.keys())
     registry = load_qualification_registry(Path(qualification_registry))
 
+    override = include_unsuitable or diagnostic_sandbox_pricing
+
     def _allowed(m: str) -> bool:
-        return (
-            m in configured_merchants
-            and m != "DE"
-            and not is_merchant_excluded(m, registry, override=include_unsuitable)
-        )
+        return m in configured_merchants and not is_merchant_excluded(m, registry, override=override)
 
     regional_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if _allowed(m)]
     buyer_countries = {a.country_code for a in buyer_accounts.values()}
@@ -639,6 +646,8 @@ def regional_pilot_cmd(
             adapter=adapter,
             max_cases=max_cases,
         )
+        if diagnostic_sandbox_pricing:
+            _mark_diagnostic_sandbox_pricing(plan, registry)
         save_plan(run_id, plan)
 
     oauth_cache = OAuthCache()
@@ -678,6 +687,12 @@ def regional_pilot_cmd(
 @click.option("--resume", type=str, default=None)
 @click.option("--include-unsuitable", is_flag=True, default=False)
 @click.option(
+    "--diagnostic-sandbox-pricing",
+    is_flag=True,
+    default=False,
+    help="Include merchants with sandbox-specific pricing (e.g. DE) for diagnostic qualification.",
+)
+@click.option(
     "--qualification-registry",
     type=click.Path(dir_okay=False),
     default=default_qualification_path,
@@ -691,6 +706,7 @@ def qualify_cmd(
     slow_mo: int,
     resume: str | None,
     include_unsuitable: bool,
+    diagnostic_sandbox_pricing: bool,
     qualification_registry: str,
 ) -> None:
     """Run a bounded three-capture qualification per merchant."""
@@ -705,16 +721,13 @@ def qualify_cmd(
     buyer_countries = {a.country_code for a in buyer_accounts.values()}
 
     registry = load_qualification_registry(Path(qualification_registry))
+    override = include_unsuitable or diagnostic_sandbox_pricing
     if merchants:
         target_merchants = [m.strip().upper() for m in merchants.split(",") if m.strip()]
     else:
 
         def _allowed_qual(m: str) -> bool:
-            return (
-                m in merchant_accounts
-                and m != "DE"
-                and not is_merchant_excluded(m, registry, override=include_unsuitable)
-            )
+            return m in merchant_accounts and not is_merchant_excluded(m, registry, override=override)
 
         target_merchants = [m for m in REGIONAL_PILOT_MERCHANTS if _allowed_qual(m)]
 
@@ -2099,6 +2112,38 @@ def manual_report(run_id: str) -> None:
     _emit_manual_summary(run_id, results)
 
 
+@cli.command("manual-qualify")
+@click.option("--run-id", required=True, help="Run identifier.")
+@click.option(
+    "--qualification-registry",
+    type=click.Path(dir_okay=False),
+    default=default_qualification_path,
+)
+def manual_qualify(run_id: str, qualification_registry: str) -> None:
+    """Classify manual-send pricing from a run and update the qualification registry."""
+    from pathlib import Path
+
+    from paypal_sandbox_validation.qualification import (
+        classify_manual_send_pricing,
+        load_qualification_registry,
+        save_qualification_registry,
+        update_manual_send_qualification,
+    )
+
+    results = load_manual_results(run_id)
+    cases = [Case.model_validate(c) for c in results.get("cases", [])]
+    observation = classify_manual_send_pricing(cases)
+    if not observation:
+        click.echo("No classifiable manual-send observation found.", err=True)
+        sys.exit(1)
+
+    merchant_country = observation["merchant_country"]
+    registry = load_qualification_registry(Path(qualification_registry))
+    update_manual_send_qualification(registry, merchant_country, observation)
+    save_qualification_registry(registry, Path(qualification_registry))
+    click.echo(json.dumps(registry[merchant_country], indent=2))
+
+
 def _emit_manual_summary(run_id: str, results: dict[str, Any]) -> None:
     cases = results.get("cases", [])
     total = len(cases)
@@ -2140,22 +2185,80 @@ def _emit_manual_summary(run_id: str, results: dict[str, Any]) -> None:
             "reconciliation_status": reconciliation.get("status"),
             "duplicate_prevention": (c.get("pilot_metadata") or {}).get("duplicate_prevention"),
             "product_selection_source": c.get("product_selection_source"),
-            "product_selected_before_submission": c.get("product_selected_before_submission"),
+            "prediction_provenance": c.get("prediction_provenance"),
+            "prediction_created_before_original_submission": c.get("prediction_created_before_original_submission"),
+            "prediction_created_before_observation_reuse": c.get("prediction_created_before_observation_reuse"),
+            "original_submission_timestamp_known": c.get("original_submission_timestamp_known"),
             "prediction_sha256": c.get("prediction_sha256"),
             "prediction_unchanged_after_observation": c.get("prediction_unchanged_after_observation"),
         }
         report["cases"].append(case_report)
 
-    # Infer a single formula from reconciled cases if possible.
+    # Infer the observed formula from fresh pre-submission predictions only.
     try:
         case_models = [Case.model_validate(c) for c in cases]
     except Exception:
         case_models = []
-    formula = infer_formula(case_models)
+    fresh_cases = [c for c in case_models if c.prediction_provenance == "pre_submission_prediction"]
+    formula = infer_formula(fresh_cases)
     if formula:
+        historical_cases = [c for c in case_models if c.prediction_provenance == "historical_observation_requoted"]
         report["formula"] = formula
+        report["formula"]["fresh_observations"] = [
+            {"amount": o["amount"], "paypal_fee": o["paypal_fee"], "library_fee": o["library_fee"]}
+            for o in formula["inferred_from_observations"]["observations"]
+        ]
+        report["formula"]["consistency_checks"] = _manual_consistency_checks(historical_cases, formula)
 
     click.echo(json.dumps(report, indent=2))
+
+
+def _mark_diagnostic_sandbox_pricing(plan: list[Case], registry: dict[str, Any]) -> None:
+    """Tag cases from sandbox-pricing merchants as diagnostic observations."""
+    for case in plan:
+        entry = registry.get(case.merchant_country, {})
+        if entry.get("representative_for_public_rates") is False:
+            case.pilot_metadata["diagnostic_sandbox_pricing"] = True
+            observed = (entry.get("manual_send_observation") or {}).get("observed_account_formula", {})
+            if observed.get("percentage"):
+                case.pilot_metadata["account_specific_base_rate"] = (
+                    f"{observed['percentage']}% + {observed['fixed']['currency']} {observed['fixed']['value']}"
+                )
+
+
+def _manual_consistency_checks(
+    historical_cases: list[Case],
+    formula: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Check historical observations against the formula inferred from fresh ones."""
+    checks: list[dict[str, Any]] = []
+    inferred = formula.get("inferred_from_observations") or {}
+    try:
+        slope = Decimal(inferred["base_percentage"])
+        intercept = Decimal(inferred["fixed_amount"])
+    except Exception:
+        return checks
+
+    for case in historical_cases:
+        ev = case.paypal_evidence or {}
+        gross = ev.get("gross_amount", {}).get("value")
+        observed = ev.get("paypal_fee", {}).get("value")
+        if gross is None or observed is None:
+            continue
+        expected = (Decimal(gross) * slope + intercept).quantize(Decimal("0.0001"))
+        rounded = expected.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        checks.append(
+            {
+                "case_id": case.case_id,
+                "amount": str(gross),
+                "observed_paypal_fee": str(observed),
+                "expected_paypal_fee": str(rounded),
+                "raw_expected": str(expected),
+                "matches": rounded == Decimal(observed),
+                "note": "historical supporting observation",
+            }
+        )
+    return checks
 
 
 def main() -> None:

@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from paypal_sandbox_validation import manual_flow
+from paypal_sandbox_validation.cli import _manual_consistency_checks
 from paypal_sandbox_validation.models import Account, AccountType, Case, CaseStatus, ReconciliationStatus
 from paypal_sandbox_validation.quote_adapter import QuoteAdapter
 
@@ -46,6 +47,7 @@ def _make_case_with_quote(
         status=CaseStatus.PREDICTION_READY,
     )
     manual_flow._set_prediction(case, quote)
+    case.manual_submitted_at = "2026-07-20T12:00:00+00:00"
     return case
 
 
@@ -83,7 +85,10 @@ def test_product_selected_before_submission(tmp_path: Path, monkeypatch: pytest.
     assert case.product_id == "goods_and_services"
     assert case.variant_id == "standard"
     assert case.product_selection_source == "explicit_execution_path_mapping"
-    assert case.product_selected_before_submission is True
+    assert case.prediction_provenance == "pre_submission_prediction"
+    assert case.prediction_created_before_original_submission is True
+    assert case.prediction_created_before_observation_reuse is True
+    assert case.original_submission_timestamp_known is False
     assert case.prediction_sha256 is not None
     assert case.prediction_created_at is not None
     assert case.quote is not None
@@ -234,6 +239,11 @@ def test_existing_transaction_reused_without_browser(monkeypatch: pytest.MonkeyP
     assert returned.status == CaseStatus.RECONCILED
     assert returned.pilot_metadata["duplicate_prevention"] == "existing_transaction_reused"
     assert returned.nvp_transaction_id == "TXN1"
+    assert returned.prediction_provenance == "historical_observation_requoted"
+    assert returned.prediction_created_before_original_submission is False
+    assert returned.prediction_created_before_observation_reuse is True
+    assert returned.original_submission_timestamp_known is True
+    assert returned.prediction_unchanged_after_observation is True
 
 
 def test_formula_inference_from_three_observations() -> None:
@@ -254,6 +264,48 @@ def test_formula_inference_from_three_observations() -> None:
     assert formula["inferred_from_observations"]["fixed_amount"]
 
 
+def test_manual_consistency_check_for_historical_observation() -> None:
+    """The EUR 1.00 historical observation must match the formula inferred from 10/100."""
+    formula = {
+        "product_id": "goods_and_services",
+        "variant_id": "standard",
+        "base_percentage": "2.49",
+        "fixed_amount": "0.35",
+        "inferred_from_observations": {
+            "base_percentage": "0.0190",
+            "fixed_amount": "0.3506",
+            "observations": [
+                {"amount": "10.00", "paypal_fee": "0.54", "library_fee": "0.60"},
+                {"amount": "100.00", "paypal_fee": "2.25", "library_fee": "2.84"},
+            ],
+        },
+    }
+    historical = _make_case_with_quote("1.00", "goods_and_services", "standard")
+    manual_flow._set_historical_requoted_prediction(historical, "2026-07-20T12:00:00Z")
+    adapter = QuoteAdapter()
+    manual_flow._run_reconciliation(historical, _details(amount="1.00", fee="0.37"), adapter)
+    checks = _manual_consistency_checks([historical], formula)
+    assert len(checks) == 1
+    assert checks[0]["amount"] == "1.00"
+    assert checks[0]["observed_paypal_fee"] == "0.37"
+    assert checks[0]["expected_paypal_fee"] == "0.37"
+    assert checks[0]["matches"] is True
+
+
+def test_historical_observation_cannot_claim_pre_submission_prediction() -> None:
+    """A reused historical observation must be labelled as re-quoted at reuse time."""
+    case = _make_case_with_quote("1.00", "goods_and_services", "standard")
+    manual_flow._set_historical_requoted_prediction(case, "2026-07-20T12:00:00Z")
+    adapter = QuoteAdapter()
+    returned = manual_flow._run_reconciliation(case, _details(), adapter)
+    assert returned.status == CaseStatus.RECONCILED
+    assert returned.prediction_provenance == "historical_observation_requoted"
+    assert returned.prediction_created_before_original_submission is False
+    assert returned.prediction_created_before_observation_reuse is True
+    assert returned.original_submission_timestamp_known is True
+    assert returned.prediction_unchanged_after_observation is True
+
+
 def _build_reconciled_case(amount: str, fee: str) -> Case:
     case = _make_case_with_quote(amount, "goods_and_services", "standard")
     adapter = QuoteAdapter()
@@ -269,7 +321,10 @@ def test_audit_fields_in_reconciled_result() -> None:
     returned = manual_flow._run_reconciliation(case, _details(), adapter)
     assert returned.status == CaseStatus.RECONCILED
     assert returned.product_selection_source == "explicit_execution_path_mapping"
-    assert returned.product_selected_before_submission is True
+    assert returned.prediction_provenance == "pre_submission_prediction"
+    assert returned.prediction_created_before_original_submission is True
+    assert returned.prediction_created_before_observation_reuse is True
+    assert returned.original_submission_timestamp_known is True
     assert returned.prediction_sha256 is not None
     assert returned.prediction_unchanged_after_observation is True
     assert returned.quote["_schedule_metadata"]["base_rule_id"]

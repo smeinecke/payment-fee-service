@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import json
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ from .diagnostics import (
     infer_formula,
     validate_case_constraints,
 )
+from .manual_flow import infer_formula as infer_manual_formula
 from .models import Case, CaseStatus, QualificationStatus
 from .planner import _case_from_quote, _quote_signature
 from .quote_adapter import QuoteAdapter
@@ -86,7 +87,96 @@ def is_merchant_excluded(merchant: str, registry: dict[str, Any], override: bool
     entry = registry.get(merchant.upper())
     if not entry:
         return False
+    if entry.get("representative_for_public_rates") is False:
+        return True
     return entry.get("status") != QualificationStatus.REPRESENTATIVE
+
+
+def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any] | None:
+    """Build a secret-free pricing observation from fresh pre-submission manual-send cases.
+
+    The observed formula is inferred only from cases whose prediction existed before
+    the original Playwright submission. Historical/reused observations are not used for
+    inference; they appear only as consistency checks.
+    """
+    fresh_cases = [c for c in cases if c.prediction_provenance == "pre_submission_prediction" and c.paypal_evidence]
+    if len(fresh_cases) < 2:
+        return None
+
+    formula = infer_manual_formula(fresh_cases)
+    if not formula:
+        return None
+
+    inferred = formula.get("inferred_from_observations") or {}
+    try:
+        observed_pct = (Decimal(inferred["base_percentage"]) * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        observed_fixed = Decimal(inferred["fixed_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        return None
+
+    currency = fresh_cases[0].currency
+    return {
+        "merchant_country": fresh_cases[0].merchant_country,
+        "execution_path": "manual_send_to_business",
+        "product_id": fresh_cases[0].product_id,
+        "variant_id": fresh_cases[0].variant_id,
+        "public_formula": {
+            "percentage": formula.get("base_percentage"),
+            "fixed": {
+                "value": formula.get("fixed_amount"),
+                "currency": currency,
+            },
+        },
+        "observed_account_formula": {
+            "percentage": str(observed_pct),
+            "fixed": {
+                "value": str(observed_fixed),
+                "currency": currency,
+            },
+        },
+        "classification": "sandbox_account_pricing_difference",
+        "confidence": "high",
+        "usable_for_public_rate_validation": False,
+    }
+
+
+def update_manual_send_qualification(
+    registry: dict[str, Any],
+    merchant_country: str,
+    observation: dict[str, Any],
+) -> dict[str, Any]:
+    """Update the qualification registry with a manual-send pricing classification.
+
+    Preserves any existing orders_v2_checkout diagnosis and marks the merchant as
+    not representative for public-rate validation.
+    """
+    entry = registry.get(merchant_country, {})
+    entry.update(
+        {
+            "merchant_country": merchant_country,
+            "manual_send_to_business": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
+            "representative_for_public_rates": False,
+            "manual_send_observation": observation,
+            "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
+            "reason": (
+                f"This specific {merchant_country} Sandbox merchant account applied a stable "
+                f"{observation['observed_account_formula']['percentage']}% + "
+                f"{observation['observed_account_formula']['fixed']['currency']} "
+                f"{observation['observed_account_formula']['fixed']['value']} pricing formula."
+            ),
+        }
+    )
+    if "orders_v2_checkout" not in entry:
+        diagnosis = entry.get("diagnosis") or {}
+        ctx = diagnosis.get("playwright_application_context") or {}
+        src = diagnosis.get("playwright_payment_source") or {}
+        order = diagnosis.get("manual_order") or {}
+        if ctx.get("status") == "failed" or src.get("status") == "failed" or order.get("status") == "timeout":
+            entry["orders_v2_checkout"] = QualificationStatus.SANDBOX_CHECKOUT_LIMITATION.value
+        else:
+            entry["orders_v2_checkout"] = QualificationStatus.INCONCLUSIVE.value
+    registry[merchant_country] = entry
+    return registry
 
 
 def _observation_from_case(case: Case) -> dict[str, Any] | None:
@@ -465,17 +555,27 @@ def save_qualification_report(
 
 
 def validation_summary(cases: list[Case], registry: dict[str, Any]) -> dict[str, Any]:
-    """Aggregate counts from a validation run."""
+    """Aggregate counts from a validation run.
+
+    Only merchants that are not explicitly excluded from public-rate validation
+    contribute to the public-rate match counters. Sandbox-pricing/diagnostic
+    cases are counted separately so they cannot contaminate acceptance stats.
+    """
+
+    def _public_rate_eligible(c: Case) -> bool:
+        return not is_merchant_excluded(c.merchant_country, registry)
+
     completed = [c for c in cases if c.status == CaseStatus.RECONCILED]
-    representative_merchants = {
-        c.merchant_country
-        for c in cases
-        if registry.get(c.merchant_country, {}).get("status") == QualificationStatus.REPRESENTATIVE
-    }
+    public_rate_completed = [c for c in completed if _public_rate_eligible(c)]
+    diagnostic_completed = [c for c in completed if not _public_rate_eligible(c)]
+
+    public_rate_merchants = {c.merchant_country for c in cases if _public_rate_eligible(c)}
+    diagnostic_merchants = {c.merchant_country for c in cases if not _public_rate_eligible(c)}
+
     domestic_matches = 0
     surcharge_matches = 0
     fee_mismatches = 0
-    for c in completed:
+    for c in public_rate_completed:
         rec = c.reconciliation or {}
         if rec.get("status") == "match":
             if c.buyer_country == c.merchant_country:
@@ -484,9 +584,13 @@ def validation_summary(cases: list[Case], registry: dict[str, Any]) -> dict[str,
                 surcharge_matches += 1
         elif rec.get("status") in {"fee_mismatch", "net_amount_mismatch"}:
             fee_mismatches += 1
+
     return {
-        "representative_merchants": len(representative_merchants),
+        "representative_merchants": len(public_rate_merchants),
+        "diagnostic_merchants": len(diagnostic_merchants),
         "captures_completed": len(completed),
+        "representative_captures_completed": len(public_rate_completed),
+        "diagnostic_captures_completed": len(diagnostic_completed),
         "domestic_matches": domestic_matches,
         "surcharge_matches": surcharge_matches,
         "fee_mismatches": fee_mismatches,

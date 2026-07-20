@@ -356,7 +356,10 @@ def test_resume_search_before_resend_does_not_call_browser(monkeypatch: pytest.M
             self.nvp_transaction_id = None
             self.pilot_metadata: dict[str, Any] = {}
             self.product_selection_source = "explicit_execution_path_mapping"
-            self.product_selected_before_submission = True
+            self.prediction_provenance = "pre_submission_prediction"
+            self.prediction_created_before_original_submission = True
+            self.prediction_created_before_observation_reuse = True
+            self.original_submission_timestamp_known = False
             self.prediction_sha256 = None
             self.prediction_created_at = None
             self.prediction_unchanged_after_observation = None

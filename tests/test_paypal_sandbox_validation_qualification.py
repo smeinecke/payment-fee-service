@@ -5,18 +5,21 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from paypal_sandbox_validation.models import Case, CaseStatus, QualificationStatus
 from paypal_sandbox_validation.qualification import (
     _library_observations_for_buyers,
     build_qualification_plan,
     build_validation_plan,
+    classify_manual_send_pricing,
     classify_qualification,
     is_merchant_excluded,
     load_qualification_registry,
     promote_observation_fixtures,
     save_qualification_registry,
     save_qualification_report,
+    update_manual_send_qualification,
     validation_summary,
 )
 from paypal_sandbox_validation.quote_adapter import QuoteAdapter
@@ -218,3 +221,113 @@ def test_library_observations_match_public_schedule() -> None:
     assert len(obs) == 2
     assert any(o["buyer_country"] == "US" for o in obs)
     assert any(o["buyer_country"] == "AU" for o in obs)
+
+
+def _mock_manual_send_case(
+    amount: str,
+    paypal_fee: str,
+    library_fee: str,
+    provenance: str = "pre_submission_prediction",
+) -> Case:
+    currency = "EUR"
+    quote = {
+        "status": "exact_for_public_rate",
+        "processing_fee": {"value": library_fee, "currency": currency},
+        "gross_amount": {"value": amount, "currency": currency},
+        "net_amount": {"value": str(Decimal(amount) - Decimal(paypal_fee)), "currency": currency},
+        "components": [{"type": "processing", "amount": library_fee, "currency": currency}],
+        "_schedule_metadata": {
+            "base_percentage": "2.49",
+            "fixed_amount": "0.35",
+            "payer_region": "DE",
+            "fixed_fee_schedule_id": "goods_and_services",
+            "international_surcharge_schedule_id": "goods_and_services",
+            "base_rule_id": "paypal:DE:goods_and_services:standard:base",
+        },
+        "matched_rules": [{"rule_id": "paypal:DE:goods_and_services:standard:base"}],
+        "data": {"content_sha256": "sha", "data_ref": "local"},
+    }
+    evidence = {
+        "status": "COMPLETED",
+        "gross_amount": {"value": amount, "currency_code": currency},
+        "paypal_fee": {"value": paypal_fee, "currency_code": currency},
+        "net_amount": {"value": str(Decimal(amount) - Decimal(paypal_fee)), "currency_code": currency},
+        "payer_country": "DE",
+    }
+    return Case(
+        case_id=f"test-DE-DE-{amount}",
+        run_id="r1",
+        merchant_country="DE",
+        buyer_country="DE",
+        amount=amount,
+        currency=currency,
+        execution_path="manual_send_to_business",
+        product_id="goods_and_services",
+        variant_id="standard",
+        status=CaseStatus.RECONCILED,
+        quote=quote,
+        paypal_evidence=evidence,
+        reconciliation={"status": "match" if paypal_fee == library_fee else "fee_mismatch"},
+        prediction_provenance=provenance,
+        prediction_created_before_original_submission=(provenance == "pre_submission_prediction"),
+        prediction_created_before_observation_reuse=True,
+        original_submission_timestamp_known=True,
+    )
+
+
+def test_classify_manual_send_pricing_uses_only_fresh_observations() -> None:
+    """The observed account formula is inferred from EUR 10 and EUR 100 only."""
+    fresh_cases = [
+        _mock_manual_send_case("10.00", "0.54", "0.60"),
+        _mock_manual_send_case("100.00", "2.25", "2.84"),
+    ]
+    historical = _mock_manual_send_case("1.00", "0.37", "0.37", provenance="historical_observation_requoted")
+    observation = classify_manual_send_pricing(fresh_cases + [historical])
+    assert observation is not None
+    assert observation["public_formula"]["percentage"] == "2.49"
+    assert observation["public_formula"]["fixed"]["value"] == "0.35"
+    assert observation["observed_account_formula"]["percentage"] == "1.90"
+    assert observation["observed_account_formula"]["fixed"]["value"] == "0.35"
+    assert observation["classification"] == "sandbox_account_pricing_difference"
+    assert observation["usable_for_public_rate_validation"] is False
+
+
+def test_update_manual_send_qualification_marks_de_not_representative() -> None:
+    """DE manual-send pricing classification excludes the merchant from public-rate validation."""
+    observation = {
+        "merchant_country": "DE",
+        "execution_path": "manual_send_to_business",
+        "product_id": "goods_and_services",
+        "variant_id": "standard",
+        "public_formula": {"percentage": "2.49", "fixed": {"value": "0.35", "currency": "EUR"}},
+        "observed_account_formula": {"percentage": "1.90", "fixed": {"value": "0.35", "currency": "EUR"}},
+        "classification": "sandbox_account_pricing_difference",
+        "confidence": "high",
+        "usable_for_public_rate_validation": False,
+    }
+    registry: dict[str, Any] = {"DE": {"orders_v2_checkout": "sandbox_checkout_limitation"}}
+    update_manual_send_qualification(registry, "DE", observation)
+    assert registry["DE"]["manual_send_to_business"] == "sandbox_specific_pricing"
+    assert registry["DE"]["orders_v2_checkout"] == "sandbox_checkout_limitation"
+    assert registry["DE"]["representative_for_public_rates"] is False
+    assert is_merchant_excluded("DE", registry) is True
+
+
+def test_validation_summary_excludes_diagnostic_merchants() -> None:
+    """Diagnostic/sandbox-pricing matches do not count as public-rate matches."""
+    us = _mock_case("US", "US", "10.00", "USD", "0.84", "0.84")
+    de_diagnostic = _mock_case("DE", "US", "10.00", "EUR", "0.54", "0.54")
+    de_diagnostic.reconciliation = {"status": "match"}
+    registry = {
+        "US": {"status": QualificationStatus.REPRESENTATIVE},
+        "DE": {
+            "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING,
+            "representative_for_public_rates": False,
+        },
+    }
+    summary = validation_summary([us, de_diagnostic], registry)
+    assert summary["diagnostic_merchants"] == 1
+    assert summary["representative_captures_completed"] == 1
+    assert summary["diagnostic_captures_completed"] == 1
+    assert summary["domestic_matches"] == 1
+    assert summary["surcharge_matches"] == 0

@@ -113,9 +113,27 @@ def _set_prediction(case: Case, quote: dict[str, Any]) -> None:
     """Persist the pre-submission prediction and its integrity hash."""
     case.quote = quote
     case.product_selection_source = "explicit_execution_path_mapping"
-    case.product_selected_before_submission = True
+    case.prediction_provenance = "pre_submission_prediction"
+    case.prediction_created_before_original_submission = True
+    case.prediction_created_before_observation_reuse = True
+    case.original_submission_timestamp_known = False
     case.prediction_created_at = datetime.now(UTC).isoformat()
     case.prediction_sha256 = _sha256(_prediction_record(case, quote))
+
+
+def _set_historical_requoted_prediction(
+    case: Case,
+    original_submitted_at: str | None,
+) -> None:
+    """Mark a reused historical observation as re-quoted at reuse time.
+
+    The prediction record is created now, before the reused NVP observation is
+    reconciled, but it is not before the original submission.
+    """
+    case.prediction_provenance = "historical_observation_requoted"
+    case.prediction_created_before_original_submission = False
+    case.prediction_created_before_observation_reuse = True
+    case.original_submission_timestamp_known = original_submitted_at is not None
 
 
 def _verify_prediction_unchanged(case: Case) -> bool:
@@ -294,6 +312,8 @@ def _find_existing_transaction(
         return {"status": "nvp_transaction_not_found"}
 
     tx_id = candidate["transaction_id"]
+    _set_historical_requoted_prediction(case, candidate.get("manual_submitted_at"))
+
     details_result = _fetch_details(case, merchant, tx_id)
     if details_result.get("status") != "found":
         return details_result
@@ -418,6 +438,9 @@ def _run_reconciliation(
 ) -> Case:
     """Reconcile NVP details with the preselected payment-fee library prediction."""
     case.evidence_source = "nvp_get_transaction_details"
+
+    if case.manual_submitted_at:
+        case.original_submission_timestamp_known = True
 
     if _detect_fx(details):
         case.status = CaseStatus.FAILED
