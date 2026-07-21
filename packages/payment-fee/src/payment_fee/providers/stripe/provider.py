@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from payment_fee.calculator import to_decimal
 from payment_fee.data import load_json
@@ -165,36 +165,9 @@ def _normalize_conditions(rule: StripeRule) -> list[NormalizedCondition]:
     return conditions
 
 
-def _condition_matches(condition: NormalizedCondition, context: dict[str, Any]) -> bool:
-    actual = context.get(condition.dimension)
-    expected = condition.value
-    operator = condition.operator
-
-    if actual is None and expected is not None:
-        return False
-
-    if operator in {"eq", "==", "equals"}:
-        if isinstance(expected, list):
-            return any(_values_equal(actual, item) for item in expected)
-        return _values_equal(actual, expected)
-    if operator in {"ne", "!=", "not_equals"}:
-        if isinstance(expected, list):
-            return all(not _values_equal(actual, item) for item in expected)
-        return not _values_equal(actual, expected)
-    if operator == "in":
-        return any(_values_equal(actual, item) for item in _as_list(expected))
-    if operator in {"not_in", "nin"}:
-        return all(not _values_equal(actual, item) for item in _as_list(expected))
-    if operator in {"gt", "gte", "lt", "lte"}:
-        return _numeric_compare(actual, expected, operator)
-    raise UnsupportedFeeShape(
-        f"Unsupported condition operator: {operator}",
-        dimension=condition.dimension,
-        operator=operator,
-    )
-
-
-def _condition_status(condition: NormalizedCondition, context: dict[str, Any]) -> str:
+def _evaluate_condition(
+    condition: NormalizedCondition, context: dict[str, Any]
+) -> Literal["match", "conflict", "missing"]:
     actual = context.get(condition.dimension)
     expected = condition.value
     operator = condition.operator
@@ -204,23 +177,37 @@ def _condition_status(condition: NormalizedCondition, context: dict[str, Any]) -
 
     if operator in {"eq", "==", "equals"}:
         if isinstance(expected, list):
-            return "match" if any(_values_equal(actual, item) for item in expected) else "conflict"
-        return "match" if _values_equal(actual, expected) else "conflict"
-    if operator in {"ne", "!=", "not_equals"}:
+            matched = any(_values_equal(actual, item) for item in expected)
+        else:
+            matched = _values_equal(actual, expected)
+    elif operator in {"ne", "!=", "not_equals"}:
         if isinstance(expected, list):
-            return "match" if all(not _values_equal(actual, item) for item in expected) else "conflict"
-        return "match" if not _values_equal(actual, expected) else "conflict"
-    if operator == "in":
-        return "match" if any(_values_equal(actual, item) for item in _as_list(expected)) else "conflict"
-    if operator in {"not_in", "nin"}:
-        return "match" if all(not _values_equal(actual, item) for item in _as_list(expected)) else "conflict"
-    if operator in {"gt", "gte", "lt", "lte"}:
-        return "match" if _numeric_compare(actual, expected, operator) else "conflict"
-    raise UnsupportedFeeShape(
-        f"Unsupported condition operator: {operator}",
-        dimension=condition.dimension,
-        operator=operator,
-    )
+            matched = all(not _values_equal(actual, item) for item in expected)
+        else:
+            matched = not _values_equal(actual, expected)
+    elif operator == "in":
+        matched = any(_values_equal(actual, item) for item in _as_list(expected))
+    elif operator in {"not_in", "nin"}:
+        matched = all(not _values_equal(actual, item) for item in _as_list(expected))
+    elif operator in {"gt", "gte", "lt", "lte"}:
+        matched = _numeric_compare(actual, expected, operator)
+    else:
+        raise UnsupportedFeeShape(
+            f"Unsupported condition operator: {operator}",
+            dimension=condition.dimension,
+            operator=operator,
+        )
+    return "match" if matched else "conflict"
+
+
+def _condition_matches(condition: NormalizedCondition, context: dict[str, Any]) -> bool:
+    return _evaluate_condition(condition, context) == "match"
+
+
+def _condition_status(
+    condition: NormalizedCondition, context: dict[str, Any]
+) -> Literal["match", "conflict", "missing"]:
+    return _evaluate_condition(condition, context)
 
 
 def _values_equal(left: Any, right: Any) -> bool:
