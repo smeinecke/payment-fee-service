@@ -14,7 +14,7 @@ from payment_fee.errors import (
     UnknownMarket,
 )
 from payment_fee.models import BaseQuoteRequest, CapabilityInfo, MarketInfo, PayPalQuoteRequest, QuoteSchema
-from payment_fee.providers.base import _check_schema_version
+from payment_fee.providers.base import _check_schema_version, _merge_context_overrides
 from payment_fee.providers.paypal.adapter import (
     adapt_paypal_core_document,
     adapt_paypal_index_document,
@@ -212,17 +212,7 @@ def _build_paypal_context(request: PayPalQuoteRequest) -> dict[str, Any]:
     else:
         context["transaction_region"] = "domestic"
 
-    for key, value in transaction.context.items():
-        if key in context:
-            if value != context[key]:
-                raise QuoteNotAvailable(
-                    "Contradictory duplicate value in transaction context.",
-                    field=key,
-                    typed_value=context[key],
-                    context_value=value,
-                )
-        else:
-            context[key] = value
+    _merge_context_overrides(context, transaction.context)
 
     return context
 

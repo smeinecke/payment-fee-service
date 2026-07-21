@@ -16,7 +16,7 @@ from payment_fee.errors import (
     UnsupportedFeeShape,
 )
 from payment_fee.models import BaseQuoteRequest, CapabilityInfo, MarketInfo, QuoteSchema, StripeQuoteRequest
-from payment_fee.providers.base import _check_schema_version
+from payment_fee.providers.base import _check_schema_version, _merge_context_overrides
 from payment_fee.providers.stripe.models import (
     StripeCoreFees,
     StripeFeeComponent,
@@ -105,19 +105,7 @@ def _build_stripe_context(request: StripeQuoteRequest) -> dict[str, Any]:
     if "success" in t.context:
         context["success"] = t.context["success"]
 
-    for key, value in t.context.items():
-        if key in context:
-            if context[key] is None:
-                context[key] = value
-            elif value != context[key]:
-                raise QuoteNotAvailable(
-                    "Contradictory duplicate value in transaction context.",
-                    field=key,
-                    typed_value=context[key],
-                    context_value=value,
-                )
-        else:
-            context[key] = value
+    _merge_context_overrides(context, t.context)
 
     return context
 
