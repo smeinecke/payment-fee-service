@@ -21,6 +21,7 @@ from payment_fee.providers.stripe.provider import (
 from payment_fee.providers.stripe.provider import (
     StripeProvider,
 )
+from payment_fee.util import _as_list
 
 PAYPAL_KNOWN_DIMENSIONS = {
     "amount",
@@ -102,12 +103,6 @@ STRIPE_KNOWN_OPERATORS = {
     "lt",
     "lte",
 }
-
-
-def _as_list(value: Any) -> list[Any]:
-    if isinstance(value, list):
-        return value
-    return [value]
 
 
 def _first_scalar(value: Any) -> Any:

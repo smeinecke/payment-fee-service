@@ -5,11 +5,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
-def _normalize_confidence(value: Any) -> Any:
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return value
+from payment_fee.util import _normalize_confidence, normalize_currency
 
 
 class Money(BaseModel):
@@ -21,7 +17,7 @@ class Money(BaseModel):
     @field_validator("currency")
     @classmethod
     def uppercase_currency(cls, value: str) -> str:
-        return value.upper()
+        return normalize_currency(value)
 
 
 class CardContext(BaseModel):
@@ -44,7 +40,7 @@ class SettlementContext(BaseModel):
     @field_validator("currency")
     @classmethod
     def uppercase_currency(cls, value: str | None) -> str | None:
-        return value.upper() if value else None
+        return normalize_currency(value)
 
 
 class BankContext(BaseModel):
@@ -106,7 +102,7 @@ class PayPalTransaction(BaseTransaction):
     @field_validator("fee_currency")
     @classmethod
     def uppercase_fee_currency(cls, value: str | None) -> str | None:
-        return value.upper() if value else None
+        return normalize_currency(value)
 
 
 class StripeTransaction(BaseTransaction):
@@ -137,7 +133,7 @@ class StripeTransaction(BaseTransaction):
     @field_validator("customer_country", "presentment_currency", "settlement_currency")
     @classmethod
     def uppercase_fields(cls, value: str | None) -> str | None:
-        return value.upper() if value else None
+        return normalize_currency(value)
 
 
 class BaseQuoteRequest(BaseModel):
@@ -153,12 +149,12 @@ class BaseQuoteRequest(BaseModel):
     @field_validator("account_country", "customer_country")
     @classmethod
     def uppercase_country(cls, value: str | None) -> str | None:
-        return value.upper() if value else None
+        return normalize_currency(value)
 
     @field_validator("settlement_currency")
     @classmethod
     def uppercase_settlement_currency(cls, value: str | None) -> str | None:
-        return value.upper() if value else None
+        return normalize_currency(value)
 
 
 class PayPalQuoteRequest(BaseQuoteRequest):

@@ -2,8 +2,17 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from payment_fee.errors import UnsupportedFeeShape
 from payment_fee.models import BaseQuoteRequest, CapabilityInfo, MarketInfo, QuoteSchema
 from payment_fee.rules import CompiledFeePlan
+
+
+def _check_schema_version(model: Any, supported: set[int], provider_name: str) -> None:
+    if model.schema_version not in supported:
+        raise UnsupportedFeeShape(
+            f"Unsupported {provider_name} schema version: {model.schema_version}",
+            supported=sorted(supported),
+        )
 
 
 class FeeProvider(Protocol):

@@ -5,11 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
-def _normalize_confidence(value):
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return value
+from payment_fee.util import _normalize_confidence
 
 
 class ExecutableFeeRule(BaseModel):

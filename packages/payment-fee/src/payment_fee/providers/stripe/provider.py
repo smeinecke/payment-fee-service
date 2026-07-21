@@ -16,6 +16,7 @@ from payment_fee.errors import (
     UnsupportedFeeShape,
 )
 from payment_fee.models import BaseQuoteRequest, CapabilityInfo, MarketInfo, QuoteSchema, StripeQuoteRequest
+from payment_fee.providers.base import _check_schema_version
 from payment_fee.providers.stripe.models import (
     StripeCoreFees,
     StripeFeeComponent,
@@ -25,6 +26,7 @@ from payment_fee.providers.stripe.models import (
     StripeRule,
 )
 from payment_fee.rules import CompiledFeePlan, ExecutableFeeRule
+from payment_fee.util import _as_list
 
 SUPPORTED_SCHEMA_VERSIONS = {1}
 
@@ -244,12 +246,6 @@ def _values_equal(left: Any, right: Any) -> bool:
         except Exception:
             return False
     return left == right
-
-
-def _as_list(value: Any) -> list[Any]:
-    if isinstance(value, list):
-        return value
-    return [value]
 
 
 def _numeric_compare(actual: Any, expected: Any, operator: str) -> bool:
@@ -527,11 +523,7 @@ class StripeProvider:
         core = StripeCoreFees.model_validate(core_path)
         index = StripeIndex.model_validate(index_path)
         payment_methods = StripePaymentMethods.model_validate(payment_methods_path) if payment_methods_path else None
-        if core.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
-            raise UnsupportedFeeShape(
-                f"Unsupported Stripe schema version: {core.schema_version}",
-                supported=sorted(SUPPORTED_SCHEMA_VERSIONS),
-            )
+        _check_schema_version(core, SUPPORTED_SCHEMA_VERSIONS, "Stripe")
         return cls(
             core=core,
             index=index,
@@ -579,11 +571,7 @@ class StripeProvider:
         core_model = StripeCoreFees.model_validate(core_document)
         index_model = StripeIndex.model_validate(index_document) if index_document else None
         payment_methods_model = StripePaymentMethods.model_validate(payment_methods) if payment_methods else None
-        if core_model.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
-            raise UnsupportedFeeShape(
-                f"Unsupported Stripe schema version: {core_model.schema_version}",
-                supported=sorted(SUPPORTED_SCHEMA_VERSIONS),
-            )
+        _check_schema_version(core_model, SUPPORTED_SCHEMA_VERSIONS, "Stripe")
         return cls(
             core=core_model,
             index=index_model,

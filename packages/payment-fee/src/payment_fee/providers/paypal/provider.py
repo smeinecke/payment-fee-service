@@ -12,9 +12,9 @@ from payment_fee.errors import (
     InsufficientTransactionContext,
     QuoteNotAvailable,
     UnknownMarket,
-    UnsupportedFeeShape,
 )
 from payment_fee.models import BaseQuoteRequest, CapabilityInfo, MarketInfo, PayPalQuoteRequest, QuoteSchema
+from payment_fee.providers.base import _check_schema_version
 from payment_fee.providers.paypal.adapter import (
     adapt_paypal_core_document,
     adapt_paypal_index_document,
@@ -31,6 +31,7 @@ from payment_fee.providers.paypal.models import (
     PayPalTransactionFeeRule,
 )
 from payment_fee.rules import CompiledFeePlan, ExecutableFeeRule
+from payment_fee.util import _as_list
 
 SUPPORTED_SCHEMA_VERSIONS = {1}
 
@@ -257,12 +258,6 @@ def _value_matches(dimension: str, expected: Any, context: dict[str, Any]) -> bo
             return False
 
     return str(actual).casefold() == str(expected).casefold()
-
-
-def _as_list(value: Any) -> list[Any]:
-    if isinstance(value, list):
-        return value
-    return [value]
 
 
 def _applies_to_markets_matches(expected: Any, context: dict[str, Any]) -> bool:
@@ -583,11 +578,7 @@ class PayPalProvider:
             validate_json_schema(index_document, f"{path}/schemas/index-v1.schema.json", "paypal-index")
         core = PayPalCoreFees.model_validate(core_document)
         index = PayPalIndex.model_validate(index_document)
-        if core.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
-            raise UnsupportedFeeShape(
-                f"Unsupported PayPal schema version: {core.schema_version}",
-                supported=sorted(SUPPORTED_SCHEMA_VERSIONS),
-            )
+        _check_schema_version(core, SUPPORTED_SCHEMA_VERSIONS, "PayPal")
         return cls(core=core, index=index, data_ref=data_ref)
 
     @classmethod
@@ -619,11 +610,7 @@ class PayPalProvider:
                 validate_json_schema(index_document, schemas["index"], "paypal-index")
         core_model = PayPalCoreFees.model_validate(core_document)
         index_model = PayPalIndex.model_validate(index_document) if index_document else None
-        if core_model.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
-            raise UnsupportedFeeShape(
-                f"Unsupported PayPal schema version: {core_model.schema_version}",
-                supported=sorted(SUPPORTED_SCHEMA_VERSIONS),
-            )
+        _check_schema_version(core_model, SUPPORTED_SCHEMA_VERSIONS, "PayPal")
         return cls(core=core_model, index=index_model, data_ref=data_ref)
 
     def _country(self, code: str) -> PayPalCountryEntry:
