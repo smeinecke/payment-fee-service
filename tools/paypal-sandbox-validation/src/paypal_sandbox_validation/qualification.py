@@ -753,6 +753,42 @@ def save_qualification_report(
     return {"json": json_path, "md": md_path}
 
 
+def _count_public_rate_outcomes(cases: list[Case]) -> dict[str, int]:
+    domestic_matches = 0
+    surcharge_matches = 0
+    fee_mismatches = 0
+    historical_mismatches = 0
+    for c in cases:
+        rec = c.reconciliation or {}
+        if rec.get("status") == ReconciliationStatus.MATCH:
+            if c.buyer_country == c.merchant_country:
+                domestic_matches += 1
+            else:
+                surcharge_matches += 1
+        elif rec.get("status") == ReconciliationStatus.HISTORICAL_OBSERVATION_CURRENT_MISMATCH:
+            historical_mismatches += 1
+        elif rec.get("status") in {ReconciliationStatus.FEE_MISMATCH, ReconciliationStatus.NET_AMOUNT_MISMATCH}:
+            fee_mismatches += 1
+    return {
+        "domestic_matches": domestic_matches,
+        "surcharge_matches": surcharge_matches,
+        "fee_mismatches": fee_mismatches,
+        "historical_mismatches": historical_mismatches,
+    }
+
+
+def _count_diagnostic_outcomes(cases: list[Case]) -> dict[str, int]:
+    matches = 0
+    mismatches = 0
+    for c in cases:
+        rec = c.reconciliation or {}
+        if rec.get("status") == ReconciliationStatus.MATCH:
+            matches += 1
+        elif rec.get("status") in {ReconciliationStatus.FEE_MISMATCH, ReconciliationStatus.NET_AMOUNT_MISMATCH}:
+            mismatches += 1
+    return {"matches": matches, "mismatches": mismatches}
+
+
 def validation_summary(
     cases: list[Case],
     registry: dict[str, Any],
@@ -779,30 +815,8 @@ def validation_summary(
     live_public_completed = [c for c in public_rate_completed if not c.pilot_metadata.get("reused_observation")]
     reused_public_completed = [c for c in public_rate_completed if c.pilot_metadata.get("reused_observation")]
 
-    domestic_matches = 0
-    surcharge_matches = 0
-    fee_mismatches = 0
-    historical_mismatches = 0
-    diagnostic_matches = 0
-    diagnostic_mismatches = 0
-    for c in public_rate_completed:
-        rec = c.reconciliation or {}
-        if rec.get("status") == ReconciliationStatus.MATCH:
-            if c.buyer_country == c.merchant_country:
-                domestic_matches += 1
-            else:
-                surcharge_matches += 1
-        elif rec.get("status") == ReconciliationStatus.HISTORICAL_OBSERVATION_CURRENT_MISMATCH:
-            historical_mismatches += 1
-        elif rec.get("status") in {ReconciliationStatus.FEE_MISMATCH, ReconciliationStatus.NET_AMOUNT_MISMATCH}:
-            fee_mismatches += 1
-
-    for c in diagnostic_completed:
-        rec = c.reconciliation or {}
-        if rec.get("status") == ReconciliationStatus.MATCH:
-            diagnostic_matches += 1
-        elif rec.get("status") in {ReconciliationStatus.FEE_MISMATCH, ReconciliationStatus.NET_AMOUNT_MISMATCH}:
-            diagnostic_mismatches += 1
+    public_rate_counts = _count_public_rate_outcomes(public_rate_completed)
+    diagnostic_counts = _count_diagnostic_outcomes(diagnostic_completed)
 
     positive_fixtures = 0
     if fixture_paths:
@@ -818,12 +832,12 @@ def validation_summary(
         "historical_observations_reused": len(reused_public_completed),
         "new_positive_fixtures_generated": positive_fixtures,
         "diagnostic_captures_completed": len(diagnostic_completed),
-        "diagnostic_matches": diagnostic_matches,
-        "diagnostic_mismatches": diagnostic_mismatches,
-        "domestic_matches": domestic_matches,
-        "surcharge_matches": surcharge_matches,
-        "fee_mismatches": fee_mismatches,
-        "historical_observation_current_mismatches": historical_mismatches,
+        "diagnostic_matches": diagnostic_counts["matches"],
+        "diagnostic_mismatches": diagnostic_counts["mismatches"],
+        "domestic_matches": public_rate_counts["domestic_matches"],
+        "surcharge_matches": public_rate_counts["surcharge_matches"],
+        "fee_mismatches": public_rate_counts["fee_mismatches"],
+        "historical_observation_current_mismatches": public_rate_counts["historical_mismatches"],
     }
 
 
