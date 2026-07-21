@@ -444,6 +444,117 @@ def build_observations_from_run(
     return observations
 
 
+def _extract_observed_pct_fixed(formula: dict[str, Any]) -> tuple[str | None, Any]:
+    best = formula.get("best")
+    if best is None:
+        return None, None
+    if best["formula_type"] == "percentage_plus_fixed":
+        return best.get("percentage"), best.get("fixed")
+    if best["formula_type"] == "base_plus_surcharge_plus_fixed":
+        base_pct_d = _decimal(best.get("base_percentage"))
+        surcharge_pct_d = _decimal(best.get("surcharge_percentage"))
+        obs_pct = str(base_pct_d + surcharge_pct_d) if base_pct_d is not None and surcharge_pct_d is not None else None
+        return obs_pct, best.get("fixed")
+    return None, None
+
+
+def _classify_from_stable_formula(
+    obs_pct: str | None,
+    obs_fixed: Any,
+    library_pct: str | None,
+    library_fixed: str | None,
+    library_surcharge_pct: str | None,
+) -> dict[str, Any] | None:
+    # If the observed formula equals the published base-only formula, the
+    # surcharge component is missing in PayPal's settlement.
+    if obs_pct == library_pct and obs_fixed == library_fixed:
+        return {
+            "category": "payment_fee_data_defect",
+            "confidence": "high",
+            "explanation": (
+                "Observed fee matches the library base-only amount; the published "
+                "surcharge schedule is not being applied by PayPal for this merchant."
+            ),
+        }
+    # If the observed total percentage equals the base plus the published surcharge,
+    # the surcharge is applied as a single combined rate.
+    if (
+        obs_pct is not None
+        and library_pct is not None
+        and library_surcharge_pct is not None
+        and _decimal(obs_pct) is not None
+        and _decimal(library_pct) is not None
+        and _decimal(library_surcharge_pct) is not None
+        and _decimal(obs_pct) == _decimal(library_pct) + _decimal(library_surcharge_pct)
+        and obs_fixed == library_fixed
+    ):
+        return {
+            "category": "payment_fee_data_defect",
+            "confidence": "high",
+            "explanation": (
+                "PayPal applied the published base rate plus a 1.00pp surcharge as a single "
+                "combined rate; the surcharge schedule is not itemised separately."
+            ),
+        }
+    # A completely different stable formula strongly suggests a custom/negotiated
+    # merchant rate in the Sandbox account.
+    return {
+        "category": "sandbox_account_configuration",
+        "confidence": "high",
+        "explanation": (
+            f"PayPal applied a stable formula of {obs_pct}% + {obs_fixed} "
+            f"instead of the published {library_pct}% + {library_fixed} base and "
+            f"{library_surcharge_pct}% surcharge. This is consistent with custom or "
+            "negotiated pricing on the Sandbox merchant account."
+        ),
+    }
+
+
+def _classify_from_single_observation(
+    paypal_fee: str | None,
+    library_total: str | None,
+    library_base_total: str | None,
+    library_surcharge_pct: str | None,
+    currency: str,
+) -> dict[str, Any] | None:
+    if paypal_fee is None or library_total is None:
+        return None
+    paypal_fee_minor = minor_units(paypal_fee, currency)
+    base_total_minor = minor_units(library_base_total, currency)
+    total_minor = minor_units(library_total, currency)
+
+    if (
+        base_total_minor is not None
+        and paypal_fee_minor == base_total_minor
+        and library_surcharge_pct
+        and _decimal(library_surcharge_pct)
+    ):
+        return {
+            "category": "payment_fee_data_defect",
+            "confidence": "high",
+            "explanation": (
+                "Observed fee matches the library base-only amount; the published "
+                "surcharge schedule is not being applied by PayPal for this merchant."
+            ),
+        }
+
+    if (
+        total_minor is not None
+        and paypal_fee_minor == total_minor
+        and library_surcharge_pct
+        and _decimal(library_surcharge_pct)
+    ):
+        return {
+            "category": "payment_fee_data_defect",
+            "confidence": "high",
+            "explanation": (
+                "PayPal applied the total base-plus-surcharge amount, but the surcharge "
+                "is not itemised separately; it is rolled into the collected fee."
+            ),
+        }
+    return None
+
+
 def classify_root_cause(
     case: Case, decomposition: dict[str, Any], formula: dict[str, Any], account_config: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -472,102 +583,19 @@ def classify_root_cause(
     paypal_fee = decomposition["paypal"]["fee"]
     currency = case.currency
 
-    if best["formula_type"] == "percentage_plus_fixed":
-        obs_pct = best.get("percentage")
-        obs_fixed = best.get("fixed")
-    elif best["formula_type"] == "base_plus_surcharge_plus_fixed":
-        base_pct_d = _decimal(best.get("base_percentage"))
-        surcharge_pct_d = _decimal(best.get("surcharge_percentage"))
-        obs_pct = str(base_pct_d + surcharge_pct_d) if base_pct_d is not None and surcharge_pct_d is not None else None
-        obs_fixed = best.get("fixed")
-    else:
-        obs_pct = None
-        obs_fixed = None
+    obs_pct, obs_fixed = _extract_observed_pct_fixed(formula)
 
-    # Stable observed formula takes precedence; it pinpoints account config or schedule defects.
     if formula.get("stable_linear_formula_found"):
-        # If the observed formula equals the published base-only formula, the
-        # surcharge component is missing in PayPal's settlement.
-        if obs_pct == library_pct and obs_fixed == library_fixed:
-            return {
-                "category": "payment_fee_data_defect",
-                "confidence": "high",
-                "explanation": (
-                    "Observed fee matches the library base-only amount; the published "
-                    "surcharge schedule is not being applied by PayPal for this merchant."
-                ),
-            }
-        # If the observed total percentage equals the base plus the published surcharge,
-        # the surcharge is applied as a single combined rate.
-        if (
-            obs_pct is not None
-            and library_pct is not None
-            and library_surcharge_pct is not None
-            and _decimal(obs_pct) is not None
-            and _decimal(library_pct) is not None
-            and _decimal(library_surcharge_pct) is not None
-            and _decimal(obs_pct) == _decimal(library_pct) + _decimal(library_surcharge_pct)
-            and obs_fixed == library_fixed
-        ):
-            return {
-                "category": "payment_fee_data_defect",
-                "confidence": "high",
-                "explanation": (
-                    "PayPal applied the published base rate plus a 1.00pp surcharge as a single "
-                    "combined rate; the surcharge schedule is not itemised separately."
-                ),
-            }
-        # A completely different stable formula strongly suggests a custom/negotiated
-        # merchant rate in the Sandbox account.
-        return {
-            "category": "sandbox_account_configuration",
-            "confidence": "high",
-            "explanation": (
-                f"PayPal applied a stable formula of {obs_pct}% + {obs_fixed} "
-                f"instead of the published {library_pct}% + {library_fixed} base and "
-                f"{library_surcharge_pct}% surcharge. This is consistent with custom or "
-                "negotiated pricing on the Sandbox merchant account."
-            ),
-        }
+        return _classify_from_stable_formula(
+            obs_pct, obs_fixed, library_pct, library_fixed, library_surcharge_pct
+        )
 
-    # Without a stable formula, compare the single observed fee against the library components.
-    if paypal_fee is not None and library_total is not None:
-        paypal_fee_minor = minor_units(paypal_fee, currency)
-        base_total_minor = minor_units(decomposition["library_base"]["total"], currency)
-        total_minor = minor_units(library_total, currency)
+    single = _classify_from_single_observation(
+        paypal_fee, library_total, decomposition["library_base"]["total"], library_surcharge_pct, currency
+    )
+    if single is not None:
+        return single
 
-        if (
-            base_total_minor is not None
-            and paypal_fee_minor == base_total_minor
-            and library_surcharge_pct
-            and _decimal(library_surcharge_pct)
-        ):
-            return {
-                "category": "payment_fee_data_defect",
-                "confidence": "high",
-                "explanation": (
-                    "Observed fee matches the library base-only amount; the published "
-                    "surcharge schedule is not being applied by PayPal for this merchant."
-                ),
-            }
-
-        if (
-            total_minor is not None
-            and paypal_fee_minor == total_minor
-            and library_surcharge_pct
-            and _decimal(library_surcharge_pct)
-        ):
-            return {
-                "category": "payment_fee_data_defect",
-                "confidence": "high",
-                "explanation": (
-                    "PayPal applied the total base-plus-surcharge amount, but the surcharge "
-                    "is not itemised separately; it is rolled into the collected fee."
-                ),
-            }
-
-    # If best candidate is not a perfect fit, but the only candidate is the library formula
-    # with an error, it may be a rounding/precision defect.
     if best.get("formula_type") == "base_plus_surcharge_plus_fixed" and not formula.get("stable_linear_formula_found"):
         return {
             "category": "payment_fee_calculation_or_rounding_defect",
