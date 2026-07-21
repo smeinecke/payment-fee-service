@@ -610,21 +610,16 @@ class PayPalProvider:
             raise UnknownMarket(self.provider_id, code)
         return country
 
-    def compile_rules(self, request: BaseQuoteRequest) -> CompiledFeePlan:
-        if not isinstance(request, PayPalQuoteRequest):
-            raise TypeError(f"Expected PayPalQuoteRequest, got {type(request).__name__}")
-        country = self._country(request.account_country)
-        derived = country.derived
-        schedule_registry = self._schedule_registries[request.account_country.upper()]
-        context = _build_paypal_context(request)
-
+    def _resolve_product_rules(
+        self, derived: PayPalDerivedData, context: dict[str, Any], account_country: str
+    ) -> tuple[list[PayPalTransactionFeeRule], str, str | None]:
         product_id = context.get("product_id")
         if not product_id:
             available = sorted({r.id for r in derived.transaction_fee_rules})
             raise InsufficientTransactionContext(
                 ["transaction.product_id"],
                 provider=self.provider_id,
-                market=request.account_country,
+                market=account_country,
                 available_product_ids=available,
             )
 
@@ -639,11 +634,21 @@ class PayPalProvider:
         if not product_rules:
             raise QuoteNotAvailable(
                 "The requested PayPal product/variant is not classified for this market.",
-                market=request.account_country,
+                market=account_country,
                 product_id=product_id,
                 variant_id=variant_id,
             )
 
+        return product_rules, product_id, variant_id
+
+    def _match_rules(
+        self,
+        product_rules: list[PayPalTransactionFeeRule],
+        context: dict[str, Any],
+        account_country: str,
+        product_id: str,
+        variant_id: str | None,
+    ) -> list[PayPalTransactionFeeRule]:
         missing: set[str] = set()
         matching: list[PayPalTransactionFeeRule] = []
         for rule in product_rules:
@@ -658,17 +663,20 @@ class PayPalProvider:
             raise InsufficientTransactionContext(
                 sorted(missing),
                 provider=self.provider_id,
-                market=request.account_country,
+                market=account_country,
             )
 
         if not matching:
             raise QuoteNotAvailable(
                 "No PayPal fee rule matched the supplied context.",
-                market=request.account_country,
+                market=account_country,
                 product_id=product_id,
                 variant_id=variant_id,
             )
 
+        return matching
+
+    def _require_calculable(self, matching: list[PayPalTransactionFeeRule], account_country: str) -> None:
         for rule in matching:
             if rule.calculation_status != "calculable":
                 raise QuoteNotAvailable(
@@ -677,46 +685,85 @@ class PayPalProvider:
                     status=rule.calculation_status,
                 )
 
+    def _select_rule(
+        self,
+        matching: list[PayPalTransactionFeeRule],
+        schedule_registry: Any,
+        currency: str,
+        payer_region: str | None,
+        account_country: str,
+    ) -> PayPalTransactionFeeRule:
         specificities = [(rule, _specificity(rule)) for rule in matching]
         max_specificity = max(score for _, score in specificities)
         most_specific = [rule for rule, score in specificities if abs(score - max_specificity) < 1e-9]
 
-        payer_region = context.get("payer_region") or context.get("surcharge_region")
         if len(most_specific) > 1:
             signatures = {
-                _rule_signature(r, schedule_registry, request.amount.currency, payer_region) for r in most_specific
+                _rule_signature(r, schedule_registry, currency, payer_region) for r in most_specific
             }
             if len(signatures) > 1:
                 raise AmbiguousFeeRules(
                     [r.id for r in most_specific],
                     provider=self.provider_id,
-                    market=request.account_country,
+                    market=account_country,
                 )
 
-        selected = sorted(most_specific, key=lambda r: (r.id, r.variant_id or ""))[0]
+        return sorted(most_specific, key=lambda r: (r.id, r.variant_id or ""))[0]
 
+    def _check_surcharge_region_context(
+        self,
+        selected: PayPalTransactionFeeRule,
+        schedule_registry: Any,
+        payer_region: str | None,
+        transaction_region: Any,
+        account_country: str,
+    ) -> None:
         surcharge_schedule_name = (
             selected.international_surcharge_schedule
             or _component_schedule_id(selected, "international_surcharge_schedule")
             or ""
         )
-        if surcharge_schedule_name and payer_region is None and context.get("transaction_region") != "domestic":
+        if surcharge_schedule_name and payer_region is None and transaction_region != "domestic":
             surcharge_schedule = schedule_registry.resolve_surcharge(surcharge_schedule_name)
             available_regions = [e.payer_region for e in surcharge_schedule.entries]
             raise InsufficientTransactionContext(
                 ["transaction.payer_region", "transaction.surcharge_region"],
                 provider=self.provider_id,
-                market=request.account_country,
+                market=account_country,
                 available_surcharge_regions=sorted(set(available_regions)),
             )
 
-        source_url: str | None = None
+    def _resolve_source_url(self, selected: PayPalTransactionFeeRule, account_country: str) -> str | None:
         if selected.source:
-            source_url = selected.source.canonical_url or selected.source.requested_url
-        if not source_url:
-            index_entry = self._index_map.get(request.account_country.upper())
-            source_url = index_entry.source_url if index_entry else None
+            return selected.source.canonical_url or selected.source.requested_url
+        index_entry = self._index_map.get(account_country.upper())
+        return index_entry.source_url if index_entry else None
 
+    def compile_rules(self, request: BaseQuoteRequest) -> CompiledFeePlan:
+        if not isinstance(request, PayPalQuoteRequest):
+            raise TypeError(f"Expected PayPalQuoteRequest, got {type(request).__name__}")
+        country = self._country(request.account_country)
+        derived = country.derived
+        schedule_registry = self._schedule_registries[request.account_country.upper()]
+        context = _build_paypal_context(request)
+
+        product_rules, product_id, variant_id = self._resolve_product_rules(
+            derived, context, request.account_country
+        )
+        matching = self._match_rules(
+            product_rules, context, request.account_country, product_id, variant_id
+        )
+        self._require_calculable(matching, request.account_country)
+
+        payer_region = context.get("payer_region") or context.get("surcharge_region")
+        selected = self._select_rule(
+            matching, schedule_registry, request.amount.currency, payer_region, request.account_country
+        )
+        self._check_surcharge_region_context(
+            selected, schedule_registry, payer_region, context.get("transaction_region"), request.account_country
+        )
+
+        source_url = self._resolve_source_url(selected, request.account_country)
         executable_rules = _compile_rule(selected, schedule_registry, request, context, source_url)
 
         assumptions = [
