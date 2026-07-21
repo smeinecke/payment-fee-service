@@ -14,6 +14,7 @@ from paypal_sandbox_validation.configuration import get_manual_send_scenario
 from paypal_sandbox_validation.diagnostics import validate_case_constraints
 from paypal_sandbox_validation.manual_browser import ManualPaymentBrowser
 from paypal_sandbox_validation.models import Case, CaseStatus, ReconciliationStatus
+from paypal_sandbox_validation.numeric import _decimal
 from paypal_sandbox_validation.nvp import (
     PayPalNVPClient,
     extract_transaction_details,
@@ -620,13 +621,6 @@ def run_manual_case(
     case.manual_state = "merchant_transaction_found"
 
     return _run_reconciliation(case, result["details"], adapter)
-
-
-def _decimal(value: Any) -> Decimal | None:
-    try:
-        return Decimal(str(value)) if value is not None else None
-    except Exception:
-        return None
 
 
 def infer_formula(cases: list[Case]) -> dict[str, Any] | None:

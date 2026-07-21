@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from paypal_sandbox_validation.models import ReconciliationStatus
 from paypal_sandbox_validation.persistence import load_json, run_dir, save_json
 from paypal_sandbox_validation.redaction import redact_path
 
@@ -138,27 +139,39 @@ def build_summary(run_id: str) -> dict[str, Any]:
         if status in {"captured", "reconciled"}:
             summary["completed_captures"] += 1
 
-        if rec_status == "match":
+        if rec_status == ReconciliationStatus.MATCH:
             summary["matches"] += 1
-        elif rec_status == "fee_mismatch":
+        elif rec_status == ReconciliationStatus.FEE_MISMATCH:
             summary["fee_mismatches"] += 1
-        elif rec_status == "net_amount_mismatch":
+        elif rec_status == ReconciliationStatus.NET_AMOUNT_MISMATCH:
             summary["net_amount_mismatches"] += 1
-        elif rec_status == "currency_mismatch":
+        elif rec_status == ReconciliationStatus.CURRENCY_MISMATCH:
             summary["currency_mismatches"] += 1
-        elif rec_status == "buyer_country_mismatch":
+        elif rec_status == ReconciliationStatus.BUYER_COUNTRY_MISMATCH:
             summary["buyer_country_mismatches"] += 1
-        elif rec_status in {"library_not_calculable", "library_missing_context", "library_ambiguous"}:
+        elif rec_status in {
+            ReconciliationStatus.LIBRARY_NOT_CALCULABLE,
+            ReconciliationStatus.LIBRARY_MISSING_CONTEXT,
+            ReconciliationStatus.LIBRARY_AMBIGUOUS,
+        }:
             summary["library_not_calculable"] += 1
-        elif rec_status in {"buyer_interaction_blocked", "buyer_cancelled", "callback_token_mismatch"}:
+        elif rec_status in {
+            ReconciliationStatus.BUYER_INTERACTION_BLOCKED,
+            ReconciliationStatus.BUYER_CANCELLED,
+            ReconciliationStatus.CALLBACK_TOKEN_MISMATCH,
+        }:
             summary["blocked_buyer_interactions"] += 1
-        elif rec_status in {"paypal_api_failure", "paypal_fee_unavailable", "authentication_failed"}:
+        elif rec_status in {
+            ReconciliationStatus.PAYPAL_API_FAILURE,
+            ReconciliationStatus.PAYPAL_FEE_UNAVAILABLE,
+            ReconciliationStatus.AUTHENTICATION_FAILED,
+        }:
             summary["api_failures"] += 1
-        elif rec_status == "account_capability_unavailable":
+        elif rec_status == ReconciliationStatus.ACCOUNT_CAPABILITY_UNAVAILABLE:
             summary["capability_exclusions"] += 1
-        elif rec_status == "account_configuration_difference":
+        elif rec_status == ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE:
             summary["configuration_exclusions"] += 1
-        elif rec_status == "no_distinct_fee_schedule_candidate":
+        elif rec_status == ReconciliationStatus.NO_DISTINCT_FEE_SCHEDULE_CANDIDATE:
             summary["no_distinct_schedule_candidates"] += 1
         elif status in {"planned", "prediction_ready"}:
             summary["pending"] += 1
@@ -334,18 +347,27 @@ def save_summary_markdown(run_id: str, summary: dict[str, Any], csv_path: str | 
 
 # JUnit status classification -------------------------------------------------
 
-_JUNIT_FAILURES = {"fee_mismatch", "currency_mismatch", "net_amount_mismatch"}
-_JUNIT_ERRORS = {"paypal_api_failure", "paypal_fee_unavailable", "buyer_country_mismatch", "authentication_failed"}
+_JUNIT_FAILURES = {
+    ReconciliationStatus.FEE_MISMATCH,
+    ReconciliationStatus.CURRENCY_MISMATCH,
+    ReconciliationStatus.NET_AMOUNT_MISMATCH,
+}
+_JUNIT_ERRORS = {
+    ReconciliationStatus.PAYPAL_API_FAILURE,
+    ReconciliationStatus.PAYPAL_FEE_UNAVAILABLE,
+    ReconciliationStatus.BUYER_COUNTRY_MISMATCH,
+    ReconciliationStatus.AUTHENTICATION_FAILED,
+}
 _JUNIT_SKIPPED = {
-    "account_configuration_difference",
-    "account_capability_unavailable",
-    "library_not_calculable",
-    "library_missing_context",
-    "library_ambiguous",
-    "buyer_interaction_blocked",
-    "buyer_cancelled",
-    "callback_token_mismatch",
-    "no_distinct_fee_schedule_candidate",
+    ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE,
+    ReconciliationStatus.ACCOUNT_CAPABILITY_UNAVAILABLE,
+    ReconciliationStatus.LIBRARY_NOT_CALCULABLE,
+    ReconciliationStatus.LIBRARY_MISSING_CONTEXT,
+    ReconciliationStatus.LIBRARY_AMBIGUOUS,
+    ReconciliationStatus.BUYER_INTERACTION_BLOCKED,
+    ReconciliationStatus.BUYER_CANCELLED,
+    ReconciliationStatus.CALLBACK_TOKEN_MISMATCH,
+    ReconciliationStatus.NO_DISTINCT_FEE_SCHEDULE_CANDIDATE,
 }
 
 
@@ -358,7 +380,7 @@ def _junit_category(rec_status: str | None, case_status: str | None) -> str | No
         return "error"
     if rec_status in _JUNIT_SKIPPED:
         return "skipped"
-    if rec_status and rec_status != "match":
+    if rec_status and rec_status != ReconciliationStatus.MATCH:
         return "error"
     if case_status == "failed":
         return "error"

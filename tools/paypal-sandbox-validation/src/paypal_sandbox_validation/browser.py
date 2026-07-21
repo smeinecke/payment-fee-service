@@ -121,7 +121,7 @@ class PayPalBrowser:
             if generic_error:
                 return {**generic_error, "evidence": evidence}
             return {
-                "status": "buyer_checkout_unknown_error",
+                "status": ReconciliationStatus.BUYER_CHECKOUT_UNKNOWN_ERROR.value,
                 "issue": "BUYER_CHECKOUT_UNKNOWN_ERROR",
                 "operation": "buyer approval",
                 "evidence": evidence,
@@ -259,7 +259,7 @@ class PayPalBrowser:
                 "evidence": evidence,
             }
         return {
-            "status": "buyer_checkout_unknown_error",
+            "status": ReconciliationStatus.BUYER_CHECKOUT_UNKNOWN_ERROR.value,
             "issue": "BUYER_CHECKOUT_UNKNOWN_ERROR",
             "operation": "buyer approval",
             "error": "PayPal returned a generic checkout error.",

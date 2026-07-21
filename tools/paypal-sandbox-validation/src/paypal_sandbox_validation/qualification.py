@@ -20,7 +20,7 @@ from .diagnostics import (
     validate_case_constraints,
 )
 from .manual_flow import infer_formula as infer_manual_formula
-from .models import Case, CaseStatus, QualificationStatus
+from .models import Case, CaseStatus, QualificationStatus, ReconciliationStatus
 from .planner import _case_from_quote, _quote_signature
 from .quote_adapter import QuoteAdapter, minor_units, quantize_currency
 
@@ -787,21 +787,21 @@ def validation_summary(
     diagnostic_mismatches = 0
     for c in public_rate_completed:
         rec = c.reconciliation or {}
-        if rec.get("status") == "match":
+        if rec.get("status") == ReconciliationStatus.MATCH:
             if c.buyer_country == c.merchant_country:
                 domestic_matches += 1
             else:
                 surcharge_matches += 1
-        elif rec.get("status") == "historical_observation_current_mismatch":
+        elif rec.get("status") == ReconciliationStatus.HISTORICAL_OBSERVATION_CURRENT_MISMATCH:
             historical_mismatches += 1
-        elif rec.get("status") in {"fee_mismatch", "net_amount_mismatch"}:
+        elif rec.get("status") in {ReconciliationStatus.FEE_MISMATCH, ReconciliationStatus.NET_AMOUNT_MISMATCH}:
             fee_mismatches += 1
 
     for c in diagnostic_completed:
         rec = c.reconciliation or {}
-        if rec.get("status") == "match":
+        if rec.get("status") == ReconciliationStatus.MATCH:
             diagnostic_matches += 1
-        elif rec.get("status") in {"fee_mismatch", "net_amount_mismatch"}:
+        elif rec.get("status") in {ReconciliationStatus.FEE_MISMATCH, ReconciliationStatus.NET_AMOUNT_MISMATCH}:
             diagnostic_mismatches += 1
 
     positive_fixtures = 0

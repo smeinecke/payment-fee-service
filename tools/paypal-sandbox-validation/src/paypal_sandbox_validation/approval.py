@@ -45,7 +45,7 @@ def approve_order(
                 return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
             if result["status"] == ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE.value:
                 return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
-            if result["status"] == "buyer_checkout_unknown_error":
+            if result["status"] == ReconciliationStatus.BUYER_CHECKOUT_UNKNOWN_ERROR.value:
                 return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
             if result["status"] != "approved":
                 return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
@@ -59,7 +59,7 @@ def approve_order(
                 }
             if callback_state == "token_mismatch":
                 return {
-                    "status": "callback_token_mismatch",
+                    "status": ReconciliationStatus.CALLBACK_TOKEN_MISMATCH.value,
                     "error": "Callback token did not match the order token.",
                     "issue": "CALLBACK_TOKEN_MISMATCH",
                     "operation": "callback",

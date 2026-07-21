@@ -198,6 +198,8 @@ class ReconciliationStatus(StrEnum):
     INCOMPLETE_PAYMENT = "incomplete_payment"
     PREDICTION_CHANGED = "prediction_changed"
     HISTORICAL_OBSERVATION_CURRENT_MISMATCH = "historical_observation_current_mismatch"
+    CALLBACK_TOKEN_MISMATCH = "callback_token_mismatch"
+    BUYER_CHECKOUT_UNKNOWN_ERROR = "buyer_checkout_unknown_error"
 
 
 class ReconciliationResult(BaseModel):

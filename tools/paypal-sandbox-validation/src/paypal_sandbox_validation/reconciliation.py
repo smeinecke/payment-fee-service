@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any
 
 from paypal_sandbox_validation.models import ReconciliationResult, ReconciliationStatus
+from paypal_sandbox_validation.numeric import _decimal
 from paypal_sandbox_validation.quote_adapter import minor_units
 
 
@@ -121,15 +121,6 @@ def reconcile(
     result.predicted_total_fee = meta.get("predicted_total_fee")
     result.payer_region = meta.get("payer_region")
     return result
-
-
-def _decimal(value: Any) -> Decimal | None:
-    if value is None:
-        return None
-    try:
-        return Decimal(str(value))
-    except Exception:
-        return None
 
 
 def _classify_root_cause(result: ReconciliationResult) -> str:

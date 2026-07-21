@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import json
 import math
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
 from .models import Case
+from .numeric import _decimal
 from .persistence import load_case, load_results, run_dir
 from .quote_adapter import currency_exponent, minor_units, quantize_currency
 
@@ -29,15 +30,6 @@ def load_original_case(run_id: str, case_id: str) -> Case:
             if c.get("case_id") == case_id:
                 return Case.model_validate(c)
         raise ValueError(f"Case {case_id!r} not found in run {run_id}") from exc
-
-
-def _decimal(value: Any) -> Decimal | None:
-    if value is None:
-        return None
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError):
-        return None
 
 
 def validate_case_constraints(case: Case) -> dict[str, Any]:

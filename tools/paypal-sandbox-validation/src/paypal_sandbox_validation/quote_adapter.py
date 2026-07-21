@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from payment_fee import PaymentFeeEngine
+from payment_fee.calculator import ZERO_DECIMAL_CURRENCIES, currency_quantum, quantize_money
 from payment_fee.providers.paypal.provider import PayPalProvider
 
 from paypal_sandbox_validation.configuration import (
@@ -357,26 +358,6 @@ class QuoteResolutionError(Exception):
         self.status = status
 
 
-ZERO_DECIMAL_CURRENCIES = {
-    "BIF",
-    "CLP",
-    "DJF",
-    "GNF",
-    "ISK",
-    "JPY",
-    "KMF",
-    "KRW",
-    "PYG",
-    "RWF",
-    "UGX",
-    "VND",
-    "VUV",
-    "XAF",
-    "XOF",
-    "XPF",
-}
-
-
 def validate_amount_for_currency(amount: str, currency: str) -> None:
     """Reject fractional amounts for zero-decimal currencies such as JPY."""
     if currency.upper() in ZERO_DECIMAL_CURRENCIES:
@@ -387,19 +368,13 @@ def validate_amount_for_currency(amount: str, currency: str) -> None:
 
 def currency_exponent(currency: str | None) -> int:
     """Return the number of minor-unit digits for a currency."""
-    c = (currency or "USD").upper()
-    if c in ZERO_DECIMAL_CURRENCIES:
-        return 0
-    if c in {"BHD", "JOD", "KWD", "OMR", "TND"}:
-        return 3
-    return 2
+    return -currency_quantum((currency or "USD").upper()).as_tuple().exponent
 
 
 def quantize_currency(value: Decimal | str, currency: str) -> Decimal:
     """Round a value to the currency's minor-unit precision."""
     dec = value if isinstance(value, Decimal) else Decimal(str(value))
-    exponent = currency_exponent(currency)
-    return dec.quantize(Decimal(10) ** -exponent, rounding=ROUND_HALF_UP)
+    return quantize_money(dec, (currency or "USD").upper())
 
 
 def minor_units(value: Decimal | str, currency: str) -> int:
