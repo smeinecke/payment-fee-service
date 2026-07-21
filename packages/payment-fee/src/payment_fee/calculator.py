@@ -33,13 +33,15 @@ ZERO_DECIMAL_CURRENCIES = {
 }
 THREE_DECIMAL_CURRENCIES = {"BHD", "JOD", "KWD", "OMR", "TND"}
 
+_CURRENCY_QUANTA: dict[str, Decimal] = {
+    **{c: Decimal("1") for c in ZERO_DECIMAL_CURRENCIES},
+    **{c: Decimal("0.001") for c in THREE_DECIMAL_CURRENCIES},
+}
+_DEFAULT_QUANTUM = Decimal("0.01")
+
 
 def currency_quantum(currency: str) -> Decimal:
-    if currency in ZERO_DECIMAL_CURRENCIES:
-        return Decimal("1")
-    if currency in THREE_DECIMAL_CURRENCIES:
-        return Decimal("0.001")
-    return Decimal("0.01")
+    return _CURRENCY_QUANTA.get(currency, _DEFAULT_QUANTUM)
 
 
 def quantize_money(value: Decimal, currency: str) -> Decimal:
