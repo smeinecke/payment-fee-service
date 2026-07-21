@@ -320,28 +320,30 @@ def _missing_dimensions(rule: PayPalTransactionFeeRule, context: dict[str, Any])
     return missing
 
 
+PAYPAL_API_FIELD_NAMES: dict[str, str] = {
+    "product_id": "transaction.product_id",
+    "variant_id": "transaction.variant_id",
+    "payment_method": "transaction.payment_method",
+    "transaction_region": "transaction.transaction_region",
+    "payer_region": "transaction.payer_region",
+    "surcharge_region": "transaction.surcharge_region",
+    "merchant_approval_required": "transaction.merchant_approval_required",
+    "pricing_plan": "transaction.pricing_plan",
+    "withdrawal_method": "transaction.withdrawal_method",
+    "authorization_channel": "transaction.authorization_channel",
+    "point_of_sale": "transaction.point_of_sale",
+    "card_present": "transaction.card_present",
+    "transaction_purpose": "transaction.transaction_purpose",
+    "funding_source": "transaction.funding_source",
+    "service": "transaction.service",
+    "recipient_location": "transaction.recipient_location",
+    "volume_status": "transaction.volume_status",
+    "fee_currency": "transaction.fee_currency",
+}
+
+
 def _api_field_name(dimension: str) -> str:
-    mapping = {
-        "product_id": "transaction.product_id",
-        "variant_id": "transaction.variant_id",
-        "payment_method": "transaction.payment_method",
-        "transaction_region": "transaction.transaction_region",
-        "payer_region": "transaction.payer_region",
-        "surcharge_region": "transaction.surcharge_region",
-        "merchant_approval_required": "transaction.merchant_approval_required",
-        "pricing_plan": "transaction.pricing_plan",
-        "withdrawal_method": "transaction.withdrawal_method",
-        "authorization_channel": "transaction.authorization_channel",
-        "point_of_sale": "transaction.point_of_sale",
-        "card_present": "transaction.card_present",
-        "transaction_purpose": "transaction.transaction_purpose",
-        "funding_source": "transaction.funding_source",
-        "service": "transaction.service",
-        "recipient_location": "transaction.recipient_location",
-        "volume_status": "transaction.volume_status",
-        "fee_currency": "transaction.fee_currency",
-    }
-    return mapping.get(dimension, f"transaction.context.{dimension}")
+    return PAYPAL_API_FIELD_NAMES.get(dimension, f"transaction.context.{dimension}")
 
 
 def _specificity(rule: PayPalTransactionFeeRule) -> float:

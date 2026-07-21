@@ -256,44 +256,46 @@ def _rule_financial_signature(rule: StripeRule, currency: str) -> tuple[Any, ...
     )
 
 
+STRIPE_API_FIELD_NAMES: dict[str, str] = {
+    "payment_method": "transaction.payment_method",
+    "payment_method_variant": "transaction.payment_method_variant",
+    "product_id": "transaction.product_id",
+    "variant_id": "transaction.variant_id",
+    "channel": "transaction.channel",
+    "card_origin": "transaction.card.origin",
+    "card_region": "transaction.card.region",
+    "card_tier": "transaction.card.tier",
+    "card_type": "transaction.card.type",
+    "card_network": "transaction.card.network",
+    "card_entry_mode": "transaction.card.entry_mode",
+    "customer_country": "customer_country",
+    "presentment_currency": "amount.currency",
+    "settlement_currency": "settlement_currency",
+    "settlement_timing": "transaction.settlement.timing",
+    "currency_conversion_required": "transaction.currency_conversion_required",
+    "recurring": "transaction.recurring",
+    "billing_type": "transaction.billing_type",
+    "pricing_plan": "transaction.pricing_plan",
+    "pricing_tier": "transaction.pricing_tier",
+    "product_feature": "transaction.product_feature",
+    "integration_type": "transaction.integration_type",
+    "contract_length": "transaction.contract_length",
+    "dispute_state": "transaction.dispute_state",
+    "transaction_region": "transaction.transaction_region",
+    "transaction_type": "transaction.context.transaction_type",
+    "cross_border": "transaction.cross_border",
+    "feature_enabled": "transaction.feature_enabled",
+    "payer": "transaction.payer",
+    "success": "transaction.context.success",
+    "bank_account_validation": "transaction.bank.validation",
+    "bank_transfer_type": "transaction.bank.transfer_type",
+    "fee_type": "transaction.context.fee_type",
+    "transaction_amount": "amount.value",
+}
+
+
 def _api_field_name(dimension: str) -> str:
-    mapping = {
-        "payment_method": "transaction.payment_method",
-        "payment_method_variant": "transaction.payment_method_variant",
-        "product_id": "transaction.product_id",
-        "variant_id": "transaction.variant_id",
-        "channel": "transaction.channel",
-        "card_origin": "transaction.card.origin",
-        "card_region": "transaction.card.region",
-        "card_tier": "transaction.card.tier",
-        "card_type": "transaction.card.type",
-        "card_network": "transaction.card.network",
-        "card_entry_mode": "transaction.card.entry_mode",
-        "customer_country": "customer_country",
-        "presentment_currency": "amount.currency",
-        "settlement_currency": "settlement_currency",
-        "settlement_timing": "transaction.settlement.timing",
-        "currency_conversion_required": "transaction.currency_conversion_required",
-        "recurring": "transaction.recurring",
-        "billing_type": "transaction.billing_type",
-        "pricing_plan": "transaction.pricing_plan",
-        "pricing_tier": "transaction.pricing_tier",
-        "product_feature": "transaction.product_feature",
-        "integration_type": "transaction.integration_type",
-        "contract_length": "transaction.contract_length",
-        "dispute_state": "transaction.dispute_state",
-        "transaction_region": "transaction.transaction_region",
-        "transaction_type": "transaction.context.transaction_type",
-        "cross_border": "transaction.cross_border",
-        "feature_enabled": "transaction.feature_enabled",
-        "payer": "transaction.payer",
-        "success": "transaction.context.success",
-        "bank_account_validation": "transaction.bank.validation",
-        "bank_transfer_type": "transaction.bank.transfer_type",
-        "fee_type": "transaction.context.fee_type",
-        "transaction_amount": "amount.value",
-    }
-    return mapping.get(dimension, f"transaction.context.{dimension}")
+    return STRIPE_API_FIELD_NAMES.get(dimension, f"transaction.context.{dimension}")
 
 
 def _is_evaluable(rule: StripeRule) -> bool:
