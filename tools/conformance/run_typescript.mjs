@@ -1,3 +1,12 @@
+/**
+ * Run the TypeScript implementation against the shared conformance suite.
+ *
+ * This harness is intentionally independent from run_python.py and run_php.php.
+ * Sharing code between the three runners would risk a shared bug masking a real
+ * cross-language divergence, which is the property the differential gate is
+ * meant to catch.
+ */
+
 import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

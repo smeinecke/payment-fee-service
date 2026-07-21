@@ -55,3 +55,10 @@ composer audit
 ## Status
 
 This package is a native PHP port of the Python `payment-fee` library. It consumes the same provider datasets and aims for identical normalized quote results. The implementation is a work in progress.
+
+## Structural notes
+
+- `QuoteRequestFactory` is a PHP-specific helper for building request objects from
+  untyped arrays. Python and TypeScript keep the equivalent request-building logic
+  inline in their engine/model layers, so this factory is an intentional PHP-only
+  structural convenience, not drift from the other ports.

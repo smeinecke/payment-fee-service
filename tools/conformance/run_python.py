@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Run Python implementation against the shared conformance suite."""
+"""Run Python implementation against the shared conformance suite.
+
+This harness is intentionally independent from run_php.php and run_typescript.mjs.
+Sharing code between the three runners would risk a shared bug masking a real
+cross-language divergence, which is the property the differential gate is meant
+to catch.
+"""
 
 from __future__ import annotations
 
