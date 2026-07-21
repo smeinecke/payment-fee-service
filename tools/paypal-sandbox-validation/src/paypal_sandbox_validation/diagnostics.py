@@ -95,6 +95,101 @@ def validate_case_constraints(case: Case) -> dict[str, Any]:
     return result
 
 
+def _decompose_base(case: Case, evidence: dict[str, Any]) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+    gross = _decimal(evidence.get("gross_amount", {}).get("value"))
+    paypal_fee = _decimal(evidence.get("paypal_fee", {}).get("value"))
+    net = _decimal(evidence.get("net_amount", {}).get("value"))
+    return gross, paypal_fee, net
+
+
+def _decompose_surcharge(
+    components: list[dict[str, Any]], meta: dict[str, Any]
+) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+    processing = next((c for c in components if c.get("type") == "processing"), {})
+    surcharge = next((c for c in components if c.get("type") == "surcharge"), {})
+
+    base_pct = _decimal(processing.get("rate_percentage")) or _decimal(meta.get("base_percentage"))
+    fixed = _decimal(processing.get("fixed_amount")) or _decimal(meta.get("fixed_amount"))
+    surcharge_pct = _decimal(surcharge.get("rate_percentage")) or _decimal(meta.get("surcharge_percentage"))
+    return base_pct, fixed, surcharge_pct
+
+
+def _decompose_library_base(
+    gross: Decimal | None, base_pct: Decimal | None, fixed: Decimal | None, currency: str
+) -> tuple[Decimal | None, Decimal | None]:
+    if gross is None or base_pct is None:
+        return None, None
+    library_base_pct_amount = quantize_currency(gross * base_pct / Decimal(100), currency)
+    base_with_fixed = (library_base_pct_amount + fixed) if fixed is not None else library_base_pct_amount
+    library_base_total = quantize_currency(base_with_fixed, currency)
+    return library_base_pct_amount, library_base_total
+
+
+def _decompose_library_surcharge(
+    gross: Decimal | None, surcharge_pct: Decimal | None, currency: str
+) -> Decimal | None:
+    if gross is None or surcharge_pct is None:
+        return None
+    return quantize_currency(gross * surcharge_pct / Decimal(100), currency)
+
+
+def _decompose_components(
+    components: list[dict[str, Any]], gross: Decimal | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    component_unrounded: list[dict[str, Any]] = []
+    component_rounded: list[dict[str, Any]] = []
+    if gross is None:
+        return component_unrounded, component_rounded
+    for c in components:
+        amount = _decimal(c.get("amount"))
+        rate = _decimal(c.get("rate_percentage"))
+        fixed_comp = _decimal(c.get("fixed_amount"))
+        unrounded = None
+        if amount is not None and rate is not None:
+            raw = gross * rate / Decimal(100)
+            if fixed_comp is not None:
+                raw += fixed_comp
+            unrounded = raw
+        rounded = amount
+        component_unrounded.append(
+            {"type": c.get("type"), "unrounded": str(unrounded) if unrounded is not None else None}
+        )
+        component_rounded.append({"type": c.get("type"), "rounded": str(rounded) if rounded is not None else None})
+    return component_unrounded, component_rounded
+
+
+def _decompose_total_before_cap(
+    library_base_total: Decimal | None,
+    library_surcharge_pct_amount: Decimal | None,
+    currency: str,
+) -> Decimal | None:
+    if library_base_total is None:
+        return None
+    if library_surcharge_pct_amount is None:
+        return library_base_total
+    return quantize_currency(library_base_total + library_surcharge_pct_amount, currency)
+
+
+def _infer_rounding_point(
+    gross: Decimal | None,
+    base_pct: Decimal | None,
+    fixed: Decimal | None,
+    surcharge_pct: Decimal | None,
+    total_before_cap: Decimal | None,
+    currency: str,
+) -> str:
+    if gross is None or base_pct is None:
+        return "per component"
+    raw_base = gross * base_pct / Decimal(100)
+    if fixed is not None:
+        raw_base += fixed
+    raw_total = raw_base + (gross * surcharge_pct / Decimal(100)) if surcharge_pct is not None else raw_base
+    aggregate = quantize_currency(raw_total, currency)
+    if total_before_cap is not None and aggregate == total_before_cap:
+        return "after component aggregation"
+    return "per component"
+
+
 def decompose_case(case: Case) -> dict[str, Any]:
     """Produce an explicit Decimal financial decomposition for a case."""
     evidence = case.paypal_evidence or {}
@@ -103,68 +198,20 @@ def decompose_case(case: Case) -> dict[str, Any]:
     meta = quote.get("_schedule_metadata", {})
     currency = case.currency
 
-    gross = _decimal(evidence.get("gross_amount", {}).get("value"))
-    paypal_fee = _decimal(evidence.get("paypal_fee", {}).get("value"))
-    net = _decimal(evidence.get("net_amount", {}).get("value"))
+    gross, paypal_fee, net = _decompose_base(case, evidence)
+    base_pct, fixed, surcharge_pct = _decompose_surcharge(components, meta)
 
-    processing = next((c for c in components if c.get("type") == "processing"), {})
-    surcharge = next((c for c in components if c.get("type") == "surcharge"), {})
+    library_base_pct_amount, library_base_total = _decompose_library_base(gross, base_pct, fixed, currency)
+    library_surcharge_pct_amount = _decompose_library_surcharge(gross, surcharge_pct, currency)
+    component_unrounded, component_rounded = _decompose_components(components, gross)
 
-    base_pct = _decimal(processing.get("rate_percentage")) or _decimal(meta.get("base_percentage"))
-    fixed = _decimal(processing.get("fixed_amount")) or _decimal(meta.get("fixed_amount"))
-    surcharge_pct = _decimal(surcharge.get("rate_percentage")) or _decimal(meta.get("surcharge_percentage"))
-
-    library_base_pct_amount = None
-    library_base_total = None
-    if gross is not None and base_pct is not None:
-        library_base_pct_amount = quantize_currency(gross * base_pct / Decimal(100), currency)
-        base_with_fixed = (library_base_pct_amount + fixed) if fixed is not None else library_base_pct_amount
-        library_base_total = quantize_currency(base_with_fixed, currency)
-
-    library_surcharge_pct_amount = None
-    if gross is not None and surcharge_pct is not None:
-        library_surcharge_pct_amount = quantize_currency(gross * surcharge_pct / Decimal(100), currency)
-
-    component_unrounded = []
-    component_rounded = []
-    if gross is not None:
-        for c in components:
-            amount = _decimal(c.get("amount"))
-            rate = _decimal(c.get("rate_percentage"))
-            fixed_comp = _decimal(c.get("fixed_amount"))
-            unrounded = None
-            if amount is not None and rate is not None:
-                raw = gross * rate / Decimal(100)
-                if fixed_comp is not None:
-                    raw += fixed_comp
-                unrounded = raw
-            rounded = amount
-            component_unrounded.append(
-                {"type": c.get("type"), "unrounded": str(unrounded) if unrounded is not None else None}
-            )
-            component_rounded.append({"type": c.get("type"), "rounded": str(rounded) if rounded is not None else None})
-
-    total_before_cap = None
-    if library_base_total is not None and library_surcharge_pct_amount is not None:
-        total_before_cap = quantize_currency(library_base_total + library_surcharge_pct_amount, currency)
-    elif library_base_total is not None:
-        total_before_cap = library_base_total
-
+    total_before_cap = _decompose_total_before_cap(library_base_total, library_surcharge_pct_amount, currency)
     library_fee = _decimal(quote.get("processing_fee", {}).get("value"))
-
     min_applied = any(c.get("minimum_applied") for c in components)
     max_applied = any(c.get("maximum_applied") for c in components)
-
-    # Determine rounding point: compare total from per-component rounding vs aggregate.
-    rounding_point = "per component"  # default
-    if gross is not None and base_pct is not None:
-        raw_base = gross * base_pct / Decimal(100)
-        if fixed is not None:
-            raw_base += fixed
-        raw_total = raw_base + (gross * surcharge_pct / Decimal(100)) if surcharge_pct is not None else raw_base
-        aggregate = quantize_currency(raw_total, currency)
-        if total_before_cap is not None and aggregate == total_before_cap:
-            rounding_point = "after component aggregation"
+    rounding_point = _infer_rounding_point(
+        gross, base_pct, fixed, surcharge_pct, total_before_cap, currency
+    )
 
     return {
         "paypal": {
