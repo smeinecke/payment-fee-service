@@ -8,22 +8,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from payment_fee import PaymentFeeEngine
-from payment_fee.errors import (
-    AmbiguousFeeRules,
-    CurrencyMismatch,
-    DatasetValidationError,
-    InsufficientTransactionContext,
-    PaymentFeeError,
-    ProviderDataUnavailable,
-    QuoteNotAvailable,
-    UnknownMarket,
-    UnknownProvider,
-    UnsupportedFeeShape,
-)
+from payment_fee.errors import PaymentFeeError, ProviderDataUnavailable
 
 from payment_fee_service import __version__
 from payment_fee_service.api.routes import router
 from payment_fee_service.engine_holder import EngineHolder
+from payment_fee_service.errors import error_message, status_for
 from payment_fee_service.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -35,25 +25,11 @@ def _error_response(exc: PaymentFeeError, status_code: int) -> JSONResponse:
         content={
             "error": {
                 "code": exc.code,
-                "message": exc.message,
+                "message": error_message(exc),
                 "details": exc.details,
             }
         },
     )
-
-
-def _payment_fee_error_status(exc: PaymentFeeError) -> int:
-    if isinstance(exc, UnknownProvider):
-        return 404
-    if isinstance(exc, UnknownMarket):
-        return 404
-    if isinstance(exc, (InsufficientTransactionContext, CurrencyMismatch, QuoteNotAvailable, UnsupportedFeeShape)):
-        return 422
-    if isinstance(exc, AmbiguousFeeRules):
-        return 409
-    if isinstance(exc, (DatasetValidationError, ProviderDataUnavailable)):
-        return 503
-    return 500
 
 
 def create_app(
@@ -109,7 +85,7 @@ def create_app(
 
     @app.exception_handler(PaymentFeeError)
     async def payment_fee_error_handler(_: Request, exc: PaymentFeeError) -> JSONResponse:
-        return _error_response(exc, _payment_fee_error_status(exc))
+        return _error_response(exc, status_for(exc))
 
     @app.get("/health/live")
     async def liveness() -> dict[str, str]:

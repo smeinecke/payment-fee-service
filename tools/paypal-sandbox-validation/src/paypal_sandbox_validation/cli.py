@@ -1741,15 +1741,6 @@ def diagnose_cmd(
     )
 
 
-def _default_currency(merchant_country: str) -> str:
-    from paypal_sandbox_validation.configuration import currency_for_country
-
-    try:
-        return currency_for_country(merchant_country)
-    except Exception:
-        return "USD"
-
-
 def _create_and_associate_order(
     merchant: Account,
     amount: str,
@@ -1930,7 +1921,7 @@ def verify_merchant_association_cmd(
         click.echo(json.dumps({"merchant_country": merchant, "association_status": "merchant_not_found"}, indent=2))
         sys.exit(1)
 
-    currency = currency or _default_currency(merchant_account.country_code)
+    currency = currency or currency_for_country(merchant_account.country_code)
     oauth_cache = OAuthCache()
     with CallbackServer(expected_token="") as callback:
         order, payload, error = _create_and_associate_order(
@@ -2030,7 +2021,7 @@ def create_manual_approval_case_cmd(
         click.echo(json.dumps({"error": "buyer not found"}, indent=2), err=True)
         sys.exit(1)
 
-    currency = currency or _default_currency(merchant_account.country_code)
+    currency = currency or currency_for_country(merchant_account.country_code)
     run_id = generate_run_id()
     case_id = f"manual-{merchant_account.country_code}-{buyer_account.country_code}-{run_id}"
     artifact_dir = artifact_root() / run_id

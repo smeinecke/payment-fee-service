@@ -14,6 +14,7 @@ from payment_fee.errors import (
 from payment_fee.models import CapabilityInfo, ProviderInfo
 
 from payment_fee_service.bootstrap import build_engine
+from payment_fee_service.errors import error_message
 from payment_fee_service.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class EngineHolder:
                 )
                 _run_smoke_quotes(new_engine)
             except Exception as exc:
-                self._last_refresh_error = _error_message(exc)
+                self._last_refresh_error = error_message(exc)
                 logger.warning("Refresh failed, retaining previous engine: %s", self._last_refresh_error)
                 if raise_on_error:
                     raise
@@ -66,12 +67,6 @@ class EngineHolder:
             self._engine = new_engine
             self._last_refresh_error = None
             return self._engine.data_status()
-
-
-def _error_message(exc: BaseException) -> str:
-    if isinstance(exc, PaymentFeeError):
-        return exc.message
-    return str(exc)
 
 
 def _run_smoke_quotes(engine: PaymentFeeEngine) -> None:
