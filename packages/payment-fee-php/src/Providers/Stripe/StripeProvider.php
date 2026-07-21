@@ -7,6 +7,7 @@ namespace Smeinecke\PaymentFee\Providers\Stripe;
 use Brick\Math\BigDecimal;
 use Smeinecke\PaymentFee\Exception\InsufficientTransactionContext;
 use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
+use Smeinecke\PaymentFee\Exception\UnknownMarket;
 use Smeinecke\PaymentFee\Exception\UnsupportedFeeShape;
 use Smeinecke\PaymentFee\Model\QuoteRequest;
 use Smeinecke\PaymentFee\Model\StripeQuoteRequest;
@@ -160,7 +161,7 @@ final class StripeProvider implements ProviderInterface
                 return $market;
             }
         }
-        throw new QuoteNotAvailable('Stripe market not found.', ['market' => $code]);
+        throw new UnknownMarket('stripe', $code);
     }
 
     /**

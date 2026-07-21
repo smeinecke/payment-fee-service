@@ -28,17 +28,6 @@ export class UnknownMarket extends PaymentFeeError {
   }
 }
 
-export class ProviderDataUnavailable extends PaymentFeeError {
-  readonly code = "PROVIDER_DATA_UNAVAILABLE";
-  constructor(provider: string, reason: string, details: PaymentFeeErrorDetails = {}) {
-    super(`Validated data for ${provider} is unavailable.`, {
-      provider,
-      reason,
-      ...details,
-    });
-  }
-}
-
 export class QuoteNotAvailable extends PaymentFeeError {
   readonly code = "QUOTE_NOT_AVAILABLE";
   constructor(message: string, details: PaymentFeeErrorDetails = {}) {
@@ -75,13 +64,6 @@ export class UnsupportedFeeShape extends PaymentFeeError {
 
 export class CurrencyMismatch extends PaymentFeeError {
   readonly code = "CURRENCY_MISMATCH";
-  constructor(message: string, details: PaymentFeeErrorDetails = {}) {
-    super(message, details);
-  }
-}
-
-export class DatasetValidationException extends PaymentFeeError {
-  readonly code = "DATASET_VALIDATION_ERROR";
   constructor(message: string, details: PaymentFeeErrorDetails = {}) {
     super(message, details);
   }

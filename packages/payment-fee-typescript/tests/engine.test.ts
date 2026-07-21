@@ -4,7 +4,7 @@ import { PaymentFeeEngine } from "../src/engine.js";
 import {
   UnknownProvider,
   InsufficientTransactionContext,
-  QuoteNotAvailable,
+  UnknownMarket,
 } from "../src/errors.js";
 import type { QuoteResult } from "../src/calculator.js";
 import type { QuoteRequest } from "../src/models.js";
@@ -226,7 +226,7 @@ void describe("PaymentFeeEngine", async () => {
             payment_method: "card",
           },
         }),
-      QuoteNotAvailable,
+      UnknownMarket,
     );
   });
 });

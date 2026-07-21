@@ -38,9 +38,5 @@ class ProviderRegistry:
             for provider_id in ids
         ]
 
-    @property
-    def ready(self) -> bool:
-        return bool(self._providers) and not self._errors
-
     def providers(self) -> list[str]:
         return sorted(self._providers)

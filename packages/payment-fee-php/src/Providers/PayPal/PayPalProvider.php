@@ -8,6 +8,7 @@ use Brick\Math\BigDecimal;
 use Smeinecke\PaymentFee\Exception\AmbiguousFeeRules;
 use Smeinecke\PaymentFee\Exception\InsufficientTransactionContext;
 use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
+use Smeinecke\PaymentFee\Exception\UnknownMarket;
 use Smeinecke\PaymentFee\Exception\UnsupportedFeeShape;
 use Smeinecke\PaymentFee\Model\PayPalQuoteRequest;
 use Smeinecke\PaymentFee\Model\QuoteRequest;
@@ -215,6 +216,6 @@ final class PayPalProvider implements ProviderInterface
                 return $country;
             }
         }
-        throw new QuoteNotAvailable('PayPal market not found.', ['market' => $code]);
+        throw new UnknownMarket('paypal', $code);
     }
 }

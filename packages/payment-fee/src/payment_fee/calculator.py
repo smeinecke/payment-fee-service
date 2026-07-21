@@ -196,12 +196,6 @@ class FeeCalculator:
     def _derive_status(
         plan: CompiledFeePlan, components: list[FeeComponent]
     ) -> Literal["exact_for_public_rate", "estimated", "range", "included", "not_calculable"]:
-        if plan.metadata.get("status") in ("range", "not_calculable", "included"):
-            return cast(
-                Literal["exact_for_public_rate", "estimated", "range", "included", "not_calculable"],
-                str(plan.metadata["status"]),
-            )
-
         if all(rule.behavior in ("free", "included", "waived") for rule in plan.rules):
             return "included"
 

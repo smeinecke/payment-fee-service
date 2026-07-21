@@ -1,0 +1,38 @@
+{
+  "id": "unknown-market",
+  "description": "Unknown market raises UNKNOWN_MARKET with provider and market details.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "US",
+            "rules": []
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "account_country": "ZZ",
+    "transaction": {
+      "product_id": "payments",
+      "variant_id": "standard"
+    }
+  },
+  "expected_result": null,
+  "expected_error": {
+    "code": "UNKNOWN_MARKET",
+    "message": "Provider stripe has no published market ZZ.",
+    "details": {
+      "provider": "stripe",
+      "market": "ZZ"
+    }
+  }
+}

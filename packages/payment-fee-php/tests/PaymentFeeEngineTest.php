@@ -6,7 +6,7 @@ namespace Smeinecke\PaymentFee\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Smeinecke\PaymentFee\Exception\InsufficientTransactionContext;
-use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
+use Smeinecke\PaymentFee\Exception\UnknownMarket;
 use Smeinecke\PaymentFee\Exception\UnknownProvider;
 use Smeinecke\PaymentFee\PaymentFeeEngine;
 
@@ -231,7 +231,7 @@ final class PaymentFeeEngineTest extends TestCase
     {
         $engine = PaymentFeeEngine::fromDocuments(stripe: $this->stripeCore());
 
-        $this->expectException(QuoteNotAvailable::class);
+        $this->expectException(UnknownMarket::class);
         $engine->quote([
             'provider' => 'stripe',
             'amount' => ['value' => '100.00', 'currency' => 'USD'],

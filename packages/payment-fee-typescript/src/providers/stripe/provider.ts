@@ -2,6 +2,7 @@ import { Decimal } from "decimal.js";
 import {
   InsufficientTransactionContext,
   QuoteNotAvailable,
+  UnknownMarket,
   UnsupportedFeeShape,
 } from "../../errors.js";
 import type { ExecutableRule } from "../../calculator.js";
@@ -35,6 +36,7 @@ export interface StripeRule {
   label?: string | null;
   name?: string | null;
   payment_method?: string | null;
+  payment_method_variant?: string | null;
   product_id?: string | null;
   unit?: string;
   variant_id?: string | null;
@@ -45,6 +47,39 @@ export interface StripeRule {
   maximum_amount?: string | null;
   source_url?: string | null;
   payer?: string | null;
+  // Additional dimensions that may appear as top-level rule fields
+  additional_fees?: unknown[];
+  fixed_amount_minor?: string | null;
+  channel?: string | null;
+  card_network?: string | null;
+  card_origin?: string | null;
+  card_region?: string | null;
+  card_tier?: string | null;
+  card_type?: string | null;
+  card_entry_mode?: string | null;
+  contract_length?: string | null;
+  cross_border?: boolean | null;
+  currency_conversion_required?: boolean | null;
+  customer_country?: string | null;
+  dispute_state?: string | null;
+  feature_enabled?: string | null;
+  fee_type?: string | null;
+  integration_type?: string | null;
+  presentment_currency?: string | null;
+  pricing_plan?: string | null;
+  pricing_tier?: string | null;
+  product_feature?: string | null;
+  recurring?: boolean | null;
+  billing_type?: string | null;
+  settlement_currency?: string | null;
+  settlement_timing?: string | null;
+  success?: boolean | null;
+  transaction_amount_max?: string | null;
+  transaction_amount_min?: string | null;
+  transaction_region?: string | null;
+  transaction_type?: string | null;
+  bank_account_validation?: string | null;
+  bank_transfer_type?: string | null;
 }
 
 export interface StripeMarket {
@@ -89,9 +124,7 @@ export class StripeProvider {
     const stripeRequest = request as StripeQuoteRequest;
     const market = this.markets.get(stripeRequest.account_country.toUpperCase());
     if (!market) {
-      throw new QuoteNotAvailable("Stripe market not found.", {
-        market: stripeRequest.account_country,
-      });
+      throw new UnknownMarket("stripe", stripeRequest.account_country);
     }
 
     const currency = stripeRequest.amount.currency;
@@ -271,14 +304,49 @@ function normalizeConditions(
   const topLevel: [string, unknown][] = [
     ["account_country", rule.account_country],
     ["payment_method", rule.payment_method],
-    ["payment_method_variant", null],
+    ["payment_method_variant", rule.payment_method_variant ?? null],
     ["product_id", rule.product_id],
     ["variant_id", rule.variant_id],
+    ["channel", rule.channel],
+    ["card_origin", rule.card_origin],
+    ["card_region", rule.card_region],
+    ["card_tier", rule.card_tier],
+    ["card_type", rule.card_type],
+    ["card_network", rule.card_network],
+    ["card_entry_mode", rule.card_entry_mode],
+    ["customer_country", rule.customer_country],
+    ["presentment_currency", rule.presentment_currency],
+    ["settlement_currency", rule.settlement_currency],
+    ["settlement_timing", rule.settlement_timing],
+    ["currency_conversion_required", rule.currency_conversion_required],
+    ["recurring", rule.recurring],
+    ["billing_type", rule.billing_type],
+    ["pricing_plan", rule.pricing_plan],
+    ["pricing_tier", rule.pricing_tier],
+    ["product_feature", rule.product_feature],
+    ["integration_type", rule.integration_type],
+    ["contract_length", rule.contract_length],
+    ["dispute_state", rule.dispute_state],
+    ["transaction_region", rule.transaction_region],
+    ["transaction_type", rule.transaction_type],
+    ["cross_border", rule.cross_border],
+    ["feature_enabled", rule.feature_enabled],
+    ["payer", rule.payer],
+    ["success", rule.success],
+    ["bank_account_validation", rule.bank_account_validation],
+    ["fee_type", rule.fee_type],
   ];
   for (const [dimension, value] of topLevel) {
     if (value !== undefined && value !== null) {
       conditions.push({ dimension, operator: "eq", value });
     }
+  }
+
+  if (rule.transaction_amount_min !== undefined && rule.transaction_amount_min !== null) {
+    conditions.push({ dimension: "transaction_amount", operator: "gte", value: rule.transaction_amount_min });
+  }
+  if (rule.transaction_amount_max !== undefined && rule.transaction_amount_max !== null) {
+    conditions.push({ dimension: "transaction_amount", operator: "lte", value: rule.transaction_amount_max });
   }
 
   for (const condition of rule.conditions ?? []) {
@@ -594,12 +662,14 @@ function apiFieldName(dimension: string): string {
     contract_length: "transaction.contract_length",
     dispute_state: "transaction.dispute_state",
     transaction_region: "transaction.transaction_region",
+    transaction_type: "transaction.context.transaction_type",
     cross_border: "transaction.cross_border",
     feature_enabled: "transaction.feature_enabled",
     payer: "transaction.payer",
     success: "transaction.context.success",
     bank_account_validation: "transaction.bank.validation",
     bank_transfer_type: "transaction.bank.transfer_type",
+    fee_type: "transaction.context.fee_type",
     transaction_amount: "amount.value",
   };
   return mapping[dimension] ?? `transaction.context.${dimension}`;

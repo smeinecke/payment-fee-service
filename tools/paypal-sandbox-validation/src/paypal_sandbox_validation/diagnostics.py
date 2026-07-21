@@ -790,7 +790,3 @@ def classify_de_checkout_outcome(
         "status": "under_investigation",
         "reason": "Insufficient evidence to finalize DE checkout classification.",
     }
-
-
-# expose alias
-render_markdown = _render_markdown

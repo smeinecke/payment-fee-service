@@ -1,0 +1,64 @@
+{
+  "id": "stripe-us-fee-type-dimension",
+  "description": "Stripe rule with fee_type as a top-level dimension must be supplied via transaction.context.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "US",
+            "rules": [
+              {
+                "rule_id": "stripe:US:fee-type",
+                "provider": "stripe",
+                "account_country": "US",
+                "classification_status": "calculable_rule",
+                "behavior": "base",
+                "product_id": "payments",
+                "variant_id": "standard",
+                "payment_method": "card",
+                "fee_type": "interchange",
+                "label": "Card with interchange fee type",
+                "unit": "per_transaction",
+                "fixed_currency": "USD",
+                "fee_components": [
+                  {
+                    "type": "fixed_amount",
+                    "amount": "1.00",
+                    "currency": "USD"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "account_country": "US",
+    "transaction": {
+      "product_id": "payments",
+      "variant_id": "standard",
+      "payment_method": "card"
+    }
+  },
+  "expected_result": null,
+  "expected_error": {
+    "code": "INSUFFICIENT_TRANSACTION_CONTEXT",
+    "message": "Additional transaction context is required to select an applicable fee rule.",
+    "details": {
+      "missing_fields": [
+        "transaction.context.fee_type"
+      ],
+      "provider": "stripe",
+      "market": "US"
+    }
+  }
+}

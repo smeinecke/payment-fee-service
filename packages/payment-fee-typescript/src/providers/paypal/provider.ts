@@ -3,6 +3,7 @@ import {
   AmbiguousFeeRules,
   InsufficientTransactionContext,
   QuoteNotAvailable,
+  UnknownMarket,
   UnsupportedFeeShape,
 } from "../../errors.js";
 import type { ExecutableRule } from "../../calculator.js";
@@ -241,6 +242,6 @@ export class PayPalProvider {
         return country;
       }
     }
-    throw new QuoteNotAvailable("PayPal market not found.", { market: code });
+    throw new UnknownMarket("paypal", code);
   }
 }

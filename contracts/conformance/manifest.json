@@ -3,6 +3,7 @@
   "description": "Cross-language conformance cases for payment-fee implementations.",
   "cases": [
     "cases/unknown-provider.json",
+    "cases/unknown-market.json",
     "cases/paypal-minimal-fixed.json",
     "cases/paypal-international-surcharge-gb.json",
     "cases/paypal-international-surcharge-no-region.json",
@@ -10,6 +11,7 @@
     "cases/stripe-minimal-card-us.json",
     "cases/stripe-minimum-fee-us.json",
     "cases/stripe-us-card-domestic.json",
+    "cases/stripe-us-fee-type-dimension.json",
     "cases/stripe-us-ach-direct-debit.json",
     "cases/stripe-us-link.json",
     "cases/stripe-us-alipay.json",

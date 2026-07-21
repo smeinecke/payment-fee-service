@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from paypal_sandbox_validation.models import Account, AccountType
-from paypal_sandbox_validation.redaction import mask_client_id, mask_email
 
 EXPECTED_COUNTRIES = {
     "DE",
@@ -256,14 +255,4 @@ def validate_accounts(accounts: list[Account], *, require_complete: bool = False
     }
 
 
-def summarize_accounts(accounts: list[Account]) -> dict[str, Any]:
-    merchants = [a for a in accounts if a.is_business()]
-    buyers = [a for a in accounts if a.is_personal()]
-    return {
-        "merchant_count": len(merchants),
-        "buyer_count": len(buyers),
-        "rest_credential_pairs": sum(1 for a in merchants if a.client_id and a.secret),
-        "nvp_credential_triples": sum(1 for a in merchants if a.nvp_user and a.nvp_password and a.nvp_signature),
-        "sample_merchants": [mask_client_id(a.client_id) if a.client_id else None for a in merchants[:3]],
-        "sample_buyers": [mask_email(a.primary_email_alias) for a in buyers[:3]],
-    }
+
