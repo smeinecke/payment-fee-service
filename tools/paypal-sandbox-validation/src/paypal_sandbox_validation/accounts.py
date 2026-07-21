@@ -169,10 +169,9 @@ def _validate_account_credentials(account: Account) -> None:
             raise ValueError(f"Business NVP credentials on Personal row {account.country_code}")
 
 
-def validate_accounts(accounts: list[Account], *, require_complete: bool = False) -> dict[str, Any]:
-    merchants = [a for a in accounts if a.is_business()]
-    buyers = [a for a in accounts if a.is_personal()]
-
+def _duplicate_signals(
+    accounts: list[Account], merchants: list[Account], buyers: list[Account]
+) -> tuple[list[str], set[str], set[str], set[str]]:
     merchant_countries = Counter(a.country_code for a in merchants)
     buyer_countries = Counter(a.country_code for a in buyers)
     duplicate_merchants = {c for c, n in merchant_countries.items() if n > 1}
@@ -188,34 +187,83 @@ def validate_accounts(accounts: list[Account], *, require_complete: bool = False
     nvp_users = [a.nvp_user for a in merchants if a.nvp_user]
     dup_nvp_users = {u for u, n in Counter(nvp_users).items() if n > 1}
 
+    return duplicates, dup_emails, dup_client_ids, dup_nvp_users
+
+
+def _credential_signals(
+    accounts: list[Account], merchants: list[Account], buyers: list[Account]
+) -> tuple[list[str], list[str], list[str], list[str], list[str], list[str]]:
     missing_business = [a.country_code for a in merchants if not a.client_id or not a.secret]
     missing_nvp = [a.country_code for a in merchants if not a.nvp_user or not a.nvp_password or not a.nvp_signature]
     incomplete_nvp = [a.country_code for a in merchants if _incomplete_nvp(a)]
     invalid_business = [a.country_code for a in merchants if a.client_id and a.secret and a.client_id == a.secret]
     missing_personal = [a.country_code for a in buyers if not a.password]
     unsupported = [a.country_code for a in accounts if a.country_code not in EXPECTED_COUNTRIES]
+    return missing_business, missing_nvp, incomplete_nvp, invalid_business, missing_personal, unsupported
 
-    merchant_set = set(merchant_countries)
-    buyer_set = set(buyer_countries)
-    missing_merchants = EXPECTED_COUNTRIES - merchant_set
-    missing_buyers = EXPECTED_COUNTRIES - buyer_set
 
-    invalid_merchant_countries: set[str] = set()
-    invalid_merchant_countries.update(duplicate_merchants)
-    invalid_merchant_countries.update(missing_business)
-    invalid_merchant_countries.update(missing_nvp)
-    invalid_merchant_countries.update(incomplete_nvp)
-    invalid_merchant_countries.update(invalid_business)
+def _aggregate_invalid_merchants(
+    merchants: list[Account],
+    duplicate_merchants: set[str],
+    dup_emails: set[str],
+    dup_client_ids: set[str],
+    dup_nvp_users: set[str],
+    missing_business: list[str],
+    missing_nvp: list[str],
+    incomplete_nvp: list[str],
+    invalid_business: list[str],
+) -> set[str]:
+    invalid: set[str] = set()
+    invalid.update(duplicate_merchants)
+    invalid.update(missing_business)
+    invalid.update(missing_nvp)
+    invalid.update(incomplete_nvp)
+    invalid.update(invalid_business)
     for a in merchants:
         if a.client_id in dup_client_ids or a.nvp_user in dup_nvp_users or a.primary_email_alias in dup_emails:
-            invalid_merchant_countries.add(a.country_code)
+            invalid.add(a.country_code)
+    return invalid
 
-    invalid_buyer_countries: set[str] = set()
-    invalid_buyer_countries.update(duplicate_buyers)
-    invalid_buyer_countries.update(missing_personal)
+
+def _aggregate_invalid_buyers(
+    buyers: list[Account], duplicate_buyers: set[str], dup_emails: set[str], missing_personal: list[str]
+) -> set[str]:
+    invalid: set[str] = set()
+    invalid.update(duplicate_buyers)
+    invalid.update(missing_personal)
     for a in buyers:
         if a.primary_email_alias in dup_emails:
-            invalid_buyer_countries.add(a.country_code)
+            invalid.add(a.country_code)
+    return invalid
+
+
+def validate_accounts(accounts: list[Account], *, require_complete: bool = False) -> dict[str, Any]:
+    merchants = [a for a in accounts if a.is_business()]
+    buyers = [a for a in accounts if a.is_personal()]
+
+    duplicates, dup_emails, dup_client_ids, dup_nvp_users = _duplicate_signals(accounts, merchants, buyers)
+    credential_signals = _credential_signals(accounts, merchants, buyers)
+    missing_business, missing_nvp, incomplete_nvp, invalid_business, missing_personal, unsupported = credential_signals
+
+    merchant_countries = Counter(a.country_code for a in merchants)
+    buyer_countries = Counter(a.country_code for a in buyers)
+    duplicate_merchants = {c for c, n in merchant_countries.items() if n > 1}
+    duplicate_buyers = {c for c, n in buyer_countries.items() if n > 1}
+    missing_merchants = EXPECTED_COUNTRIES - set(merchant_countries)
+    missing_buyers = EXPECTED_COUNTRIES - set(buyer_countries)
+
+    invalid_merchant_countries = _aggregate_invalid_merchants(
+        merchants,
+        duplicate_merchants,
+        dup_emails,
+        dup_client_ids,
+        dup_nvp_users,
+        missing_business,
+        missing_nvp,
+        incomplete_nvp,
+        invalid_business,
+    )
+    invalid_buyer_countries = _aggregate_invalid_buyers(buyers, duplicate_buyers, dup_emails, missing_personal)
 
     invalid_account_reasons = [
         duplicates,
