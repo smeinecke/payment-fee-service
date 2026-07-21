@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, overload
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -15,6 +15,14 @@ def _normalize_confidence(value: Any) -> Any:
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return value
+
+
+@overload
+def normalize_currency(value: str) -> str: ...
+
+
+@overload
+def normalize_currency(value: None) -> None: ...
 
 
 def normalize_currency(value: str | None) -> str | None:

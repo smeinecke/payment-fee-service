@@ -914,7 +914,7 @@ def _case_observation_fixture(case: Case) -> dict[str, Any] | None:
     if case.status != CaseStatus.RECONCILED:
         return None
     rec = case.reconciliation or {}
-    if rec.get("status") != "match":
+    if rec.get("status") != ReconciliationStatus.MATCH:
         return None
     validation = validate_case_constraints(case)
     if not validation["valid"]:
@@ -950,7 +950,7 @@ def _case_observation_fixture(case: Case) -> dict[str, Any] | None:
         ],
         "data_revision": quote.get("data", {}).get("content_sha256"),
         "crawler_revision": quote.get("data", {}).get("data_ref"),
-        "result": "match",
+        "result": ReconciliationStatus.MATCH,
         "validation_run_id": case.run_id,
     }
 

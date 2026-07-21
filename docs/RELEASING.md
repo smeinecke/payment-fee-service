@@ -22,4 +22,4 @@ Same major/minor version means the same public JSON contract and intended calcul
 
 ## Dataset versioning
 
-Provider data revisions should be pinned in the service configuration and in conformance cases. GitHub Actions checks out the pinned revisions for reproducible CI.
+Provider data revisions are pinned in `contracts/data-revisions.json`. Update this file when the conformance cases or contract audit are validated against new data commits. The `resolve-data-revisions` CI job reads this file and checks out the exact SHAs for reproducible builds.

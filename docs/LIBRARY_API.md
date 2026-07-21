@@ -83,11 +83,9 @@ engine = PaymentFeeEngine.from_documents(
     stripe={
         "core": core_doc,
         "index": index_doc,
-        "payment_methods": pm_doc,
         "schemas": {
             "core": core_schema,
             "index": index_schema,
-            "payment_methods": pm_schema,
         },
     },
     validate=True,

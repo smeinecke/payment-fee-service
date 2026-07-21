@@ -28,7 +28,10 @@ class JsonDataSource:
             return (self.location.local_path / relative_path).read_bytes()
         if not self.location.base_url:
             raise FileNotFoundError(f"No data source configured for {self.location.provider}")
-        url = f"{self.location.base_url.rstrip('/')}/{relative_path.lstrip('/')}"
+        base_url = self.location.base_url
+        if "{data_ref}" in base_url:
+            base_url = base_url.replace("{data_ref}", self.location.data_ref or "main")
+        url = f"{base_url.rstrip('/')}/{relative_path.lstrip('/')}"
         with httpx.Client(timeout=self.timeout_seconds, follow_redirects=True) as client:
             response = client.get(url)
             response.raise_for_status()

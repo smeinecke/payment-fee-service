@@ -21,27 +21,30 @@ jobs:
   resolve-data-revisions:
     runs-on: ubuntu-latest
     outputs:
-      paypal_sha: ${{ steps.paypal.outputs.sha }}
-      stripe_sha: ${{ steps.stripe.outputs.sha }}
+      paypal_sha: ${{ steps.resolve.outputs.paypal_sha }}
+      stripe_sha: ${{ steps.resolve.outputs.stripe_sha }}
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - id: resolve
+        run: |
+          echo "paypal_sha=$(jq -r '.revisions.paypal.ref' contracts/data-revisions.json)" >> "$GITHUB_OUTPUT"
+          echo "stripe_sha=$(jq -r '.revisions.stripe.ref' contracts/data-revisions.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/paypal-fee-data
           path: paypal-fee-data
+          ref: ${{ steps.resolve.outputs.paypal_sha }}
           fetch-depth: 0
-      - id: paypal
-        run: echo "sha=$(cd paypal-fee-data && git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: smeinecke/stripe-fee-data
           path: stripe-fee-data
+          ref: ${{ steps.resolve.outputs.stripe_sha }}
           fetch-depth: 0
-      - id: stripe
-        run: echo "sha=$(cd stripe-fee-data && git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Print resolved data revisions
         run: |
-          echo "PayPal data commit: ${{ steps.paypal.outputs.sha }}"
-          echo "Stripe data commit: ${{ steps.stripe.outputs.sha }}"
+          echo "PayPal data commit: ${{ steps.resolve.outputs.paypal_sha }}"
+          echo "Stripe data commit: ${{ steps.resolve.outputs.stripe_sha }}"
 
   python:
     runs-on: ubuntu-latest

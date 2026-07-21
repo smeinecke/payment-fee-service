@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
@@ -22,7 +21,6 @@ from payment_fee.providers.stripe.models import (
     StripeFeeComponent,
     StripeIndex,
     StripeIndexMarket,
-    StripePaymentMethods,
     StripeRule,
 )
 from payment_fee.rules import CompiledFeePlan, ExecutableFeeRule
@@ -146,6 +144,7 @@ def _normalize_conditions(rule: StripeRule) -> list[NormalizedCondition]:
         ("payer", rule.payer),
         ("success", rule.success),
         ("bank_account_validation", getattr(rule, "bank_account_validation", None)),
+        ("bank_transfer_type", rule.bank_transfer_type),
         ("fee_type", rule.fee_type),
     ]
 
@@ -202,12 +201,6 @@ def _evaluate_condition(
 
 def _condition_matches(condition: NormalizedCondition, context: dict[str, Any]) -> bool:
     return _evaluate_condition(condition, context) == "match"
-
-
-def _condition_status(
-    condition: NormalizedCondition, context: dict[str, Any]
-) -> Literal["match", "conflict", "missing"]:
-    return _evaluate_condition(condition, context)
 
 
 def _values_equal(left: Any, right: Any) -> bool:
@@ -459,12 +452,10 @@ class StripeProvider:
         self,
         core: StripeCoreFees,
         index: StripeIndex | None = None,
-        payment_methods: StripePaymentMethods | None = None,
         data_ref: str | None = None,
     ) -> None:
         self.core = core
         self.index = index
-        self.payment_methods = payment_methods
         self.data_ref = data_ref
         self._markets = {m.account_country.upper(): m for m in core.markets}
         self._index_map: dict[str, StripeIndexMarket] = {}
@@ -481,9 +472,6 @@ class StripeProvider:
         core_path = load_json(f"{path}/json/core-fees.json")
         index_path = load_json(f"{path}/json/index.json")
         index_path = _sanitize_index_document(index_path)
-        payment_methods_path = None
-        with contextlib.suppress(Exception):
-            payment_methods_path = load_json(f"{path}/json/payment-methods.json")
         if validate_schema:
             from payment_fee.data import validate_json_schema
 
@@ -491,20 +479,12 @@ class StripeProvider:
             if index_path is None:
                 raise ProviderDataUnavailable("stripe", "index.json is missing or empty")
             validate_json_schema(index_path, f"{path}/schemas/index-v1.schema.json", "stripe-index")
-            if payment_methods_path:
-                validate_json_schema(
-                    payment_methods_path,
-                    f"{path}/schemas/payment-methods-v1.schema.json",
-                    "stripe-payment-methods",
-                )
         core = StripeCoreFees.model_validate(core_path)
         index = StripeIndex.model_validate(index_path)
-        payment_methods = StripePaymentMethods.model_validate(payment_methods_path) if payment_methods_path else None
         _check_schema_version(core, SUPPORTED_SCHEMA_VERSIONS, "Stripe")
         return cls(
             core=core,
             index=index,
-            payment_methods=payment_methods,
             data_ref=data_ref,
         )
 
@@ -513,7 +493,6 @@ class StripeProvider:
         cls,
         core: dict[str, Any],
         index: dict[str, Any] | None = None,
-        payment_methods: dict[str, Any] | None = None,
         schemas: dict[str, Any] | None = None,
         data_ref: str | None = None,
         validate_schema: bool = False,
@@ -538,21 +517,12 @@ class StripeProvider:
                         schema="index",
                     )
                 validate_json_schema(index_document, schemas["index"], "stripe-index")
-            if payment_methods is not None:
-                if schemas is None or "payment_methods" not in schemas:
-                    raise DatasetValidationError(
-                        "Stripe payment-methods schema is required for document validation.",
-                        schema="payment_methods",
-                    )
-                validate_json_schema(payment_methods, schemas["payment_methods"], "stripe-payment-methods")
         core_model = StripeCoreFees.model_validate(core_document)
         index_model = StripeIndex.model_validate(index_document) if index_document else None
-        payment_methods_model = StripePaymentMethods.model_validate(payment_methods) if payment_methods else None
         _check_schema_version(core_model, SUPPORTED_SCHEMA_VERSIONS, "Stripe")
         return cls(
             core=core_model,
             index=index_model,
-            payment_methods=payment_methods_model,
             data_ref=data_ref,
         )
 
@@ -573,7 +543,7 @@ class StripeProvider:
             conflict = False
             missing: list[str] = []
             for condition in conditions:
-                status = _condition_status(condition, context)
+                status = _evaluate_condition(condition, context)
                 if status == "conflict":
                     conflict = True
                     break
@@ -692,9 +662,7 @@ class StripeProvider:
 
         full_matches, missing_matches = self._match_candidates(market.rules, context)
         self._require_any_full_match(full_matches, missing_matches, request.account_country)
-        _, max_full_spec = self._require_evaluable_most_specific(
-            full_matches, request.account_country
-        )
+        _, max_full_spec = self._require_evaluable_most_specific(full_matches, request.account_country)
         self._check_no_more_specific_missing(missing_matches, max_full_spec, request.account_country)
         selected_base = self._select_base_rule(full_matches, currency, request.account_country)
 
@@ -747,7 +715,7 @@ class StripeProvider:
             payment_method_missing = False
             conflict = False
             for condition in conditions:
-                status = _condition_status(condition, context)
+                status = _evaluate_condition(condition, context)
                 if status == "conflict":
                     conflict = True
                     break

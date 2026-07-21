@@ -220,7 +220,7 @@ class QuoteResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: str
-    status: Literal["exact_for_public_rate", "estimated", "range", "included", "not_calculable"]
+    status: Literal["exact_for_public_rate", "estimated", "range", "included"]
     amount: Money
     processing_fee: Money
     net_amount: Money

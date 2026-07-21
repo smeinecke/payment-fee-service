@@ -273,6 +273,7 @@ final class StripeProvider implements ProviderInterface
             ['payer', $rule['payer'] ?? null],
             ['success', $rule['success'] ?? null],
             ['bank_account_validation', $rule['bank_account_validation'] ?? null],
+            ['bank_transfer_type', $rule['bank_transfer_type'] ?? null],
             ['fee_type', $rule['fee_type'] ?? null],
         ];
 

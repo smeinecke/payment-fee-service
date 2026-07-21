@@ -152,11 +152,9 @@ def load_documents(paypal_data: Path | None, stripe_data: Path | None) -> dict[s
         documents["stripe"] = {
             "core": json.loads((stripe_data / "json" / "core-fees.json").read_text()),
             "index": json.loads((stripe_data / "json" / "index.json").read_text()),
-            "payment_methods": _load_optional_json(stripe_data / "json" / "payment-methods.json"),
             "schemas": {
                 "core": json.loads((stripe_data / "schemas" / "core-fees-v1.schema.json").read_text()),
                 "index": json.loads((stripe_data / "schemas" / "index-v1.schema.json").read_text()),
-                "payment_methods": _load_optional_json(stripe_data / "schemas" / "payment-methods-v1.schema.json"),
             },
         }
     return documents

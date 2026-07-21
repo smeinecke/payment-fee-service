@@ -362,7 +362,7 @@ def _find_persisted_reusable_case(case: Case) -> dict[str, Any] | None:
             continue
         if old.amount != case.amount or old.currency != case.currency:
             continue
-        if (old.reconciliation or {}).get("status") != "match":
+        if (old.reconciliation or {}).get("status") != ReconciliationStatus.MATCH:
             continue
         if (old.reconciliation or {}).get("delta_minor_units") != 0:
             continue
@@ -733,10 +733,10 @@ def run_manual_plan(
             if (
                 rec.get("status")
                 in {
-                    "fee_mismatch",
-                    "net_amount_mismatch",
-                    "currency_mismatch",
-                    "buyer_country_mismatch",
+                    ReconciliationStatus.FEE_MISMATCH,
+                    ReconciliationStatus.NET_AMOUNT_MISMATCH,
+                    ReconciliationStatus.CURRENCY_MISMATCH,
+                    ReconciliationStatus.BUYER_COUNTRY_MISMATCH,
                 }
                 and stop_after_first_mismatch
             ):

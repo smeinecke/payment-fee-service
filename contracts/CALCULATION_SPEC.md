@@ -80,7 +80,7 @@ If a rule uses a fee shape that is not supported by the calculator (e.g. recurri
 
 ## Recurring and billing
 
-Recurring fees (`unit = monthly`) and per-event fees (`per_authorization`, `per_attempt`, `per_dispute`) are preserved in the `unit` field. If the fee shape cannot be reduced to a single transaction fee, the status is `not_calculable` or `range` and `UnsupportedFeeShape` is raised where appropriate.
+Recurring fees (`unit = monthly`) and per-event fees (`per_authorization`, `per_attempt`, `per_dispute`) are preserved in the `unit` field. If the fee shape cannot be reduced to a single transaction fee, the status is `range` and `UnsupportedFeeShape` is raised where appropriate.
 
 ## Currency conversion surcharge
 

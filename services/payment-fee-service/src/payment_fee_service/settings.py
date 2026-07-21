@@ -38,10 +38,10 @@ class JsonConfigSettingsSource(PydanticBaseSettingsSource):
 def _default_providers() -> dict[str, ProviderSettings]:
     return {
         "paypal": ProviderSettings(
-            data_url="https://raw.githubusercontent.com/smeinecke/paypal-fee-data/main",
+            data_url="https://raw.githubusercontent.com/smeinecke/paypal-fee-data/{data_ref}",
         ),
         "stripe": ProviderSettings(
-            data_url="https://raw.githubusercontent.com/smeinecke/stripe-fee-data/main",
+            data_url="https://raw.githubusercontent.com/smeinecke/stripe-fee-data/{data_ref}",
         ),
     }
 

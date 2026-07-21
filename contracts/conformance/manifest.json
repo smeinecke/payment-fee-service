@@ -21,6 +21,7 @@
     "cases/stripe-us-klarna.json",
     "cases/stripe-us-sepa-direct-debit.json",
     "cases/stripe-us-bank-transfer.json",
+    "cases/stripe-us-bank-transfer-type.json",
     "cases/stripe-us-cash-app-pay.json",
     "cases/stripe-us-cash-app-afterpay.json",
     "cases/stripe-us-zip.json",

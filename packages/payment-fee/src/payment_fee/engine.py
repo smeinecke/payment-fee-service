@@ -73,13 +73,11 @@ class PaymentFeeEngine:
             else:
                 core = stripe.get("core") or stripe
                 index = stripe.get("index")
-                payment_methods = stripe.get("payment_methods")
                 schemas = stripe.get("schemas")
                 registry.register(
                     StripeProvider.from_documents(
                         core=core,
                         index=index,
-                        payment_methods=payment_methods,
                         schemas=schemas,
                         data_ref="documents",
                         validate_schema=validate,

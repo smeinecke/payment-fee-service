@@ -98,6 +98,7 @@ class StripeRule(BaseModel):
     transaction_type: str | None = None
     payment_method_variant: str | None = None
     bank_account_validation: str | None = None
+    bank_transfer_type: str | None = None
 
 
 class StripeMarketEntry(BaseModel):
@@ -141,30 +142,3 @@ class StripeIndex(BaseModel):
     schema_version: int = 1
     generated_at: str | None = None
     markets: list[StripeIndexMarket] = Field(default_factory=list)
-
-
-class StripePaymentMethodName(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    language: str
-    name: str
-
-
-class StripePaymentMethodEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    method_id: str
-    family: str
-    display_name: str
-    fee_rule_refs: list[str] = Field(default_factory=list)
-    localized_names: list[StripePaymentMethodName] = Field(default_factory=list)
-    source_refs: list[str] = Field(default_factory=list)
-    supported_account_countries: list[str] = Field(default_factory=list)
-
-
-class StripePaymentMethods(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: int = 1
-    generated_at: str | None = None
-    methods: list[StripePaymentMethodEntry] = Field(default_factory=list)

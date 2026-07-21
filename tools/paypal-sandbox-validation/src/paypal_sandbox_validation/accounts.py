@@ -301,6 +301,3 @@ def validate_accounts(accounts: list[Account], *, require_complete: bool = False
         "missing_buyers": sorted(missing_buyers),
         "valid": not any(invalid_account_reasons),
     }
-
-
-

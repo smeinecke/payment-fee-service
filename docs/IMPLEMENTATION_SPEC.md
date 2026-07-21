@@ -21,7 +21,7 @@ Runtime calculation input is `json/core-fees.json`. `json/index.json` supplies i
 
 ### Stripe
 
-Runtime calculation input is `json/core-fees.json`. `json/payment-methods.json` supports discovery. `json/index.json` supplies integrity and provenance. Per-market documents remain diagnostic artifacts.
+Runtime calculation input is `json/core-fees.json`. `json/index.json` supplies integrity and provenance. Per-market documents remain diagnostic artifacts.
 
 ## Public contract
 

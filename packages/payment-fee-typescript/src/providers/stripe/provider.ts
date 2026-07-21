@@ -104,11 +104,6 @@ export interface StripeIndex {
   markets?: StripeIndexMarket[];
 }
 
-export interface StripePaymentMethods {
-  schema_version?: number;
-  methods?: unknown[];
-}
-
 const EVALUABLE_CLASSIFICATION_STATUSES = new Set(["calculable_rule", "free", "included"]);
 
 export class StripeProvider {
@@ -334,6 +329,7 @@ function normalizeConditions(
     ["payer", rule.payer],
     ["success", rule.success],
     ["bank_account_validation", rule.bank_account_validation],
+    ["bank_transfer_type", rule.bank_transfer_type],
     ["fee_type", rule.fee_type],
   ];
   for (const [dimension, value] of topLevel) {
@@ -343,10 +339,18 @@ function normalizeConditions(
   }
 
   if (rule.transaction_amount_min !== undefined && rule.transaction_amount_min !== null) {
-    conditions.push({ dimension: "transaction_amount", operator: "gte", value: rule.transaction_amount_min });
+    conditions.push({
+      dimension: "transaction_amount",
+      operator: "gte",
+      value: rule.transaction_amount_min,
+    });
   }
   if (rule.transaction_amount_max !== undefined && rule.transaction_amount_max !== null) {
-    conditions.push({ dimension: "transaction_amount", operator: "lte", value: rule.transaction_amount_max });
+    conditions.push({
+      dimension: "transaction_amount",
+      operator: "lte",
+      value: rule.transaction_amount_max,
+    });
   }
 
   for (const condition of rule.conditions ?? []) {

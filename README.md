@@ -144,10 +144,8 @@ PayPal
 Stripe
   json/core-fees.json
   json/index.json
-  json/payment-methods.json
   schemas/core-fees-v1.schema.json
   schemas/index-v1.schema.json
-  schemas/payment-methods-v1.schema.json
 ```
 
 ## Run
@@ -458,7 +456,6 @@ See `docs/IMPLEMENTATION_SPEC.md` and `docs/ADDING_A_PROVIDER.md`.
 | PayPal   | index           | 1                  |
 | Stripe   | core-fees       | 1                  |
 | Stripe   | index           | 1                  |
-| Stripe   | payment-methods | 1                  |
 
 See `contracts/dataset-support.json`.
 

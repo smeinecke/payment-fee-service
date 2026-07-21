@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "description": "Pinned data repository revisions used to validate conformance and contracts.",
+  "revisions": {
+    "paypal": {
+      "repo": "smeinecke/paypal-fee-data",
+      "ref": "5f9d0224bc529b53fb9d20852fce57e897666627"
+    },
+    "stripe": {
+      "repo": "smeinecke/stripe-fee-data",
+      "ref": "f9a36533f3bcb70d58505ceeae63ec8c119c0e6b"
+    }
+  }
+}

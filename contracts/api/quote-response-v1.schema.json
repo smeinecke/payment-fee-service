@@ -100,7 +100,7 @@
     "provider": { "type": "string" },
     "status": {
       "type": "string",
-      "enum": ["exact_for_public_rate", "estimated", "range", "included", "not_calculable"]
+      "enum": ["exact_for_public_rate", "estimated", "range", "included"]
     },
     "amount": { "$ref": "#/$defs/Money" },
     "processing_fee": { "$ref": "#/$defs/Money" },

@@ -5,7 +5,6 @@
   },
   "stripe": {
     "core-fees": [1],
-    "index": [1],
-    "payment-methods": [1]
+    "index": [1]
   }
 }

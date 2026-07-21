@@ -317,7 +317,10 @@ def save_summary_markdown(run_id: str, summary: dict[str, Any], csv_path: str | 
             )
 
     mismatches = [
-        c for c in summary["cases"] if c.get("reconciliation_status") in {"fee_mismatch", "net_amount_mismatch"}
+        c
+        for c in summary["cases"]
+        if c.get("reconciliation_status")
+        in {ReconciliationStatus.FEE_MISMATCH, ReconciliationStatus.NET_AMOUNT_MISMATCH}
     ]
     if mismatches:
         lines.extend(

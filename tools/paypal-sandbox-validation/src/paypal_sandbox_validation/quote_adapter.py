@@ -14,6 +14,7 @@ from paypal_sandbox_validation.configuration import (
     get_standard_wallet_scenario,
     load_scenarios,
 )
+from paypal_sandbox_validation.models import ReconciliationStatus
 
 # Broad payer-region groupings used by the PayPal fee dataset.
 EEA_COUNTRIES = {
@@ -103,7 +104,7 @@ class QuoteAdapter:
         if not fallback:
             raise QuoteResolutionError(
                 f"Manual send scenario {product_id}/{variant_id} is not calculable for {merchant_country}",
-                status="account_capability_unavailable",
+                status=ReconciliationStatus.ACCOUNT_CAPABILITY_UNAVAILABLE,
             )
         # Fallback to a calculable wallet-like product/variant (only for non-manual flows).
         products = ["paypal_checkout", "other_commercial", "goods_and_services"]
@@ -190,7 +191,7 @@ class QuoteAdapter:
         if not scenario:
             raise QuoteResolutionError(
                 f"No calculable standard wallet scenario for {merchant_country}",
-                status="account_capability_unavailable",
+                status=ReconciliationStatus.ACCOUNT_CAPABILITY_UNAVAILABLE,
             )
         product_id = scenario["product_id"]
         variant_id = scenario["variant_id"]
@@ -343,17 +344,17 @@ def _country_to_region(country: str, schedule_regions: set[str]) -> str | None:
     return None
 
 
-def _map_library_error(exc: Exception) -> str:
+def _map_library_error(exc: Exception) -> ReconciliationStatus:
     name = type(exc).__name__
     if name in {"InsufficientTransactionContext"}:
-        return "library_missing_context"
+        return ReconciliationStatus.LIBRARY_MISSING_CONTEXT
     if name in {"AmbiguousFeeRules"}:
-        return "library_ambiguous"
-    return "library_not_calculable"
+        return ReconciliationStatus.LIBRARY_AMBIGUOUS
+    return ReconciliationStatus.LIBRARY_NOT_CALCULABLE
 
 
 class QuoteResolutionError(Exception):
-    def __init__(self, message: str, status: str) -> None:
+    def __init__(self, message: str, status: ReconciliationStatus) -> None:
         super().__init__(message)
         self.status = status
 

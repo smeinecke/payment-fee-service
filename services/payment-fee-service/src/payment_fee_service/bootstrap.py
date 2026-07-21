@@ -7,22 +7,13 @@ from payment_fee_service.data.source import DataLocation, JsonDataSource
 from payment_fee_service.settings import Settings
 
 
-def _load_provider_documents(source: JsonDataSource, validate: bool, provider: str) -> dict[str, dict]:
+def _load_provider_documents(source: JsonDataSource, validate: bool) -> dict[str, dict]:
     core = source.read_json("json/core-fees.json")
     index = source.read_json("json/index.json")
     if validate:
         source.validate(core, "schemas/core-fees-v1.schema.json")
         source.validate(index, "schemas/index-v1.schema.json")
-    docs: dict[str, dict] = {"core": core, "index": index}
-    if provider == "stripe":
-        try:
-            payment_methods = source.read_json("json/payment-methods.json")
-            if validate:
-                source.validate(payment_methods, "schemas/payment-methods-v1.schema.json")
-            docs["payment_methods"] = payment_methods
-        except FileNotFoundError:
-            pass
-    return docs
+    return {"core": core, "index": index}
 
 
 def build_engine(settings: Settings, fail_on_error: bool | None = None) -> PaymentFeeEngine:
@@ -44,7 +35,7 @@ def build_engine(settings: Settings, fail_on_error: bool | None = None) -> Payme
                 ),
                 settings.http_timeout_seconds,
             )
-            docs = _load_provider_documents(source, settings.validate_json_schema, provider_id)
+            docs = _load_provider_documents(source, settings.validate_json_schema)
             if provider_id == "paypal":
                 paypal_docs = docs
             elif provider_id == "stripe":

@@ -14,8 +14,7 @@ All implementations consume the same provider datasets. The adapter layer transl
   },
   "stripe": {
     "core-fees": [1],
-    "index": [1],
-    "payment-methods": [1]
+    "index": [1]
   }
 }
 ```
@@ -65,17 +64,13 @@ paypal-fee-data/
 stripe-fee-data/
   json/core-fees.json
   json/index.json
-  json/payment-methods.json
   schemas/core-fees-v1.schema.json
   schemas/index-v1.schema.json
-  schemas/payment-methods-v1.schema.json
 ```
 
 `core-fees.json` contains an array of market entries. Each entry has `account_country`, `rules`, and coverage metadata.
 
 `index.json` contains metadata for each market.
-
-`payment-methods.json` contains localized payment method metadata and rule references.
 
 ## Schedule registry (PayPal)
 

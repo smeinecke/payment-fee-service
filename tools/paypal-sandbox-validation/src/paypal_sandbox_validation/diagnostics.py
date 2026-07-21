@@ -13,7 +13,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
-from .models import Case
+from .models import Case, QualificationStatus, ReconciliationStatus
 from .numeric import _decimal
 from .persistence import load_case, load_results, run_dir
 from .quote_adapter import currency_exponent, minor_units, quantize_currency
@@ -54,17 +54,17 @@ def validate_case_constraints(case: Case) -> dict[str, Any]:
 
     if evidence.get("status") != "COMPLETED":
         result["valid"] = False
-        result["classification"] = "paypal_api_failure"
+        result["classification"] = ReconciliationStatus.PAYPAL_API_FAILURE.value
         return result
 
     if case.buyer_country and observed_country != case.buyer_country:
         result["valid"] = False
-        result["classification"] = "buyer_country_mismatch"
+        result["classification"] = ReconciliationStatus.BUYER_COUNTRY_MISMATCH.value
         return result
 
     if gross.get("currency_code") != fee.get("currency_code") or gross.get("currency_code") != net.get("currency_code"):
         result["valid"] = False
-        result["classification"] = "excluded_fx_case"
+        result["classification"] = ReconciliationStatus.EXCLUDED_FX_CASE.value
         return result
 
     gross_value = _decimal(gross.get("value"))
@@ -125,9 +125,7 @@ def _decompose_library_base(
     return library_base_pct_amount, library_base_total
 
 
-def _decompose_library_surcharge(
-    gross: Decimal | None, surcharge_pct: Decimal | None, currency: str
-) -> Decimal | None:
+def _decompose_library_surcharge(gross: Decimal | None, surcharge_pct: Decimal | None, currency: str) -> Decimal | None:
     if gross is None or surcharge_pct is None:
         return None
     return quantize_currency(gross * surcharge_pct / Decimal(100), currency)
@@ -209,9 +207,7 @@ def decompose_case(case: Case) -> dict[str, Any]:
     library_fee = _decimal(quote.get("processing_fee", {}).get("value"))
     min_applied = any(c.get("minimum_applied") for c in components)
     max_applied = any(c.get("maximum_applied") for c in components)
-    rounding_point = _infer_rounding_point(
-        gross, base_pct, fixed, surcharge_pct, total_before_cap, currency
-    )
+    rounding_point = _infer_rounding_point(gross, base_pct, fixed, surcharge_pct, total_before_cap, currency)
 
     return {
         "paypal": {
@@ -586,9 +582,7 @@ def classify_root_cause(
     obs_pct, obs_fixed = _extract_observed_pct_fixed(formula)
 
     if formula.get("stable_linear_formula_found"):
-        return _classify_from_stable_formula(
-            obs_pct, obs_fixed, library_pct, library_fixed, library_surcharge_pct
-        )
+        return _classify_from_stable_formula(obs_pct, obs_fixed, library_pct, library_fixed, library_surcharge_pct)
 
     single = _classify_from_single_observation(
         paypal_fee, library_total, decomposition["library_base"]["total"], library_surcharge_pct, currency
@@ -796,7 +790,7 @@ def classify_de_checkout_outcome(
     """
     if not association_verified:
         return {
-            "status": "rest_credentials_merchant_mismatch",
+            "status": QualificationStatus.REST_CREDENTIALS_MISMATCH,
             "reason": "REST order payee does not match the configured DE Business account.",
         }
 
@@ -811,7 +805,7 @@ def classify_de_checkout_outcome(
     # If one payload variant works and the other does not, the payload form is the differentiator.
     if len(playwright_results) > 1 and some_variant_passed and not all_variants_failed:
         return {
-            "status": "orders_v2_payload_defect",
+            "status": QualificationStatus.ORDERS_V2_PAYLOAD_DEFECT,
             "reason": "One Orders v2 payload variant succeeded while another failed.",
         }
 
@@ -820,13 +814,13 @@ def classify_de_checkout_outcome(
 
     if manual_order_status == "approved" and playwright_approved:
         return {
-            "status": "transient_sandbox_error",
+            "status": QualificationStatus.TRANSIENT_SANDBOX_ERROR,
             "reason": "Manual and Playwright Orders v2 approvals both succeeded; previous failure was transient.",
         }
 
     if manual_order_status == "approved" and not playwright_approved:
         return {
-            "status": "playwright_automation_defect",
+            "status": QualificationStatus.PLAYWRIGHT_AUTOMATION_DEFECT,
             "reason": "Manual Orders v2 approval succeeded, but Playwright approval failed.",
         }
 
@@ -840,20 +834,20 @@ def classify_de_checkout_outcome(
     if all_variants_failed or manual_order_status in {"failed", "timeout"}:
         if send_money_succeeded and send_money_type != "friends/family" and compliance_issue:
             return {
-                "status": "sandbox_checkout_limitation",
+                "status": QualificationStatus.SANDBOX_CHECKOUT_LIMITATION,
                 "reason": "Send Money works, but Orders v2 checkout is blocked by a PayPal compliance restriction.",
             }
         if compliance_issue:
             return {
-                "status": "account_configuration_difference",
+                "status": ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE,
                 "reason": "PayPal returned a compliance violation on Orders v2 checkout.",
             }
         return {
-            "status": "sandbox_checkout_limitation",
+            "status": QualificationStatus.SANDBOX_CHECKOUT_LIMITATION,
             "reason": "Orders v2 checkout failed and no payload or automation layer explains it.",
         }
 
     return {
-        "status": "under_investigation",
+        "status": QualificationStatus.UNDER_INVESTIGATION,
         "reason": "Insufficient evidence to finalize DE checkout classification.",
     }

@@ -29,7 +29,6 @@ def _stripe_schemas() -> dict[str, Any]:
     return {
         "core": _load_json(STRIPE_DATA / "schemas/core-fees-v1.schema.json"),
         "index": _load_json(STRIPE_DATA / "schemas/index-v1.schema.json"),
-        "payment_methods": _load_json(STRIPE_DATA / "schemas/payment-methods-v1.schema.json"),
     }
 
 
@@ -59,12 +58,10 @@ def test_paypal_provider_from_documents_validate_true_with_schemas() -> None:
 def test_stripe_provider_from_documents_validate_true_requires_schemas() -> None:
     core = _load_json(STRIPE_DATA / "json/core-fees.json")
     index = _load_json(STRIPE_DATA / "json/index.json")
-    payment_methods = _load_json(STRIPE_DATA / "json/payment-methods.json")
     with pytest.raises(DatasetValidationError) as exc:
         StripeProvider.from_documents(
             core=core,
             index=index,
-            payment_methods=payment_methods,
             validate_schema=True,
         )
     assert "core schema is required" in str(exc.value).lower()
@@ -74,11 +71,9 @@ def test_stripe_provider_from_documents_validate_true_requires_schemas() -> None
 def test_stripe_provider_from_documents_validate_true_with_schemas() -> None:
     core = _load_json(STRIPE_DATA / "json/core-fees.json")
     index = _load_json(STRIPE_DATA / "json/index.json")
-    payment_methods = _load_json(STRIPE_DATA / "json/payment-methods.json")
     provider = StripeProvider.from_documents(
         core=core,
         index=index,
-        payment_methods=payment_methods,
         schemas=_stripe_schemas(),
         validate_schema=True,
     )
@@ -94,7 +89,6 @@ def test_engine_from_documents_validate_true() -> None:
     paypal_index = _load_json(PAYPAL_DATA / "json/index.json")
     stripe_core = _load_json(STRIPE_DATA / "json/core-fees.json")
     stripe_index = _load_json(STRIPE_DATA / "json/index.json")
-    stripe_payment_methods = _load_json(STRIPE_DATA / "json/payment-methods.json")
     engine = PaymentFeeEngine.from_documents(
         paypal={
             "core": paypal_core,
@@ -104,7 +98,6 @@ def test_engine_from_documents_validate_true() -> None:
         stripe={
             "core": stripe_core,
             "index": stripe_index,
-            "payment_methods": stripe_payment_methods,
             "schemas": _stripe_schemas(),
         },
         validate=True,

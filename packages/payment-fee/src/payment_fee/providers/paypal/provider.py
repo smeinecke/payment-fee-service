@@ -700,9 +700,7 @@ class PayPalProvider:
         most_specific = [rule for rule, score in specificities if abs(score - max_specificity) < 1e-9]
 
         if len(most_specific) > 1:
-            signatures = {
-                _rule_signature(r, schedule_registry, currency, payer_region) for r in most_specific
-            }
+            signatures = {_rule_signature(r, schedule_registry, currency, payer_region) for r in most_specific}
             if len(signatures) > 1:
                 raise AmbiguousFeeRules(
                     [r.id for r in most_specific],
@@ -749,12 +747,8 @@ class PayPalProvider:
         schedule_registry = self._schedule_registries[request.account_country.upper()]
         context = _build_paypal_context(request)
 
-        product_rules, product_id, variant_id = self._resolve_product_rules(
-            derived, context, request.account_country
-        )
-        matching = self._match_rules(
-            product_rules, context, request.account_country, product_id, variant_id
-        )
+        product_rules, product_id, variant_id = self._resolve_product_rules(derived, context, request.account_country)
+        matching = self._match_rules(product_rules, context, request.account_country, product_id, variant_id)
         self._require_calculable(matching, request.account_country)
 
         payer_region = context.get("payer_region") or context.get("surcharge_region")

@@ -30,6 +30,7 @@ artifacts/paypal-sandbox/
 artifacts/paypal-sandbox-diagnostics/
 artifacts/paypal-sandbox-manual/
 artifacts/paypal-sandbox-observations/
+artifacts/paypal-sandbox-provisioning/
 artifacts/paypal-sandbox-qualification/
 .playwright/paypal-sandbox/
 

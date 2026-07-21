@@ -197,14 +197,14 @@ class FeeCalculator:
     @staticmethod
     def _derive_status(
         plan: CompiledFeePlan, components: list[FeeComponent]
-    ) -> Literal["exact_for_public_rate", "estimated", "range", "included", "not_calculable"]:
+    ) -> Literal["exact_for_public_rate", "estimated", "range", "included"]:
         if all(rule.behavior in ("free", "included", "waived") for rule in plan.rules):
             return "included"
 
         for rule in plan.rules:
             if rule.exactness in ("range", "from", "up_to"):
                 return cast(
-                    Literal["exact_for_public_rate", "estimated", "range", "included", "not_calculable"],
+                    Literal["exact_for_public_rate", "estimated", "range", "included"],
                     "range",
                 )
 
@@ -221,6 +221,6 @@ class FeeCalculator:
                 estimated = True
 
         return cast(
-            Literal["exact_for_public_rate", "estimated", "range", "included", "not_calculable"],
+            Literal["exact_for_public_rate", "estimated", "range", "included"],
             "estimated" if estimated else "exact_for_public_rate",
         )

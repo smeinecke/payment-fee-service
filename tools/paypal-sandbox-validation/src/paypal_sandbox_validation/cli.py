@@ -1039,7 +1039,7 @@ def _attempt_public_rate_reuse(
             fixture = json.loads(fixture_path.read_text())
         except Exception:
             continue
-        if fixture.get("result") != "match":
+        if fixture.get("result") != ReconciliationStatus.MATCH:
             continue
         key = (
             fixture.get("merchant_country", ""),
@@ -1191,10 +1191,10 @@ def _execute_plan(
         if (
             rec.get("status")
             in {
-                "fee_mismatch",
-                "net_amount_mismatch",
-                "currency_mismatch",
-                "buyer_country_mismatch",
+                ReconciliationStatus.FEE_MISMATCH,
+                ReconciliationStatus.NET_AMOUNT_MISMATCH,
+                ReconciliationStatus.CURRENCY_MISMATCH,
+                ReconciliationStatus.BUYER_COUNTRY_MISMATCH,
             }
             and not config.continue_after_mismatch
         ):
@@ -1883,9 +1883,11 @@ def _write_observation_fixture(
         ],
         "data_revision": quote.get("data", {}).get("content_sha256"),
         "crawler_revision": quote.get("data", {}).get("data_ref"),
-        "result": "match"
-        if root_cause.get("category") != "sandbox_account_configuration"
-        else "account_configuration_difference",
+        "result": (
+            ReconciliationStatus.MATCH
+            if root_cause.get("category") != "sandbox_account_configuration"
+            else ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE
+        ),
         "diagnostic_run_id": output_dir.parent.name,
     }
     fixture_path = fixture_dir / f"{original.run_id}-{original.case_id}.json"
@@ -2186,7 +2188,9 @@ def create_manual_approval_case_cmd(
         case.status = CaseStatus.RECONCILED
 
     validation = (
-        validate_case_constraints(case) if quote else {"valid": False, "classification": "library_not_calculable"}
+        validate_case_constraints(case)
+        if quote
+        else {"valid": False, "classification": ReconciliationStatus.LIBRARY_NOT_CALCULABLE.value}
     )
     if not validation["valid"]:
         case.status = CaseStatus.FAILED
