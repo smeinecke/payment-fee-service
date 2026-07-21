@@ -5,7 +5,6 @@ Only ``www.sandbox.paypal.com`` is allowed. No Orders-v2, REST or NVP/SOAP.
 
 from __future__ import annotations
 
-import contextlib
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +15,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from paypal_sandbox_validation.accounts import Account
+from paypal_sandbox_validation.browser_common import _fill_paypal_login_form
 from paypal_sandbox_validation.models import ReconciliationStatus
 from paypal_sandbox_validation.redaction import redact_text
 
@@ -176,19 +176,7 @@ class ManualPaymentBrowser:
         self._validate_url(url)
         page.goto(url, timeout=120000)
 
-        email_input = page.locator("input[name='login_email'], input#email, input[type='email']").first
-        if email_input.is_visible(timeout=10000):
-            email_input.fill(account.primary_email_alias)
-            next_btn = page.locator("button#btnNext").first
-            if next_btn.is_visible(timeout=5000):
-                next_btn.click()
-                with contextlib.suppress(Exception):
-                    page.locator("div.transitioning.spinner").wait_for(state="hidden", timeout=15000)
-
-        pw_input = page.locator("input[name='login_password'], input#password, input[type='password']").first
-        pw_input.wait_for(state="visible", timeout=15000)
-        pw_input.fill(account.password)
-        page.locator("button#btnLogin").first.click()
+        _fill_paypal_login_form(page, account.primary_email_alias, account.password)
         page.wait_for_load_state("domcontentloaded", timeout=60000)
         page.wait_for_timeout(6000)
 

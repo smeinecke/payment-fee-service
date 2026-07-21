@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from paypal_sandbox_validation.browser_common import _fill_paypal_login_form
 from paypal_sandbox_validation.models import ReconciliationStatus
 from paypal_sandbox_validation.url_validation import URLValidationError, validate_approval_url
 
@@ -64,30 +65,9 @@ class PayPalBrowser:
     def login(self, email: str, password: str) -> None:
         page = self._require_page()
         try:
-            self._fill_email(page, email)
-            self._fill_password(page, password)
+            _fill_paypal_login_form(page, email, password)
         except PlaywrightTimeoutError as exc:
             raise BrowserError("Buyer login form not available", exc) from exc
-
-    def _fill_email(self, page: Page, email: str) -> None:
-        email_input = page.locator("input[name='login_email'], input#email, input[type='email']").first
-        if not email_input.is_visible(timeout=5000):
-            return
-        email_input.fill(email)
-        next_btn = page.locator("button#btnNext").first
-        if next_btn.is_visible(timeout=3000):
-            next_btn.click()
-            # Wait for the spinner to disappear and the password section to appear.
-            page.locator("div.transitioning.spinner").wait_for(state="hidden", timeout=15000)
-        page.wait_for_selector("input[name='login_password'], input#password, input[type='password']", timeout=15000)
-
-    def _fill_password(self, page: Page, password: str) -> None:
-        pw_input = page.locator("input[name='login_password'], input#password, input[type='password']").first
-        pw_input.wait_for(state="visible", timeout=15000)
-        pw_input.fill(password)
-        login_btn = page.locator("button#btnLogin").first
-        login_btn.wait_for(state="visible", timeout=15000)
-        login_btn.click()
 
     def confirm_and_approve(
         self,
