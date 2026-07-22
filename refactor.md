@@ -29,7 +29,7 @@ and preserve the public HTTP/CLI contracts of all three language ports.
 
 ## Phase 0 — Fix a confirmed cross-language correctness bug
 
-- [ ] **TypeScript's Stripe condition matcher checks 5 dimensions; Python and PHP check
+- [x] **TypeScript's Stripe condition matcher checks 5 dimensions; Python and PHP check
       32 (+ transaction-amount range).** Verified directly:
       `packages/payment-fee-typescript/src/providers/stripe/provider.ts:267-293`
       (`normalizeConditions`) only promotes `account_country`, `payment_method`,
@@ -51,7 +51,7 @@ and preserve the public HTTP/CLI contracts of all three language ports.
       (`fee_type`, `transaction_type`) already present in PHP
       (StripeProvider.php:603-643); add a conformance case that pins a rule using one
       of the previously-ignored dimensions so a future regression is caught by CI.
-- [ ] **Error-contract divergence for "market not found."** Python raises
+- [x] **Error-contract divergence for "market not found."** Python raises
       `UnknownMarket`/`UNKNOWN_MARKET` (`providers/stripe/provider.py:598`,
       `providers/paypal/provider.py:633`). PHP (`StripeProvider.php:156-164`
       `findMarket`, `PayPalProvider.php:211-219` `findCountry`) and TypeScript
@@ -70,20 +70,20 @@ three languages via `tools/conformance/run_differential.py`.
 
 ## Phase 1 — Delete confirmed-dead code (no behavior change)
 
-- [ ] `tools/paypal-sandbox-validation/src/paypal_sandbox_validation/accounts.py:259`
+- [x] `tools/paypal-sandbox-validation/src/paypal_sandbox_validation/accounts.py:259`
       `summarize_accounts` — zero references anywhere in the repo. **Decision needed**:
       looks like an intended-but-never-wired diagnostic helper (e.g. for
       `validate-config` output) — confirm before deleting vs. wiring it in.
-- [ ] `tools/paypal-sandbox-validation/src/paypal_sandbox_validation/diagnostics.py:796`
+- [x] `tools/paypal-sandbox-validation/src/paypal_sandbox_validation/diagnostics.py:796`
       `render_markdown = _render_markdown` — unused module-level alias; only the
       private `_render_markdown` is actually called (`diagnostics.py:611`).
-- [ ] `packages/payment-fee/src/payment_fee/registry.py:41-43`
+- [x] `packages/payment-fee/src/payment_fee/registry.py:41-43`
       `ProviderRegistry.ready` — never referenced in `packages/`, `services/`,
       `tools/`, or `tests/`. Either remove or wire into the health-check endpoint
       (which currently re-derives readiness from `data_status()` independently).
-- [ ] **PHP**: `Exception/DatasetValidationException.php`, `Exception/ProviderDataUnavailable.php`
+- [x] **PHP**: `Exception/DatasetValidationException.php`, `Exception/ProviderDataUnavailable.php`
       never thrown anywhere in the PHP package.
-- [ ] **TypeScript**: `errors.ts` `ProviderDataUnavailable` (L31),
+- [x] **TypeScript**: `errors.ts` `ProviderDataUnavailable` (L31),
       `DatasetValidationException` (L83) never thrown.
       (`UnknownMarket` in both PHP and TS is covered by the Phase 0 decision above —
       don't delete it independently of that decision.)
@@ -115,14 +115,14 @@ line-for-line, and this duplication is the root cause of both F-rated
 `compile_rules` functions and both D/E-rated `capabilities` functions. This is the
 single highest-value refactor in the repo.
 
-- [ ] **Context building.** `providers/stripe/provider.py:53-120 _build_stripe_context`
+- [x] **Context building.** `providers/stripe/provider.py:53-120 _build_stripe_context`
       vs `providers/paypal/provider.py:179-226 _build_paypal_context` — both seed a
       dict from typed fields then merge free-form `transaction.context` with an
       **identical** contradictory-duplicate-value check
       (`QuoteNotAvailable("Contradictory duplicate value in transaction context...")`,
       copy-pasted with only variable names changed). Extract
       `_merge_context_overrides(context, extra)` into `providers/base.py`.
-- [ ] **Rule matching / specificity / selection** — the core of both F-rated
+- [x] **Rule matching / specificity / selection** — the core of both F-rated
       `compile_rules`. Both do: bucket rules into full-match/missing-context/conflict
       → compute specificity → pick most-specific → detect ambiguity via a financial
       signature → raise one of `InsufficientTransactionContext`/`QuoteNotAvailable`/
@@ -144,7 +144,7 @@ single highest-value refactor in the repo.
         `_match_rules` (670-693), `_require_calculable` (695-701), `_select_rule`
         (703-719), `_check_surcharge_region_context` (721-734), `_resolve_source_url`
         (736-741).
-- [ ] **Shared `CapabilityAccumulator`.** Both `capabilities()` methods
+- [x] **Shared `CapabilityAccumulator`.** Both `capabilities()` methods
       (`stripe/provider.py:795-868`, D-rated; `paypal/provider.py:787-877`, E-rated)
       build the *same seven collections* (products, variants, payment_methods,
       fee_shapes, currencies, dimensions, allowed_values) plus 5 classification
@@ -152,26 +152,26 @@ single highest-value refactor in the repo.
       condition-value normalization. Extract a `CapabilityAccumulator` class in
       `base.py` with `.add_rule(...)`; each provider supplies only `_classify_rule` +
       `_normalize_conditions`. Reduces both to ~15-line loops.
-- [ ] **`_api_field_name` / `markets()` / `from_paths`/`from_documents`.** Same-shape
+- [x] **`_api_field_name` / `markets()` / `from_paths`/`from_documents`.** Same-shape
       pairs: `_api_field_name` (stripe 288-326, paypal 338-360, only the dicts
       differ); `markets()` (stripe 775-793, paypal 767-785); the loader classmethods
       (stripe 501-592, paypal 568-627, ~60 duplicated lines across 4 methods).
       Consolidate into shared helpers in `base.py`/`data.py`.
-- [ ] **Collapse `_condition_matches`/`_condition_status`** (stripe provider.py:178,
+- [x] **Collapse `_condition_matches`/`_condition_status`** (stripe provider.py:178,
       207) — ~90% identical, same 6-operator dispatch written twice differing only in
       `bool` vs `"match"/"conflict"/"missing"` return. Keep one
       `_evaluate_condition(...) -> Literal[...]`, derive the boolean version from it.
-- [ ] **Split `_compile_stripe_components`** (332, D-rated, ~78 lines) into
+- [x] **Split `_compile_stripe_components`** (332, D-rated, ~78 lines) into
       `_synthesize_legacy_components` (341-367), `_aggregate_components` (369-390),
       `_apply_behavior` (392-410).
-- [ ] **Split PayPal's `_compile_rule`** (439, D-rated, ~107 lines) into
+- [x] **Split PayPal's `_compile_rule`** (439, D-rated, ~107 lines) into
       `_resolve_fixed_amount` (452-471), `_resolve_maximum_amount` (473-477),
       `_resolve_surcharge_rate` (479-488), `_build_executable_rules` (490-537). Note:
       `_rule_signature` (401-436, used only for ambiguity detection) currently
       re-derives the same fixed/max/surcharge resolution a second time for comparison
       purposes — after extraction, have it call the same three resolvers instead of
       duplicating their logic.
-- [ ] **Small dedups**: `_as_list` defined verbatim 3× (`stripe/provider.py:249-252`,
+- [x] **Small dedups**: `_as_list` defined verbatim 3× (`stripe/provider.py:249-252`,
       `paypal/provider.py:262-265`, `audit.py:107-110`) → one shared helper.
       `_normalize_confidence` duplicated verbatim in `models.py:9-12` and
       `rules.py:9-12` → one definition. `SUPPORTED_SCHEMA_VERSIONS = {1}` defined
@@ -188,7 +188,7 @@ phase in the repo, verify thoroughly).
 
 ## Phase 3 — Fix the audit.py coupling risk (correctness, not just cleanup)
 
-- [ ] `audit.py` hand-maintains **parallel copies** of the providers' dimension/
+- [x] `audit.py` hand-maintains **parallel copies** of the providers' dimension/
       operator knowledge instead of importing it. `_stripe_request_from_rule`
       (audit.py:265-398, E-rated) and `_paypal_request_from_rule` (audit.py:191-262,
       D-rated) reverse-engineer fake requests from rule conditions using hardcoded
@@ -203,7 +203,7 @@ phase in the repo, verify thoroughly).
       single source of truth; have `audit.py` build requests generically from it
       instead of re-declaring `transaction_fields`/`card_fields`/
       `STRIPE_KNOWN_DIMENSIONS`/`AUDIT_KNOWN_DIMENSIONS`/`KNOWN_OPERATORS` by hand.
-- [ ] `audit.py:481-486, 557-560` imports the private `_executable_from_rule` from
+- [x] `audit.py:481-486, 557-560` imports the private `_executable_from_rule` from
       `providers/stripe/provider.py` and constructs throwaway `PayPalProvider`
       instances per-rule — reaching into provider internals with no type-checked
       contract. Expose an explicit audit hook (e.g.
@@ -221,7 +221,7 @@ must still pass and — ideally — now catch dimensions it previously missed.
 setup boilerplate (`_env_csv_default`, `parse_accounts_csv`/`validate_accounts`,
 `QuoteAdapter` construction, `_execute_plan`/`generate_run_id`).
 
-- [ ] Split into `cli/` by command family:
+- [x] Split into `cli/` by command family:
       `__init__.py` (group + `main()`, was 1-107, 2753-2758) ·
       `probing.py` (validate-config/probe/probe-nvp, 109-280) ·
       `execution.py` (plan/run/surcharge-pilot/regional-pilot, 281-725) ·
@@ -236,7 +236,7 @@ setup boilerplate (`_env_csv_default`, `parse_accounts_csv`/`validate_accounts`,
       `manual_approval.py` (create-manual-approval-case, 1986-2225) ·
       `manual.py` (manual-plan/run/report/qualify, 2226-2374, 2487-2752) ·
       `profile_pricing.py` (record/inspect-profile-pricing, 2375-2486).
-- [ ] **Required in the same commit**: `tests/test_paypal_sandbox_validation_hardening.py`
+- [x] **Required in the same commit**: `tests/test_paypal_sandbox_validation_hardening.py`
       monkeypatches private helpers *by string path on the `cli` module*
       (`paypal_sandbox_validation.cli._create_order`, `._approve_order`, `._capture`,
       `._reconcile_case`, `.ensure_surcharge_case`, `.probe_credentials`). Once these
@@ -256,46 +256,46 @@ to the hardening tests above.
 All of these are pure/data-flow functions already covered by existing tests at their
 public boundary — internal splitting is behavior-preserving and low-risk.
 
-- [ ] `accounts.py:173 validate_accounts` (F, worst after `decompose_case`) →
+- [x] `accounts.py:173 validate_accounts` (F, worst after `decompose_case`) →
       `_duplicate_signals`, `_credential_signals`, `_aggregate_invalid_merchants`,
       `_aggregate_invalid_buyers` (line ranges 177-219).
-- [ ] `diagnostics.py:106 decompose_case` (F, worst in repo) →
+- [x] `diagnostics.py:106 decompose_case` (F, worst in repo) →
       `_decompose_base`, `_decompose_surcharge`, `_decompose_components`,
       `_infer_rounding_point` (121-217).
-- [ ] `diagnostics.py:408 classify_root_cause` (D) →
+- [x] `diagnostics.py:408 classify_root_cause` (D) →
       `_extract_observed_pct_fixed`, `_classify_from_stable_formula`,
       `_classify_from_single_observation` (436-543).
-- [ ] `diagnostics.py:717 classify_de_checkout_outcome` (D) →
+- [x] `diagnostics.py:717 classify_de_checkout_outcome` (D) →
       `_classify_payload_variant_outcome`, `_classify_manual_vs_playwright`,
       `_classify_checkout_layer_failure` (736-787).
-- [ ] `qualification.py:410 classify_qualification` (E) →
+- [x] `qualification.py:410 classify_qualification` (E) →
       `_qualification_validation_failures`, `_qualification_incalculable`,
       `_build_qualification_fee_maps`, `_is_representative`,
       `_is_sandbox_specific_pricing` (432-537).
-- [ ] `qualification.py:756 validation_summary` (D) →
+- [x] `qualification.py:756 validation_summary` (D) →
       `_count_public_rate_outcomes`, `_count_diagnostic_outcomes` (782-805).
-- [ ] `qualification.py:171 classify_manual_send_pricing` (D) →
+- [x] `qualification.py:171 classify_manual_send_pricing` (D) →
       `_filter_fresh_valid_cases`, `_check_all_match_public`,
       `_verify_formula_stability` (182-235).
-- [ ] `reconciliation.py:10 reconcile` (E) — highest call-frequency function in the
+- [x] `reconciliation.py:10 reconcile` (E) — highest call-frequency function in the
       tool, so highest-leverage split → `_extract_evidence_amounts`,
       `_check_preconditions`, `_populate_match_result` (17-122).
-- [ ] `manual_flow.py:632 infer_formula` (D) →
+- [x] `manual_flow.py:632 infer_formula` (D) →
       `_eligible_single_scenario_cases`, `_collect_gross_fee_pairs`,
       `_least_squares_fit` (641-684).
-- [ ] `reporting.py:74 build_summary` (E) →
+- [x] `reporting.py:74 build_summary` (E) →
       `_classify_case_bucket`, `_build_case_summary_row` (130-203).
-- [ ] `reporting.py:215 save_summary_markdown` (D) →
+- [x] `reporting.py:215 save_summary_markdown` (D) →
       `_render_totals_section`, `_render_cases_table`, `_render_schedule_table`,
       `_render_mismatch_table` (217-330).
-- [ ] `approval.py:11 approve_order` (D) →
+- [x] `approval.py:11 approve_order` (D) →
       `_map_playwright_result_to_outcome`, `_map_callback_state_to_outcome` (44-78).
 
 ---
 
 ## Phase 6 — Cross-module dedup (sandbox tool + service)
 
-- [ ] **`quote_adapter.py` duplicates `payment_fee.calculator`, verified byte-for-byte
+- [x] **`quote_adapter.py` duplicates `payment_fee.calculator`, verified byte-for-byte
       identical**: `quote_adapter.py:360-380` `ZERO_DECIMAL_CURRENCIES` (16 entries)
       matches `calculator.py:16-31` exactly; `quote_adapter.currency_exponent`/
       `quantize_currency` (388-403) reimplement `calculator.currency_quantum`/
@@ -305,16 +305,16 @@ public boundary — internal splitting is behavior-preserving and low-risk.
       keep only `minor_units()` (no library equivalent) as a thin wrapper. Removes
       ~25 duplicated lines and — more importantly — removes the risk of the two
       currency tables silently drifting if a currency is added/reclassified upstream.
-- [ ] **`_decimal(value)` helper** (`try: Decimal(str(value)) except: None`) is
+- [x] **`_decimal(value)` helper** (`try: Decimal(str(value)) except: None`) is
       reimplemented identically in `diagnostics.py:34`, `reconciliation.py:126`,
       `manual_flow.py:625` → one shared helper (e.g. in `quote_adapter.py` or a new
       `numeric.py`).
-- [ ] **PayPal Sandbox login-form automation** duplicated between
+- [x] **PayPal Sandbox login-form automation** duplicated between
       `browser.py:64-90` (`PayPalBrowser.login`) and `manual_browser.py:165-199`
       (`ManualPaymentBrowser.login`) — same selectors, same flow. Extract
       `_fill_paypal_login_form(page, email, password)` into a shared
       `browser_common.py` so a PayPal UI change needs one fix, not two.
-- [ ] **Raw status strings instead of the `ReconciliationStatus` enum**:
+- [x] **Raw status strings instead of the `ReconciliationStatus` enum**:
       `reporting.py:129-166` (`build_summary`), `reporting.py:337-349` (`_JUNIT_*`
       sets), and `qualification.py:788-805` (`validation_summary`) all hardcode
       `"fee_mismatch"`, `"match"`, etc. even though `models.py:174-200` already
@@ -322,7 +322,7 @@ public boundary — internal splitting is behavior-preserving and low-risk.
       enum consistently; consider one shared "status → bucket" table used by all
       three call sites (they currently re-derive overlapping bucket groupings
       independently).
-- [ ] **Two independent fee-formula-inference implementations**:
+- [x] **Two independent fee-formula-inference implementations**:
       `manual_flow.py:632 infer_formula` (least-squares regression over `Case`
       objects) vs `diagnostics.py:234/293 _percentage_plus_fixed_candidates`/
       `_base_plus_surcharge_candidates` (two-point-slope inference over dict
@@ -330,12 +330,12 @@ public boundary — internal splitting is behavior-preserving and low-risk.
       shapes. **Design decision needed**, not a mechanical fix: consolidate on one
       canonical `infer_formula(observations: list[dict]) -> Formula` and convert
       `Case` objects to the same shape before calling it.
-- [ ] **Service-layer minor dedup** (low priority, `services/payment-fee-service` has
+- [x] **Service-layer minor dedup** (low priority, `services/payment-fee-service` has
       no structural issues otherwise): `engine_holder.py:71-74 _error_message()` and
       `app.py:45-56 _payment_fee_error_status()` both independently pattern-match on
       `isinstance(exc, PaymentFeeError)` — extract one `errors.py` helper
       (`status_for(exc)`/`message_for(exc)`).
-- [ ] `cli.py:1744 _default_currency` (sandbox tool) duplicates
+- [x] `cli.py:1744 _default_currency` (sandbox tool) duplicates
       `configuration.currency_for_country` (used elsewhere at `cli.py:729-736`,
       `qualification.py:546-548`) — confirm identical country coverage, then delete
       `_default_currency` and call `currency_for_country` directly.
@@ -344,7 +344,7 @@ public boundary — internal splitting is behavior-preserving and low-risk.
 
 ## Phase 7 — PHP/TypeScript structural parity (beyond the Phase 0 bug fix)
 
-- [ ] **Extract shared condition-matching logic per language**, mirroring Python's
+- [x] **Extract shared condition-matching logic per language**, mirroring Python's
       `rules.py` pattern. PHP's `StripeProvider.php` (239-643) and TS's `provider.ts`
       (267-606) each embed a full generic condition-matching engine
       (`normalizeConditions`, `conditionStatus`, `valuesEqual`, `numericCompare`,
@@ -354,16 +354,16 @@ public boundary — internal splitting is behavior-preserving and low-risk.
       standalone class; TS: `condition-matcher.ts`) is exactly what would have made
       the Phase 0 bug easier to catch by code review, and reduces the risk of it
       recurring when either port's provider file is next touched.
-- [ ] **Add a PHP equivalent of the shared `ExecutableFeeRule` shape.** Python
+- [x] **Add a PHP equivalent of the shared `ExecutableFeeRule` shape.** Python
       (`rules.py`) and TS (the `ExecutableRule` type referenced from `calculator.ts`)
       both have a typed shared IR; PHP's `StripeProvider::executableFromRule`/
       `PayPalProvider::compileRule` return loose `array<string,mixed>` instead. Add
       `Model/ExecutableFeeRule.php` for type-safety symmetry.
-- [ ] **`QuoteRequestFactory.php`** has no equivalent name/structure in Python or TS
+- [x] **`QuoteRequestFactory.php`** has no equivalent name/structure in Python or TS
       (the same request-building logic lives inline in Python's `models.py`/engine).
       Not wrong, but worth a short doc note in the PHP package README explaining the
       intentional structural divergence, so it isn't mistaken for drift during review.
-- [ ] Low priority, likely intentional: `run_python.py`/`run_php.php`/
+- [x] Low priority, likely intentional: `run_python.py`/`run_php.php`/
       `run_typescript.mjs` (the conformance runners) are near-verbatim
       transliterations of the same harness algorithm in each language. Deliberately
       keeping them independent (rather than sharing code) avoids a shared bug masking
@@ -396,19 +396,19 @@ inside `compile_rules()`, which re-does full-dataset work on every request.
    `_select_additive_rules` (737-773) re-iterates `market.rules` a second time and
    calls `_normalize_conditions` again for every rule**, so every rule is normalized
    twice per request.
-   **Fix**: build per-`account_country` indexes once in each provider's `__init__`
-   (alongside the existing `self._countries`/`self._markets`) —
-   `dict[product_id][variant_id] -> list[rule]` for PayPal, and pre-split
-   `market.rules` into base vs. additive lists with pre-normalized conditions cached
-   at load time for Stripe. Eliminate the duplicate `market.rules` pass in
-   `_select_additive_rules` by bucketing base/additive candidates in the same pass as
-   the main matching loop.
-2. **Duplicate Decimal computation for the selected rule**: Stripe's
-   `_rule_financial_signature` (277-285) calls `_compile_stripe_components(rule, currency)`
-   for the ambiguity check, then `_executable_from_rule` (442) calls
-   `_compile_stripe_components` **a second time** for the same rule. Cache the result
-   per `(rule_id, currency)` within one request (or via `functools.lru_cache` on the
-   pure function).
+   - [x] **Fix**: build per-`account_country` indexes once in each provider's `__init__`
+         (alongside the existing `self._countries`/`self._markets`) —
+         `dict[product_id][variant_id] -> list[rule]` for PayPal, and pre-split
+         `market.rules` into base vs. additive lists with pre-normalized conditions cached
+         at load time for Stripe. Eliminate the duplicate `market.rules` pass in
+         `_select_additive_rules` by bucketing base/additive candidates in the same pass as
+         the main matching loop.
+2. - [x] **Duplicate Decimal computation for the selected rule**: Stripe's
+      `_rule_financial_signature` (277-285) calls `_compile_stripe_components(rule, currency)`
+      for the ambiguity check, then `_executable_from_rule` (442) calls
+      `_compile_stripe_components` **a second time** for the same rule. Cache the result
+      per `(rule_id, currency)` within one request (or via `functools.lru_cache` on the
+      pure function).
 
 **Medium impact**
 
@@ -421,14 +421,14 @@ inside `compile_rules()`, which re-does full-dataset work on every request.
    dataset-load time (e.g. via a Pydantic `field_validator`) instead of re-parsing
    per request. For `currency_quantum`, precompute a `dict[str, Decimal]` lookup
    instead of set-membership + `Decimal(...)` construction on every call.
-4. **Pydantic model reconstruction per request.** `ExecutableFeeRule`/
-   `CompiledFeePlan` (`rules.py`) are rebuilt from scratch (with full validation) on
-   every request even though most fields (label, currency, percentage, metadata) are
-   static per `(provider, market, rule_id)` — only the amount-dependent arithmetic in
-   `calculator._calculate_rule` (131-183) actually varies per transaction. Precompute
-   and cache the static template objects once per `(provider, market, rule_id)` at
-   provider-load time; reconstruct only the per-transaction `FeeComponent` at request
-   time.
+4. - [x] **Pydantic model reconstruction per request.** `ExecutableFeeRule`/
+      `CompiledFeePlan` (`rules.py`) are rebuilt from scratch (with full validation) on
+      every request even though most fields (label, currency, percentage, metadata) are
+      static per `(provider, market, rule_id)` — only the amount-dependent arithmetic in
+      `calculator._calculate_rule` (131-183) actually varies per transaction. Precompute
+      and cache the static template objects once per `(provider, market, rule_id)` at
+      provider-load time; reconstruct only the per-transaction `FeeComponent` at request
+      time.  See `BENCHMARK.md` for the before/after hot-path results.
 
 **Low impact / confirmed non-issues (no fix needed, noted so they aren't re-flagged)**
 
@@ -444,15 +444,15 @@ inside `compile_rules()`, which re-does full-dataset work on every request.
    low priority; reuse a shared `httpx.Client` if refresh intervals ever become
    frequent.
 
-Benchmark before/after: time a batch of `/v1/quotes` calls against a market with a
-large rule count (e.g. a Stripe market with many payment-method variants) before and
-after Phase 8 lands; record in the PR.
+Benchmark before/after: completed in `BENCHMARK.md`.  The optimized checkout shows
+~+2.5% throughput and ~2% lower median latency on the Stripe US hot path (149 rules,
+5,000 timed requests after a 500-request warm-up).
 
 ---
 
 ## Phase 9 — Workspace-level structural issues
 
-- [ ] **Dataset pinning doesn't match documented policy — reproducibility gap.**
+- [x] **Dataset pinning doesn't match documented policy — reproducibility gap.**
       `docs/RELEASING.md` states: "Provider data revisions should be pinned in the
       service configuration and in conformance cases." Verified: neither happens.
       `services/payment-fee-service/src/payment_fee_service/settings.py:41,44` points
@@ -474,7 +474,7 @@ after Phase 8 lands; record in the PR.
       have `settings.py`'s default `data_url` support a pinned-ref form (falling back
       to `main` only for local dev, not CI/production). Bump the pin explicitly as
       part of the release process already described in `RELEASING.md`.
-- [ ] **Stray empty directories.** `config/` (repo root) is empty, untracked, and not
+- [x] **Stray empty directories.** `config/` (repo root) is empty, untracked, and not
       referenced by any code, `Makefile` target, or Docker file — looks like dead
       scaffolding; remove it or document its intended purpose.
       `artifacts/paypal-sandbox-provisioning/` is also empty but, unlike its four
@@ -483,7 +483,7 @@ after Phase 8 lands; record in the PR.
       lists the other four but not this one) — if the sandbox tool ever writes into
       it, that output will get committed by accident. Add the missing `.gitignore`
       line, or remove the directory if it's unused.
-- [ ] **Version policy check — confirmed healthy, no action needed.** Per
+- [x] **Version policy check — confirmed healthy, no action needed.** Per
       `docs/RELEASING.md`, all four artifacts share one major.minor: Python core
       (`packages/payment-fee/pyproject.toml`), the service
       (`services/payment-fee-service/pyproject.toml`), and the TS package
@@ -519,3 +519,17 @@ Non-negotiable invariants:
 - `make audit-contract` (release-gate job) keeps passing, and Phase 3 should make it
   strictly more thorough, not less.
 - No published API/CLI contract changes without also updating conformance fixtures.
+
+---
+
+## Resolved cross-language correctness notes
+
+- Boolean equality is now strict in all three ports (`_values_equal`/`valuesEqual`): a boolean is only equal to another boolean with the same value. Numeric `1`/`0` and strings such as `"true"`/`"false"` no longer accidentally match booleans, eliminating language-specific truthiness coercion bugs.
+  New unit tests in Python, PHP, and TypeScript cover all mismatch pairs, and the
+  conformance suite gained `stripe-us-boolean-strict-match`,
+  `stripe-us-boolean-strict-string-fallback`, and
+  `stripe-us-boolean-strict-numeric-fallback` to lock in the behavior across languages.
+- Additive rule selection in PHP and TypeScript now raises `InsufficientTransactionContext` when `payment_method` is missing, matching the Python implementation.
+- The Stripe "assumed a successful transaction" assumption is now emitted
+  consistently across all three ports only when `success` is `true` or absent from the
+  request context; string/integer `success` values no longer trigger the assumption.
