@@ -201,6 +201,111 @@ function ruleSignature(
   ]);
 }
 
+function resolveSurchargeScheduleId(rule: PayPalRule): string | undefined {
+  return rule.international_surcharge_schedule
+    ? rule.international_surcharge_schedule
+    : componentScheduleId(rule, "international_surcharge_schedule");
+}
+
+function requireSurchargeRegionContext(
+  scheduleId: string | undefined,
+  registry: ScheduleRegistry,
+  payerRegion: string | null | undefined,
+  transactionRegion: string,
+  context: { provider: string; market: string },
+): void {
+  if (!scheduleId || payerRegion != null || transactionRegion === "domestic") {
+    return;
+  }
+  const availableRegions = registry.surchargeRegions(scheduleId);
+  throw new InsufficientTransactionContext(
+    ["transaction.payer_region", "transaction.surcharge_region"],
+    {
+      provider: context.provider,
+      market: context.market,
+      available_surcharge_regions: [...new Set(availableRegions)].sort(),
+    },
+  );
+}
+
+function selectTopEvaluable(
+  fullMatches: { rule: PayPalRule; specificity: number }[],
+  missingMatches: { rule: PayPalRule; missing: string[]; specificity: number }[],
+  registry: ScheduleRegistry,
+  currency: string,
+  payerRegion: string | null | undefined,
+  request: PayPalQuoteRequest,
+): PayPalRule {
+  const productIdLower = String(request.transaction.product_id).toLowerCase();
+  const requestedVariantId = request.transaction.variant_id;
+  const variantIdLower =
+    requestedVariantId !== undefined && requestedVariantId !== null
+      ? String(requestedVariantId).toLowerCase()
+      : null;
+
+  if (fullMatches.length === 0) {
+    if (missingMatches.length > 0) {
+      const allMissing = [...new Set(missingMatches.flatMap((m) => m.missing))].sort();
+      throw new InsufficientTransactionContext(allMissing, {
+        provider: "paypal",
+        market: request.account_country,
+        product_id: productIdLower,
+        variant_id: variantIdLower,
+      });
+    }
+    throw new QuoteNotAvailable("No fee rule matched the supplied context.", {
+      provider: "paypal",
+      market: request.account_country,
+      product_id: productIdLower,
+      variant_id: variantIdLower,
+    });
+  }
+
+  const maxSpec = Math.max(...fullMatches.map((m) => m.specificity));
+  const mostSpecific = fullMatches
+    .filter((m) => Math.abs(m.specificity - maxSpec) < 1e-9)
+    .map((m) => m.rule);
+
+  if (!mostSpecific.some(isEvaluable)) {
+    throw new QuoteNotAvailable("A selected PayPal rule is not calculable.", {
+      provider: "paypal",
+      market: request.account_country,
+      rule_ids: mostSpecific.map((r) => r.id).sort(),
+    });
+  }
+
+  const selectable = fullMatches.filter((m) => isEvaluable(m.rule));
+  const selectMaxSpec = Math.max(...selectable.map((m) => m.specificity));
+  const topMatches = selectable
+    .filter((m) => Math.abs(m.specificity - selectMaxSpec) < 1e-9)
+    .map((m) => m.rule);
+
+  if (topMatches.length > 1) {
+    const signatures = new Set<string>();
+    for (const rule of topMatches) {
+      signatures.add(ruleSignature(rule, registry, currency, payerRegion));
+    }
+    if (signatures.size > 1) {
+      throw new AmbiguousFeeRules(topMatches.map((r) => r.id).sort(), {
+        provider: "paypal",
+        market: request.account_country,
+      });
+    }
+  }
+
+  return topMatches.sort((a, b) => {
+    if (a.id !== b.id) {
+      return a.id < b.id ? -1 : 1;
+    }
+    const aVariant = a.variant_id ?? "";
+    const bVariant = b.variant_id ?? "";
+    if (aVariant === bVariant) {
+      return 0;
+    }
+    return aVariant < bVariant ? -1 : 1;
+  })[0];
+}
+
 export class PayPalProvider {
   readonly providerId = "paypal";
 
@@ -342,95 +447,26 @@ export class PayPalProvider {
     context: Record<string, unknown>,
     request: PayPalQuoteRequest,
   ): PayPalRule {
-    const productIdLower = String(request.transaction.product_id).toLowerCase();
-    const requestedVariantId = request.transaction.variant_id;
-    const variantIdLower =
-      requestedVariantId !== undefined && requestedVariantId !== null
-        ? String(requestedVariantId).toLowerCase()
-        : null;
-
-    if (fullMatches.length === 0) {
-      if (missingMatches.length > 0) {
-        const allMissing = [...new Set(missingMatches.flatMap((m) => m.missing))].sort();
-        throw new InsufficientTransactionContext(allMissing, {
-          provider: "paypal",
-          market: request.account_country,
-          product_id: productIdLower,
-          variant_id: variantIdLower,
-        });
-      }
-      throw new QuoteNotAvailable("No fee rule matched the supplied context.", {
-        provider: "paypal",
-        market: request.account_country,
-        product_id: productIdLower,
-        variant_id: variantIdLower,
-      });
-    }
-
     const currency = request.amount.currency;
     const payerRegion = ((context.payer_region as string | null | undefined) ??
       context.surcharge_region) as string | null | undefined;
-
-    const maxSpec = Math.max(...fullMatches.map((m) => m.specificity));
-    const mostSpecific = fullMatches
-      .filter((m) => Math.abs(m.specificity - maxSpec) < 1e-9)
-      .map((m) => m.rule);
-
-    if (!mostSpecific.some(isEvaluable)) {
-      throw new QuoteNotAvailable("A selected PayPal rule is not calculable.", {
-        provider: "paypal",
-        market: request.account_country,
-        rule_ids: mostSpecific.map((r) => r.id).sort(),
-      });
-    }
-
-    const selectable = fullMatches.filter((m) => isEvaluable(m.rule));
-    const selectMaxSpec = Math.max(...selectable.map((m) => m.specificity));
-    const topMatches = selectable
-      .filter((m) => Math.abs(m.specificity - selectMaxSpec) < 1e-9)
-      .map((m) => m.rule);
-
-    if (topMatches.length > 1) {
-      const signatures = new Set<string>();
-      for (const rule of topMatches) {
-        signatures.add(ruleSignature(rule, registry, currency, payerRegion));
-      }
-      if (signatures.size > 1) {
-        throw new AmbiguousFeeRules(topMatches.map((r) => r.id).sort(), {
-          provider: "paypal",
-          market: request.account_country,
-        });
-      }
-    }
-
-    const selected = topMatches.sort((a, b) => {
-      if (a.id !== b.id) {
-        return a.id < b.id ? -1 : 1;
-      }
-      const aVariant = a.variant_id ?? "";
-      const bVariant = b.variant_id ?? "";
-      if (aVariant === bVariant) {
-        return 0;
-      }
-      return aVariant < bVariant ? -1 : 1;
-    })[0];
-
     const transactionRegion = String(context.transaction_region ?? "").toLowerCase();
-    const surchargeScheduleId = selected.international_surcharge_schedule
-      ? selected.international_surcharge_schedule
-      : componentScheduleId(selected, "international_surcharge_schedule");
-    if (surchargeScheduleId && payerRegion == null && transactionRegion !== "domestic") {
-      const availableRegions = registry.surchargeRegions(surchargeScheduleId);
-      throw new InsufficientTransactionContext(
-        ["transaction.payer_region", "transaction.surcharge_region"],
-        {
-          provider: "paypal",
-          market: request.account_country,
-          available_surcharge_regions: [...new Set(availableRegions)].sort(),
-        },
-      );
-    }
 
+    const selected = selectTopEvaluable(
+      fullMatches,
+      missingMatches,
+      registry,
+      currency,
+      payerRegion,
+      request,
+    );
+    requireSurchargeRegionContext(
+      resolveSurchargeScheduleId(selected),
+      registry,
+      payerRegion,
+      transactionRegion,
+      { provider: "paypal", market: request.account_country },
+    );
     return selected;
   }
 
@@ -445,6 +481,46 @@ export class PayPalProvider {
       context.surcharge_region) as string | null | undefined;
     const transactionRegion = String(context.transaction_region ?? "").toLowerCase();
 
+    this._assertSupportedFeeComponents(rule);
+
+    const { amount: fixedAmount, currency: fixedCurrency } = resolveFixedAmount(
+      rule,
+      registry,
+      currency,
+    );
+    const percentage = rulePercentage(rule);
+    const maximumAmount = resolveMaximumAmount(rule, registry, currency);
+
+    const executable = this._buildBaseExecutable(
+      rule,
+      request,
+      percentage,
+      fixedAmount,
+      fixedCurrency,
+      maximumAmount,
+    );
+
+    const scheduleId = resolveSurchargeScheduleId(rule);
+    if (!scheduleId) {
+      return [executable];
+    }
+    requireSurchargeRegionContext(
+      scheduleId,
+      registry,
+      payerRegion,
+      transactionRegion,
+      { provider: "paypal", market: request.account_country },
+    );
+
+    const surcharge = registry.surcharge(scheduleId, payerRegion, currency);
+    if (!surcharge || (surcharge.percentage === null && surcharge.fixed_amount === null)) {
+      return [executable];
+    }
+
+    return [executable, this._buildSurchargeExecutable(rule, request, surcharge, payerRegion)];
+  }
+
+  private _assertSupportedFeeComponents(rule: PayPalRule): void {
     const supportedTypes = new Set([
       "percentage",
       "fixed_amount",
@@ -459,16 +535,17 @@ export class PayPalProvider {
         });
       }
     }
+  }
 
-    const { amount: fixedAmount, currency: fixedCurrency } = resolveFixedAmount(
-      rule,
-      registry,
-      currency,
-    );
-    const percentage = rulePercentage(rule);
-    const maximumAmount = resolveMaximumAmount(rule, registry, currency);
-
-    const executable: ExecutableRule = {
+  private _buildBaseExecutable(
+    rule: PayPalRule,
+    request: PayPalQuoteRequest,
+    percentage: string | null,
+    fixedAmount: Decimal | null,
+    fixedCurrency: string | null,
+    maximumAmount: string | null,
+  ): ExecutableRule {
+    return {
       rule_id: `paypal:${request.account_country}:${rule.id}:${rule.variant_id ?? "default"}:base`,
       label: rule.label ?? rule.id,
       component_type: "processing",
@@ -483,32 +560,16 @@ export class PayPalProvider {
       exactness: "exact",
       source_url: null,
     };
+  }
 
-    const surchargeScheduleId = rule.international_surcharge_schedule
-      ? rule.international_surcharge_schedule
-      : componentScheduleId(rule, "international_surcharge_schedule");
-    if (!surchargeScheduleId) {
-      return [executable];
-    }
-
-    if (payerRegion == null && transactionRegion !== "domestic") {
-      const availableRegions = registry.surchargeRegions(surchargeScheduleId);
-      throw new InsufficientTransactionContext(
-        ["transaction.payer_region", "transaction.surcharge_region"],
-        {
-          provider: "paypal",
-          market: request.account_country,
-          available_surcharge_regions: [...new Set(availableRegions)].sort(),
-        },
-      );
-    }
-
-    const surcharge = registry.surcharge(surchargeScheduleId, payerRegion, currency);
-    if (!surcharge || (surcharge.percentage === null && surcharge.fixed_amount === null)) {
-      return [executable];
-    }
-
-    const surchargeRule: ExecutableRule = {
+  private _buildSurchargeExecutable(
+    rule: PayPalRule,
+    request: PayPalQuoteRequest,
+    surcharge: { percentage?: string | null; fixed_amount?: string | null; fixed_currency?: string | null },
+    payerRegion: string | null | undefined,
+  ): ExecutableRule {
+    const currency = request.amount.currency;
+    return {
       rule_id: `paypal:${request.account_country}:${rule.id}:${rule.variant_id ?? "default"}:surcharge:${payerRegion ?? "unknown"}`,
       label: `International surcharge (${payerRegion ?? "unknown"})`,
       component_type: "surcharge",
@@ -523,8 +584,6 @@ export class PayPalProvider {
       exactness: "exact",
       source_url: null,
     };
-
-    return [executable, surchargeRule];
   }
 
   auditContract(): Record<string, number> {
