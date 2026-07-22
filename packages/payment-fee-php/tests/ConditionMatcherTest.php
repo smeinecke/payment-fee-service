@@ -9,6 +9,9 @@ use Smeinecke\PaymentFee\Providers\Stripe\ConditionMatcher;
 
 final class ConditionMatcherTest extends TestCase
 {
+    /**
+     * @return list<array{bool|int|string, bool|int|string, bool}>
+     */
     public static function strictBooleanEqualityProvider(): array
     {
         return [

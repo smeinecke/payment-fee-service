@@ -131,7 +131,9 @@ export class PaymentFeeEngine {
     ];
     const successValue = request.transaction.context?.success;
     if (successValue === true || successValue === undefined) {
-      stripeAssumptions.push("Assumed a successful transaction for providers that require success.");
+      stripeAssumptions.push(
+        "Assumed a successful transaction for providers that require success.",
+      );
     }
 
     return {
