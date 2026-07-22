@@ -168,6 +168,114 @@ def is_diagnostic_sandbox_pricing_merchant(entry: dict[str, Any]) -> bool:
     return False
 
 
+def _filter_fresh_valid_cases(cases: list[Case]) -> tuple[list[Case], bool, str | None]:
+    """Return fresh pre-submission cases that pass validation constraints.
+
+    The returned tuple is ``(valid_cases, had_invalid, early_reason)``.  When
+    ``early_reason`` is set, classification should stop with an inconclusive
+    result using that reason.
+    """
+    fresh = [c for c in cases if c.prediction_provenance == "pre_submission_prediction" and c.paypal_evidence]
+    if len(fresh) < 2:
+        return [], False, "fewer than two fresh observations"
+
+    valid_fresh: list[Case] = []
+    had_invalid = False
+    for c in fresh:
+        validation = validate_case_constraints(c)
+        if not validation["valid"]:
+            had_invalid = True
+            continue
+        valid_fresh.append(c)
+
+    return valid_fresh, had_invalid, None
+
+
+def _check_all_match_public(
+    valid_fresh: list[Case],
+    currency: str,
+) -> tuple[list[dict[str, Any]] | None, list[bool] | None, str | None]:
+    """Compare each valid observation with its public prediction.
+
+    Returns ``(public_amounts, public_matches, fail_reason)``.  When every
+    observation matches the public prediction, the caller should classify as
+    representative.  Missing fee values abort with ``fail_reason``.
+    """
+    public_amounts: list[dict[str, Any]] = []
+    public_matches: list[bool] = []
+    for c in valid_fresh:
+        ev = c.paypal_evidence or {}
+        q = c.quote or {}
+        gross = _decimal(ev.get("gross_amount", {}).get("value"))
+        observed_fee = _decimal(ev.get("paypal_fee", {}).get("value"))
+        public_fee = _decimal((q.get("processing_fee") or {}).get("value"))
+        if gross is None or observed_fee is None or public_fee is None:
+            return None, None, "missing fee values"
+        public_amounts.append({"gross": gross, "observed": observed_fee, "public": public_fee})
+        public_matches.append(minor_units(observed_fee, currency) == minor_units(public_fee, currency))
+    return public_amounts, public_matches, None
+
+
+def _verify_formula_stability(
+    valid_fresh: list[Case],
+    public_amounts: list[dict[str, Any]],
+    currency: str,
+    formula: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Confirm the inferred formula is stable across observed amounts and build the result.
+
+    Returns ``(result, fail_reason)``.  A stable fit produces the sandbox-
+    specific-pricing dictionary; an incomplete or unstable fit returns a reason
+    that should yield an inconclusive classification.
+    """
+    inferred = formula.get("inferred_from_observations") or {}
+    try:
+        slope = Decimal(inferred["base_percentage"])
+        intercept = Decimal(inferred["fixed_amount"])
+    except Exception:
+        return None, "inferred formula is incomplete"
+
+    for amounts in public_amounts:
+        expected = quantize_currency(amounts["gross"] * slope + intercept, currency)
+        if minor_units(expected, currency) != minor_units(amounts["observed"], currency):
+            return None, "observed formula is unstable across amounts"
+
+    observed_pct = (slope * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    observed_fixed = quantize_currency(intercept, currency)
+    return (
+        {
+            "merchant_country": valid_fresh[0].merchant_country,
+            "execution_path": "manual_send_to_business",
+            "product_id": valid_fresh[0].product_id,
+            "variant_id": valid_fresh[0].variant_id,
+            "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
+            "public_formula": {
+                "percentage": formula.get("base_percentage"),
+                "fixed": {
+                    "value": formula.get("fixed_amount"),
+                    "currency": currency,
+                },
+            },
+            "observed_account_formula": {
+                "percentage": str(observed_pct),
+                "fixed": {
+                    "value": str(observed_fixed),
+                    "currency": currency,
+                },
+            },
+            "classification": "sandbox_account_pricing_difference",
+            "confidence": "high",
+            "usable_for_public_rate_validation": False,
+            "reason": (
+                f"This specific {valid_fresh[0].merchant_country} Sandbox merchant account applied a stable "
+                f"{observed_pct}% + {currency} {observed_fixed} pricing formula, which differs from the public "
+                f"{formula.get('base_percentage')}% + {currency} {formula.get('fixed_amount')} formula."
+            ),
+        },
+        None,
+    )
+
+
 def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any]:
     """Classify manual-send pricing against the public formula.
 
@@ -179,39 +287,19 @@ def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any]:
     delta. If every fresh observation matches the public formula, the merchant
     is representative for manual-send. Otherwise the result is inconclusive.
     """
-    fresh = [c for c in cases if c.prediction_provenance == "pre_submission_prediction" and c.paypal_evidence]
-    if len(fresh) < 2:
-        return _manual_inconclusive(fresh, "fewer than two fresh observations")
-
-    valid_fresh: list[Case] = []
-    invariant_failure = False
-    for c in fresh:
-        validation = validate_case_constraints(c)
-        if not validation["valid"]:
-            invariant_failure = True
-            continue
-        valid_fresh.append(c)
-
-    if invariant_failure:
+    valid_fresh, had_invalid, early_reason = _filter_fresh_valid_cases(cases)
+    if early_reason:
+        return _manual_inconclusive([], early_reason)
+    if had_invalid:
         return _manual_inconclusive(valid_fresh, "evidence invariant failure detected")
     if len(valid_fresh) < 2:
         return _manual_inconclusive(valid_fresh, "fewer than two valid fresh observations")
 
-    public_matches: list[bool] = []
-    public_amounts: list[dict[str, Any]] = []
     currency = valid_fresh[0].currency
-    for c in valid_fresh:
-        ev = c.paypal_evidence or {}
-        q = c.quote or {}
-        gross = _decimal(ev.get("gross_amount", {}).get("value"))
-        observed_fee = _decimal(ev.get("paypal_fee", {}).get("value"))
-        public_fee = _decimal((q.get("processing_fee") or {}).get("value"))
-        if gross is None or observed_fee is None or public_fee is None:
-            return _manual_inconclusive(valid_fresh, "missing fee values")
-        public_amounts.append({"gross": gross, "observed": observed_fee, "public": public_fee})
-        public_matches.append(minor_units(observed_fee, currency) == minor_units(public_fee, currency))
-
-    if all(public_matches):
+    public_amounts, public_matches, fail_reason = _check_all_match_public(valid_fresh, currency)
+    if fail_reason:
+        return _manual_inconclusive(valid_fresh, fail_reason)
+    if public_matches is not None and all(public_matches):
         return _manual_classification(
             valid_fresh,
             status=QualificationStatus.REPRESENTATIVE.value,
@@ -222,49 +310,10 @@ def classify_manual_send_pricing(cases: list[Case]) -> dict[str, Any]:
     if not formula:
         return _manual_inconclusive(valid_fresh, "could not infer a stable observed formula")
 
-    inferred = formula.get("inferred_from_observations") or {}
-    try:
-        slope = Decimal(inferred["base_percentage"])
-        intercept = Decimal(inferred["fixed_amount"])
-    except Exception:
-        return _manual_inconclusive(valid_fresh, "inferred formula is incomplete")
-
-    for amounts in public_amounts:
-        expected = quantize_currency(amounts["gross"] * slope + intercept, currency)
-        if minor_units(expected, currency) != minor_units(amounts["observed"], currency):
-            return _manual_inconclusive(valid_fresh, "observed formula is unstable across amounts")
-
-    observed_pct = (slope * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    observed_fixed = quantize_currency(intercept, currency)
-    return {
-        "merchant_country": valid_fresh[0].merchant_country,
-        "execution_path": "manual_send_to_business",
-        "product_id": valid_fresh[0].product_id,
-        "variant_id": valid_fresh[0].variant_id,
-        "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING.value,
-        "public_formula": {
-            "percentage": formula.get("base_percentage"),
-            "fixed": {
-                "value": formula.get("fixed_amount"),
-                "currency": currency,
-            },
-        },
-        "observed_account_formula": {
-            "percentage": str(observed_pct),
-            "fixed": {
-                "value": str(observed_fixed),
-                "currency": currency,
-            },
-        },
-        "classification": "sandbox_account_pricing_difference",
-        "confidence": "high",
-        "usable_for_public_rate_validation": False,
-        "reason": (
-            f"This specific {valid_fresh[0].merchant_country} Sandbox merchant account applied a stable "
-            f"{observed_pct}% + {currency} {observed_fixed} pricing formula, which differs from the public "
-            f"{formula.get('base_percentage')}% + {currency} {formula.get('fixed_amount')} formula."
-        ),
-    }
+    result, fail_reason = _verify_formula_stability(valid_fresh, public_amounts or [], currency, formula)
+    if fail_reason:
+        return _manual_inconclusive(valid_fresh, fail_reason)
+    return result
 
 
 def _manual_classification(
@@ -407,6 +456,108 @@ def _library_observations_for_buyers(
     return observations
 
 
+def _qualification_validation_failures(cases: list[Case]) -> list[dict[str, Any]]:
+    """Return validation failures for cases that do not pass pre-flight constraints."""
+    failures: list[dict[str, Any]] = []
+    for case in cases:
+        validation = validate_case_constraints(case)
+        if not validation["valid"]:
+            failures.append({"case_id": case.case_id, "classification": validation["classification"]})
+    return failures
+
+
+def _qualification_incalculable(cases: list[Case]) -> list[str]:
+    """Return case IDs for which the library did not produce an exact public-rate quote."""
+    return [c.case_id for c in cases if not c.quote or c.quote.get("status") != "exact_for_public_rate"]
+
+
+def _build_qualification_fee_maps(
+    observations: list[dict[str, Any]],
+    library_observations: list[dict[str, Any]],
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Map buyer country to observed and predicted PayPal fee Decimal values."""
+    paypal_by_buyer: dict[str, Decimal] = {}
+    library_by_buyer: dict[str, Decimal] = {}
+    for o in observations:
+        paypal_by_buyer[o["buyer_country"]] = _decimal(o["paypal_fee"]) or Decimal("0")
+    for o in library_observations:
+        library_by_buyer[o["buyer_country"]] = _decimal(o["paypal_fee"]) or Decimal("0")
+    return paypal_by_buyer, library_by_buyer
+
+
+def _is_representative(
+    paypal_by_buyer: dict[str, Decimal],
+    library_by_buyer: dict[str, Decimal],
+    currency: str,
+) -> bool:
+    """Return True when every tested buyer matches the public schedule and at least two buyers were tested."""
+    all_match = True
+    matched_buyers = 0
+    for buyer, paypal_fee in paypal_by_buyer.items():
+        lib_fee = library_by_buyer.get(buyer)
+        if lib_fee is None:
+            all_match = False
+            continue
+        matched_buyers += 1
+        if minor_units(paypal_fee, currency) != minor_units(lib_fee, currency):
+            all_match = False
+    return all_match and matched_buyers == len(paypal_by_buyer) and matched_buyers >= 2
+
+
+def _is_sandbox_specific_pricing(
+    paypal_by_buyer: dict[str, Decimal],
+    library_by_buyer: dict[str, Decimal],
+    merchant_country: str,
+    buyers: set[str],
+    currency: str,
+) -> tuple[bool, str | None]:
+    """Detect sandbox-specific pricing patterns and return an explanatory reason when found."""
+    if len(buyers) < 2:
+        return False, None
+
+    unique_paypal_fees = {minor_units(v, currency) for v in paypal_by_buyer.values()}
+    unique_library_fees = {minor_units(v, currency) for v in library_by_buyer.values()}
+    if len(unique_paypal_fees) == 1 and len(unique_library_fees) > 1:
+        return (
+            True,
+            (
+                "Sandbox account or Sandbox pricing behavior is not representative of the "
+                "published public fee schedule. PayPal applied the same fee across tested "
+                "payer regions while the library predicted schedule-based differences."
+            ),
+        )
+
+    if merchant_country in buyers:
+        domestic_paypal = paypal_by_buyer.get(merchant_country)
+        domestic_lib = library_by_buyer.get(merchant_country)
+        foreign_buyers = [b for b in buyers if b != merchant_country]
+        if (
+            domestic_paypal is not None
+            and domestic_lib is not None
+            and minor_units(domestic_paypal, currency) == minor_units(domestic_lib, currency)
+        ):
+            foreign_match = all(
+                minor_units(paypal_by_buyer.get(b), currency) == minor_units(domestic_paypal, currency)
+                for b in foreign_buyers
+                if paypal_by_buyer.get(b) is not None
+            )
+            foreign_lib_differs = any(
+                minor_units(library_by_buyer.get(b), currency) != minor_units(domestic_lib, currency)
+                for b in foreign_buyers
+                if b in library_by_buyer
+            )
+            if foreign_match and foreign_lib_differs:
+                return (
+                    True,
+                    (
+                        "Domestic fee matches public schedule, but international surcharges are "
+                        "not applied by the Sandbox account. Sandbox account is not representative."
+                    ),
+                )
+
+    return False, None
+
+
 def classify_qualification(
     merchant_country: str,
     cases: list[Case],
@@ -428,12 +579,7 @@ def classify_qualification(
     if not observations:
         return result
 
-    # Validate each observation before using it.
-    validation_failures: list[dict[str, Any]] = []
-    for case in cases:
-        validation = validate_case_constraints(case)
-        if not validation["valid"]:
-            validation_failures.append({"case_id": case.case_id, "classification": validation["classification"]})
+    validation_failures = _qualification_validation_failures(cases)
     if validation_failures:
         return {
             **result,
@@ -442,8 +588,7 @@ def classify_qualification(
             "validation_failures": validation_failures,
         }
 
-    # Verify the library was able to produce a calculable quote for every case.
-    incalculable = [c.case_id for c in cases if not c.quote or c.quote.get("status") != "exact_for_public_rate"]
+    incalculable = _qualification_incalculable(cases)
     if incalculable:
         return {
             **result,
@@ -463,78 +608,20 @@ def classify_qualification(
     result["paypal_formula"] = paypal_formula
     result["library_formula"] = library_formula
 
-    paypal_by_buyer: dict[str, Decimal] = {}
-    library_by_buyer: dict[str, Decimal] = {}
-    for o in observations:
-        paypal_by_buyer[o["buyer_country"]] = _decimal(o["paypal_fee"]) or Decimal("0")
-    for o in library_observations:
-        library_by_buyer[o["buyer_country"]] = _decimal(o["paypal_fee"]) or Decimal("0")
+    paypal_by_buyer, library_by_buyer = _build_qualification_fee_maps(observations, library_observations)
 
-    # Representative: every tested buyer matches the published public schedule.
-    all_match = True
-    matched_buyers = 0
-    for buyer, paypal_fee in paypal_by_buyer.items():
-        lib_fee = library_by_buyer.get(buyer)
-        if lib_fee is None:
-            all_match = False
-            continue
-        matched_buyers += 1
-        if minor_units(paypal_fee, currency) != minor_units(lib_fee, currency):
-            all_match = False
-
-    if all_match and matched_buyers == len(paypal_by_buyer) and matched_buyers >= 2:
+    if _is_representative(paypal_by_buyer, library_by_buyer, currency):
         return {
             **result,
             "status": QualificationStatus.REPRESENTATIVE,
             "reason": "Observed PayPal fees match the library's public formula for tested buyers.",
         }
 
-    # Sandbox-specific pricing: PayPal ignores payer-region schedule differences.
-    if len(buyers) >= 2:
-        unique_paypal_fees = {minor_units(v, currency) for v in paypal_by_buyer.values()}
-        unique_library_fees = {minor_units(v, currency) for v in library_by_buyer.values()}
-        paypal_constant = len(unique_paypal_fees) == 1
-        library_varies = len(unique_library_fees) > 1
-
-        if paypal_constant and library_varies:
-            return {
-                **result,
-                "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING,
-                "reason": (
-                    "Sandbox account or Sandbox pricing behavior is not representative of the "
-                    "published public fee schedule. PayPal applied the same fee across tested "
-                    "payer regions while the library predicted schedule-based differences."
-                ),
-            }
-
-        if merchant_country in buyers:
-            domestic_paypal = paypal_by_buyer.get(merchant_country)
-            domestic_lib = library_by_buyer.get(merchant_country)
-            foreign_buyers = [b for b in buyers if b != merchant_country]
-            if (
-                domestic_paypal is not None
-                and domestic_lib is not None
-                and minor_units(domestic_paypal, currency) == minor_units(domestic_lib, currency)
-            ):
-                foreign_match = all(
-                    minor_units(paypal_by_buyer.get(b), currency) == minor_units(domestic_paypal, currency)
-                    for b in foreign_buyers
-                    if paypal_by_buyer.get(b) is not None
-                )
-                foreign_lib_differs = any(
-                    minor_units(library_by_buyer.get(b), currency) != minor_units(domestic_lib, currency)
-                    for b in foreign_buyers
-                    if b in library_by_buyer
-                )
-                if foreign_match and foreign_lib_differs:
-                    return {
-                        **result,
-                        "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING,
-                        "reason": (
-                            "Domestic fee matches public schedule, but international surcharges are "
-                            "not applied by the Sandbox account. Sandbox account is not representative."
-                        ),
-                    }
+    sandbox_specific, reason = _is_sandbox_specific_pricing(
+        paypal_by_buyer, library_by_buyer, merchant_country, buyers, currency
+    )
+    if sandbox_specific:
+        return {**result, "status": QualificationStatus.SANDBOX_SPECIFIC_PRICING, "reason": reason}
 
     return {
         **result,

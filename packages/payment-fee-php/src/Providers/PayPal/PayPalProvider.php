@@ -10,6 +10,7 @@ use Smeinecke\PaymentFee\Exception\InsufficientTransactionContext;
 use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
 use Smeinecke\PaymentFee\Exception\UnknownMarket;
 use Smeinecke\PaymentFee\Exception\UnsupportedFeeShape;
+use Smeinecke\PaymentFee\Model\ExecutableFeeRule;
 use Smeinecke\PaymentFee\Model\PayPalQuoteRequest;
 use Smeinecke\PaymentFee\Model\QuoteRequest;
 use Smeinecke\PaymentFee\Providers\ProviderInterface;
@@ -59,11 +60,12 @@ final class PayPalProvider implements ProviderInterface
             throw new AmbiguousFeeRules(array_map(fn($r) => (string) $r['id'], $candidates));
         }
 
-        return $this->compileRule($candidates[0], $registry, $paypalRequest);
+        $rules = $this->compileRule($candidates[0], $registry, $paypalRequest);
+        return array_map(fn($rule) => $rule->toArray(), $rules);
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * @return list<ExecutableFeeRule>
      */
     private function compileRule(array $rule, ScheduleRegistry $registry, PayPalQuoteRequest $request): array
     {
@@ -107,21 +109,21 @@ final class PayPalProvider implements ProviderInterface
             $maximumAmount = $registry->maximum($scheduleId, $currency);
         }
 
-        $executable = [
-            'rule_id' => "paypal:{$request->accountCountry}:{$rule['id']}:" . ($rule['variant_id'] ?? 'default') . ':base',
-            'label' => $rule['label'] ?? $rule['id'],
-            'component_type' => 'processing',
-            'behavior' => 'base',
-            'percentage' => $percentage,
-            'fixed_amount' => $fixedAmount === null ? null : (string) $fixedAmount,
-            'fixed_currency' => $fixedCurrency,
-            'minimum_amount' => null,
-            'maximum_amount' => $maximumAmount,
-            'classification_status' => $rule['calculation_status'] ?? 'calculable',
-            'confidence' => 1.0,
-            'exactness' => 'exact',
-            'source_url' => null,
-        ];
+        $executable = new ExecutableFeeRule(
+            rule_id: "paypal:{$request->accountCountry}:{$rule['id']}:" . ($rule['variant_id'] ?? 'default') . ':base',
+            label: $rule['label'] ?? $rule['id'],
+            component_type: 'processing',
+            behavior: 'base',
+            percentage: $percentage,
+            fixed_amount: $fixedAmount === null ? null : (string) $fixedAmount,
+            fixed_currency: $fixedCurrency,
+            minimum_amount: null,
+            maximum_amount: $maximumAmount,
+            classification_status: $rule['calculation_status'] ?? 'calculable',
+            confidence: 1.0,
+            exactness: 'exact',
+            source_url: null,
+        );
 
         $surchargeScheduleId = $rule['international_surcharge_schedule'] ?? null;
         if ($surchargeScheduleId === null) {
@@ -144,21 +146,19 @@ final class PayPalProvider implements ProviderInterface
             return [$executable];
         }
 
-        $surchargeRule = [
-            'rule_id' => "paypal:{$request->accountCountry}:{$rule['id']}:" . ($rule['variant_id'] ?? 'default') . ':surcharge:' . ($payerRegion ?? 'unknown'),
-            'label' => "International surcharge (" . ($payerRegion ?? 'unknown') . ")",
-            'component_type' => 'surcharge',
-            'behavior' => 'additive',
-            'percentage' => $surcharge['percentage'],
-            'fixed_amount' => $surcharge['fixed_amount'],
-            'fixed_currency' => $surcharge['fixed_amount'] ? ($surcharge['fixed_currency'] ?? $currency) : null,
-            'minimum_amount' => null,
-            'maximum_amount' => null,
-            'classification_status' => $rule['calculation_status'] ?? 'calculable',
-            'confidence' => 1.0,
-            'exactness' => 'exact',
-            'source_url' => null,
-        ];
+        $surchargeRule = new ExecutableFeeRule(
+            rule_id: "paypal:{$request->accountCountry}:{$rule['id']}:" . ($rule['variant_id'] ?? 'default') . ':surcharge:' . ($payerRegion ?? 'unknown'),
+            label: "International surcharge (" . ($payerRegion ?? 'unknown') . ")",
+            component_type: 'surcharge',
+            behavior: 'additive',
+            percentage: $surcharge['percentage'],
+            fixed_amount: $surcharge['fixed_amount'],
+            fixed_currency: $surcharge['fixed_amount'] ? ($surcharge['fixed_currency'] ?? $currency) : null,
+            classification_status: $rule['calculation_status'] ?? 'calculable',
+            confidence: 1.0,
+            exactness: 'exact',
+            source_url: null,
+        );
 
         return [$executable, $surchargeRule];
     }

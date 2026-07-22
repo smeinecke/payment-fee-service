@@ -7,6 +7,8 @@
  * meant to catch.
  */
 
+// Near-verbatim duplication across the three conformance runners is intentional.
+
 import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

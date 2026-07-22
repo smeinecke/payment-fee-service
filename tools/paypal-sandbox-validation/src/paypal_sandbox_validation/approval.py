@@ -1,11 +1,61 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from paypal_sandbox_validation.browser import BrowserError, PayPalBrowser
 from paypal_sandbox_validation.callback_server import CallbackServer
 from paypal_sandbox_validation.models import Account, ReconciliationStatus
 from paypal_sandbox_validation.url_validation import URLValidationError, validate_approval_url
+
+
+def _map_playwright_result_to_outcome(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Map a Playwright confirmation result to a final outcome.
+
+    Returns ``None`` when the result indicates the browser reached the approved
+    state and the callback state must still be checked.  Any other status is
+    returned immediately as the final outcome.
+    """
+    status = result.get("status")
+    if status != "approved":
+        return {"status": status, **{k: v for k, v in result.items() if k != "status"}}
+    return None
+
+
+def _map_callback_state_to_outcome(
+    callback_state: str,
+    result_status: str,
+    screenshot_dir: Path | None,
+    case_id: str | None,
+    browser: PayPalBrowser | None = None,
+) -> dict[str, Any]:
+    """Map the return-callback state to the final approval outcome."""
+    if callback_state == "cancelled":
+        return {
+            "status": ReconciliationStatus.BUYER_CANCELLED.value,
+            "error": "Buyer cancelled the payment.",
+            "issue": "BUYER_CANCELLED",
+            "operation": "buyer approval",
+        }
+    if callback_state == "token_mismatch":
+        return {
+            "status": ReconciliationStatus.CALLBACK_TOKEN_MISMATCH.value,
+            "error": "Callback token did not match the order token.",
+            "issue": "CALLBACK_TOKEN_MISMATCH",
+            "operation": "callback",
+        }
+    if callback_state == "timeout":
+        if result_status == "approved":
+            return {"status": "approved"}
+        if screenshot_dir and case_id and browser:
+            browser.capture_failure_screenshot(screenshot_dir / f"{case_id}-failure.png")
+        return {
+            "status": ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value,
+            "error": "Timeout waiting for return callback.",
+            "issue": "BUYER_INTERACTION_BLOCKED",
+            "operation": "buyer approval",
+        }
+    return {"status": "approved"}
 
 
 def approve_order(
@@ -41,41 +91,19 @@ def approve_order(
             if screenshot_dir and case_id:
                 screenshot_path = screenshot_dir / f"{case_id}-checkout.png"
             result = browser.confirm_and_approve(amount, currency, screenshot_path=screenshot_path)
-            if result["status"] == ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value:
-                return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
-            if result["status"] == ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE.value:
-                return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
-            if result["status"] == ReconciliationStatus.BUYER_CHECKOUT_UNKNOWN_ERROR.value:
-                return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
-            if result["status"] != "approved":
-                return {"status": result["status"], **{k: v for k, v in result.items() if k != "status"}}
+
+            playwright_outcome = _map_playwright_result_to_outcome(result)
+            if playwright_outcome is not None:
+                return playwright_outcome
+
             callback_state = callback_server.wait_for_state(timeout=120.0)
-            if callback_state == "cancelled":
-                return {
-                    "status": ReconciliationStatus.BUYER_CANCELLED.value,
-                    "error": "Buyer cancelled the payment.",
-                    "issue": "BUYER_CANCELLED",
-                    "operation": "buyer approval",
-                }
-            if callback_state == "token_mismatch":
-                return {
-                    "status": ReconciliationStatus.CALLBACK_TOKEN_MISMATCH.value,
-                    "error": "Callback token did not match the order token.",
-                    "issue": "CALLBACK_TOKEN_MISMATCH",
-                    "operation": "callback",
-                }
-            if callback_state == "timeout":
-                if result["status"] == "approved":
-                    return {"status": "approved"}
-                if screenshot_dir and case_id:
-                    browser.capture_failure_screenshot(screenshot_dir / f"{case_id}-failure.png")
-                return {
-                    "status": ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value,
-                    "error": "Timeout waiting for return callback.",
-                    "issue": "BUYER_INTERACTION_BLOCKED",
-                    "operation": "buyer approval",
-                }
-            return {"status": "approved"}
+            return _map_callback_state_to_outcome(
+                callback_state,
+                result.get("status", ""),
+                screenshot_dir,
+                case_id,
+                browser,
+            )
     except BrowserError as exc:
         return {
             "status": ReconciliationStatus.BUYER_INTERACTION_BLOCKED.value,

@@ -9,6 +9,8 @@
  * differential gate is meant to catch.
  */
 
+// Near-verbatim duplication across the three conformance runners is intentional.
+
 declare(strict_types=1);
 
 require __DIR__ . '/../../packages/payment-fee-php/vendor/autoload.php';

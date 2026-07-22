@@ -222,7 +222,7 @@ def test_resume_reconciled_case_does_not_call_create(
     save_results(run_id, {"run_id": run_id, "cases": [case.model_dump()]})
 
     create_called: list[Case] = []
-    original_create = "paypal_sandbox_validation.cli._create_order"
+    original_create = "paypal_sandbox_validation.cli.runner._create_order"
 
     def fake_create(*args: object, **kwargs: object) -> None:
         create_called.append(args[0])  # type: ignore[index]
@@ -313,7 +313,7 @@ def test_complete_probe_requires_all_selected_merchants(
 
         return OAuthProbeResult(country=country, status=OAuthProbeStatus.SUCCESS)
 
-    monkeypatch.setattr("paypal_sandbox_validation.cli.probe_credentials", fake_probe)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.probing.probe_credentials", fake_probe)
     runner = CliRunner()
     result = runner.invoke(cli, ["probe", "--accounts-csv", str(path)])
     assert result.exit_code == 0, result.output
@@ -336,7 +336,7 @@ def test_complete_probe_requires_all_selected_merchants(
             )
         return OAuthProbeResult(country=country, status=OAuthProbeStatus.SUCCESS)
 
-    monkeypatch.setattr("paypal_sandbox_validation.cli.probe_credentials", fake_probe_fail)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.probing.probe_credentials", fake_probe_fail)
     result = runner.invoke(cli, ["probe", "--accounts-csv", str(path)])
     assert result.exit_code == 1, result.output
     assert "merchants_present = 2" in result.output
@@ -410,9 +410,9 @@ def test_resume_after_capture_runs_reconcile_only(
         reconcile_calls.append(args[0])  # type: ignore[index]
         return args[0].model_dump()  # type: ignore[index]
 
-    monkeypatch.setattr("paypal_sandbox_validation.cli._create_order", fake_create)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._capture", fake_capture)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._reconcile_case", fake_reconcile_case)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._create_order", fake_create)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._capture", fake_capture)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._reconcile_case", fake_reconcile_case)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -492,9 +492,9 @@ def test_resume_after_approval_uses_existing_capture_id(
         }
         return case_arg.model_dump()
 
-    monkeypatch.setattr("paypal_sandbox_validation.cli._create_order", fake_create)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._approve_order", fake_approve)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._capture", fake_capture)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._create_order", fake_create)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._approve_order", fake_approve)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._capture", fake_capture)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -566,9 +566,9 @@ def test_duplicate_payment_prevention_no_second_create(
         case_arg.status = CaseStatus.CAPTURED
         return case_arg.model_dump()
 
-    monkeypatch.setattr("paypal_sandbox_validation.cli._create_order", fake_create)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._approve_order", fake_approve)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._capture", fake_capture)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._create_order", fake_create)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._approve_order", fake_approve)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._capture", fake_capture)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -634,9 +634,9 @@ def test_observed_payer_country_populated_by_cli_run(
         }
         return None
 
-    monkeypatch.setattr("paypal_sandbox_validation.cli._create_order", lambda *a, **k: None)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._approve_order", lambda *a, **k: None)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._capture", fake_capture)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._create_order", lambda *a, **k: None)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._approve_order", lambda *a, **k: None)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._capture", fake_capture)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -685,7 +685,7 @@ def _smoke_stop_scenario(
     from paypal_sandbox_validation.planner import build_plan, enrich_plan_with_products
     from paypal_sandbox_validation.quote_adapter import QuoteAdapter
 
-    monkeypatch.setattr("paypal_sandbox_validation.cli.ensure_surcharge_case", lambda plan, adapter: plan)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.execution.ensure_surcharge_case", lambda plan, adapter: plan)
 
     scenarios = {
         "standard_wallet_checkout": {
@@ -733,9 +733,9 @@ def _smoke_stop_scenario(
         case_arg.reconciliation = {"status": "fee_mismatch"}
         return case_arg.model_dump()
 
-    monkeypatch.setattr("paypal_sandbox_validation.cli._create_order", fake_create)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._approve_order", fake_approve)
-    monkeypatch.setattr("paypal_sandbox_validation.cli._capture", fake_capture)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._create_order", fake_create)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._approve_order", fake_approve)
+    monkeypatch.setattr("paypal_sandbox_validation.cli.runner._capture", fake_capture)
 
     args = ["run", "--accounts-csv", str(path), "--profile", "smoke"]
     if continue_after_mismatch:

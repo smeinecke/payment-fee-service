@@ -775,6 +775,71 @@ def _render_markdown(diag: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _classify_payload_variant_outcome(
+    playwright_results: list[dict[str, Any]],
+    some_variant_passed: bool,
+    all_variants_failed: bool,
+) -> dict[str, Any] | None:
+    """Return Orders v2 payload-defect classification when one variant passes and another fails."""
+    if len(playwright_results) > 1 and some_variant_passed and not all_variants_failed:
+        return {
+            "status": QualificationStatus.ORDERS_V2_PAYLOAD_DEFECT,
+            "reason": "One Orders v2 payload variant succeeded while another failed.",
+        }
+    return None
+
+
+def _classify_manual_vs_playwright(
+    manual_order_status: str | None,
+    playwright_approved: bool,
+) -> dict[str, Any] | None:
+    """Return manual/Playwright layer classification when one or both Orders v2 paths are known."""
+    if manual_order_status == "approved" and playwright_approved:
+        return {
+            "status": QualificationStatus.TRANSIENT_SANDBOX_ERROR,
+            "reason": "Manual and Playwright Orders v2 approvals both succeeded; previous failure was transient.",
+        }
+    if manual_order_status == "approved" and not playwright_approved:
+        return {
+            "status": QualificationStatus.PLAYWRIGHT_AUTOMATION_DEFECT,
+            "reason": "Manual Orders v2 approval succeeded, but Playwright approval failed.",
+        }
+    return None
+
+
+def _classify_checkout_layer_failure(
+    all_variants_failed: bool,
+    manual_order_status: str | None,
+    manual_send_money: dict[str, Any],
+    playwright_issues: set[str],
+) -> dict[str, Any]:
+    """Classify the remaining checkout-layer failure using Send Money and compliance signals."""
+    send_money_succeeded = manual_send_money.get("succeeded", False)
+    send_money_type = manual_send_money.get("transaction_type", "unknown")
+    compliance_issue = "COMPLIANCE_VIOLATION" in playwright_issues
+
+    if all_variants_failed or manual_order_status in {"failed", "timeout"}:
+        if send_money_succeeded and send_money_type != "friends/family" and compliance_issue:
+            return {
+                "status": QualificationStatus.SANDBOX_CHECKOUT_LIMITATION,
+                "reason": "Send Money works, but Orders v2 checkout is blocked by a PayPal compliance restriction.",
+            }
+        if compliance_issue:
+            return {
+                "status": ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE,
+                "reason": "PayPal returned a compliance violation on Orders v2 checkout.",
+            }
+        return {
+            "status": QualificationStatus.SANDBOX_CHECKOUT_LIMITATION,
+            "reason": "Orders v2 checkout failed and no payload or automation layer explains it.",
+        }
+
+    return {
+        "status": QualificationStatus.UNDER_INVESTIGATION,
+        "reason": "Insufficient evidence to finalize DE checkout classification.",
+    }
+
+
 def classify_de_checkout_outcome(
     association_verified: bool,
     manual_send_money: dict[str, Any],
@@ -802,52 +867,20 @@ def classify_de_checkout_outcome(
     all_variants_failed = variants_tested and variants_tested == variants_failed
     some_variant_passed = any(r.get("status") == "approved" for r in playwright_results)
 
-    # If one payload variant works and the other does not, the payload form is the differentiator.
-    if len(playwright_results) > 1 and some_variant_passed and not all_variants_failed:
-        return {
-            "status": QualificationStatus.ORDERS_V2_PAYLOAD_DEFECT,
-            "reason": "One Orders v2 payload variant succeeded while another failed.",
-        }
+    payload_outcome = _classify_payload_variant_outcome(playwright_results, some_variant_passed, all_variants_failed)
+    if payload_outcome is not None:
+        return payload_outcome
 
     manual_order_status = manual_order.get("status")
     playwright_approved = any(r.get("status") == "approved" for r in playwright_results)
 
-    if manual_order_status == "approved" and playwright_approved:
-        return {
-            "status": QualificationStatus.TRANSIENT_SANDBOX_ERROR,
-            "reason": "Manual and Playwright Orders v2 approvals both succeeded; previous failure was transient.",
-        }
+    manual_outcome = _classify_manual_vs_playwright(manual_order_status, playwright_approved)
+    if manual_outcome is not None:
+        return manual_outcome
 
-    if manual_order_status == "approved" and not playwright_approved:
-        return {
-            "status": QualificationStatus.PLAYWRIGHT_AUTOMATION_DEFECT,
-            "reason": "Manual Orders v2 approval succeeded, but Playwright approval failed.",
-        }
-
-    send_money_succeeded = manual_send_money.get("succeeded", False)
-    send_money_type = manual_send_money.get("transaction_type", "unknown")
-
-    # If both Orders v2 paths fail and at least one shows a structured PayPal
-    # compliance issue, the failure is at PayPal's checkout layer.
-    compliance_issue = "COMPLIANCE_VIOLATION" in playwright_issues
-
-    if all_variants_failed or manual_order_status in {"failed", "timeout"}:
-        if send_money_succeeded and send_money_type != "friends/family" and compliance_issue:
-            return {
-                "status": QualificationStatus.SANDBOX_CHECKOUT_LIMITATION,
-                "reason": "Send Money works, but Orders v2 checkout is blocked by a PayPal compliance restriction.",
-            }
-        if compliance_issue:
-            return {
-                "status": ReconciliationStatus.ACCOUNT_CONFIGURATION_DIFFERENCE,
-                "reason": "PayPal returned a compliance violation on Orders v2 checkout.",
-            }
-        return {
-            "status": QualificationStatus.SANDBOX_CHECKOUT_LIMITATION,
-            "reason": "Orders v2 checkout failed and no payload or automation layer explains it.",
-        }
-
-    return {
-        "status": QualificationStatus.UNDER_INVESTIGATION,
-        "reason": "Insufficient evidence to finalize DE checkout classification.",
-    }
+    return _classify_checkout_layer_failure(
+        all_variants_failed,
+        manual_order_status,
+        manual_send_money,
+        playwright_issues,
+    )

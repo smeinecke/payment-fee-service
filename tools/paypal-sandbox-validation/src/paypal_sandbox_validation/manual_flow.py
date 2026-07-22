@@ -11,6 +11,7 @@ from typing import Any
 
 from paypal_sandbox_validation.accounts import Account, parse_accounts_csv
 from paypal_sandbox_validation.configuration import get_manual_send_scenario
+from paypal_sandbox_validation.diagnostics import infer_formula as _infer_formula
 from paypal_sandbox_validation.diagnostics import validate_case_constraints
 from paypal_sandbox_validation.manual_browser import ManualPaymentBrowser
 from paypal_sandbox_validation.models import Case, CaseStatus, ReconciliationStatus
@@ -623,26 +624,20 @@ def run_manual_case(
     return _run_reconciliation(case, result["details"], adapter)
 
 
-def infer_formula(cases: list[Case]) -> dict[str, Any] | None:
-    """Return the formula inferred from a set of manual-send cases.
-
-    Cases must share the same preselected product and variant and have PayPal
-    evidence. The returned formula combines the preselected fee-schedule
-    metadata with a least-squares fit to the observed gross/fee pairs, allowing
-    the actual sandbox fee curve to be compared with the library prediction
-    regardless of whether every amount matched.
-    """
+def _eligible_single_scenario_cases(cases: list[Case]) -> list[Case]:
+    """Return cases that share the same product/variant and have both evidence and a quote."""
     eligible = [c for c in cases if c.paypal_evidence and c.quote]
     if not eligible:
-        return None
-
+        return []
     product_ids = {c.product_id for c in eligible}
     variant_ids = {c.variant_id for c in eligible}
     if len(product_ids) != 1 or len(variant_ids) != 1:
-        return None
+        return []
+    return eligible
 
-    gross_values: list[Decimal] = []
-    fee_values: list[Decimal] = []
+
+def _collect_gross_fee_pairs(eligible: list[Case]) -> list[dict[str, Any]]:
+    """Convert eligible cases into the canonical observation dict shape used by ``infer_formula``."""
     observations: list[dict[str, Any]] = []
     for c in eligible:
         ev = c.paypal_evidence or {}
@@ -651,31 +646,61 @@ def infer_formula(cases: list[Case]) -> dict[str, Any] | None:
         fee = _decimal(ev.get("paypal_fee", {}).get("value"))
         if gross is None or fee is None:
             continue
-        gross_values.append(gross)
-        fee_values.append(fee)
         observations.append(
             {
                 "amount": str(gross),
+                "currency": c.currency,
                 "paypal_fee": str(fee),
+                "buyer_country": c.buyer_country,
+                "observed_payer_country": ev.get("payer_country"),
                 "library_fee": q.get("processing_fee", {}).get("value"),
                 "reconciliation_status": (c.reconciliation or {}).get("status"),
                 "delta_minor_units": (c.reconciliation or {}).get("delta_minor_units"),
+                "case_id": c.case_id,
             }
         )
+    return observations
 
-    if len(gross_values) < 2:
+
+def _least_squares_fit(observations: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Run the canonical linear formula inference over gross/fee observations."""
+    if len(observations) < 2:
+        return None
+    return _infer_formula(observations)
+
+
+def infer_formula(cases: list[Case]) -> dict[str, Any] | None:
+    """Return the formula inferred from a set of manual-send cases.
+
+    Cases must share the same preselected product and variant and have PayPal
+    evidence. The returned formula combines the preselected fee-schedule
+    metadata with a linear fit to the observed gross/fee pairs, allowing the
+    actual sandbox fee curve to be compared with the library prediction
+    regardless of whether every amount matched.
+    """
+    eligible = _eligible_single_scenario_cases(cases)
+    if not eligible:
         return None
 
-    n = Decimal(len(gross_values))
-    mean_x = sum(gross_values) / n
-    mean_y = sum(fee_values) / n
-    numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(gross_values, fee_values, strict=True))
-    denominator = sum((x - mean_x) ** 2 for x in gross_values)
-    slope = Decimal("0") if denominator == 0 else numerator / denominator
-    intercept = mean_y - slope * mean_x
+    observations = _collect_gross_fee_pairs(eligible)
+    if len(observations) < 2:
+        return None
 
-    slope = slope.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-    intercept = intercept.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    formula = _least_squares_fit(observations)
+    if not formula or not formula.get("best"):
+        return None
+    best = formula["best"]
+
+    pct = _decimal(best.get("percentage"))
+    fixed = _decimal(best.get("fixed"))
+    if pct is None or fixed is None:
+        return None
+
+    slope = (pct / Decimal(100)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    intercept = fixed.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+    predictions = best.get("predictions", [])
+    inferred_observations = [dict(obs, **pred) for obs, pred in zip(observations, predictions, strict=True)]
 
     meta = (eligible[0].quote or {}).get("_schedule_metadata") or {}
     return {
@@ -691,7 +716,7 @@ def infer_formula(cases: list[Case]) -> dict[str, Any] | None:
         "inferred_from_observations": {
             "base_percentage": str(slope),
             "fixed_amount": str(intercept),
-            "observations": observations,
+            "observations": inferred_observations,
         },
     }
 

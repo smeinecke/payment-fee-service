@@ -7,102 +7,37 @@ from typing import Any
 from payment_fee.engine import PaymentFeeEngine
 from payment_fee.errors import InsufficientTransactionContext, PaymentFeeError, QuoteNotAvailable
 from payment_fee.models import Money, PayPalQuoteRequest, PayPalTransaction, StripeQuoteRequest, StripeTransaction
-from payment_fee.providers.paypal.models import PayPalCountryEntry, PayPalTransactionFeeRule
+from payment_fee.providers.paypal.models import PayPalCoreFees, PayPalCountryEntry, PayPalTransactionFeeRule
+from payment_fee.providers.paypal.provider import (
+    PAYPAL_API_FIELD_NAMES,
+    PayPalProvider,
+)
 from payment_fee.providers.paypal.provider import (
     SUPPORTED_FEE_COMPONENT_TYPES as PAYPAL_SUPPORTED_COMPONENTS,
 )
 from payment_fee.providers.paypal.provider import (
-    PayPalProvider,
+    SUPPORTED_OPERATORS as PAYPAL_SUPPORTED_OPERATORS,
 )
-from payment_fee.providers.stripe.models import StripeMarketEntry, StripeRule
+from payment_fee.providers.stripe.models import StripeCoreFees, StripeMarketEntry, StripeRule
+from payment_fee.providers.stripe.provider import (
+    STRIPE_API_FIELD_NAMES,
+    StripeProvider,
+)
 from payment_fee.providers.stripe.provider import (
     SUPPORTED_COMPONENT_TYPES as STRIPE_SUPPORTED_COMPONENTS,
 )
 from payment_fee.providers.stripe.provider import (
-    StripeProvider,
+    SUPPORTED_OPERATORS as STRIPE_SUPPORTED_OPERATORS,
 )
 from payment_fee.util import _as_list
 
-PAYPAL_KNOWN_DIMENSIONS = {
-    "amount",
-    "applies_to_markets",
-    "payment_methods",
-    "transaction_region",
-    "payer_region",
-    "surcharge_region",
-    "customer_country",
-    "payment_method",
-    "merchant_approval_required",
-    "pricing_plan",
-    "withdrawal_method",
-    "authorization_channel",
-    "point_of_sale",
-    "card_present",
-    "transaction_purpose",
-    "funding_source",
-    "service",
-    "recipient_location",
-    "volume_status",
-    "fee_currency",
-}
+PAYPAL_KNOWN_DIMENSIONS = {"amount", "applies_to_markets", "payment_methods"} | set(PAYPAL_API_FIELD_NAMES)
 
-PAYPAL_KNOWN_OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte"}
+PAYPAL_KNOWN_OPERATORS = PAYPAL_SUPPORTED_OPERATORS
 
-STRIPE_KNOWN_DIMENSIONS = {
-    "account_country",
-    "customer_country",
-    "amount_currency",
-    "transaction_amount",
-    "presentment_currency",
-    "settlement_currency",
-    "settlement_timing",
-    "product_id",
-    "variant_id",
-    "payment_method",
-    "payment_method_variant",
-    "channel",
-    "pricing_plan",
-    "pricing_tier",
-    "payer",
-    "unit",
-    "currency_conversion_required",
-    "recurring",
-    "billing_type",
-    "transaction_region",
-    "cross_border",
-    "integration_type",
-    "product_feature",
-    "contract_length",
-    "feature_enabled",
-    "dispute_state",
-    "fee_type",
-    "success",
-    "card_origin",
-    "card_region",
-    "card_type",
-    "card_network",
-    "card_tier",
-    "card_entry_mode",
-    "bank_account_validation",
-    "bank_transfer_type",
-    "transaction_type",
-}
+STRIPE_KNOWN_DIMENSIONS = set(STRIPE_API_FIELD_NAMES)
 
-STRIPE_KNOWN_OPERATORS = {
-    "eq",
-    "==",
-    "equals",
-    "ne",
-    "!=",
-    "not_equals",
-    "in",
-    "not_in",
-    "nin",
-    "gt",
-    "gte",
-    "lt",
-    "lte",
-}
+STRIPE_KNOWN_OPERATORS = STRIPE_SUPPORTED_OPERATORS
 
 
 def _first_scalar(value: Any) -> Any:
@@ -398,6 +333,7 @@ def _audit_paypal(
     result: ContractAuditResult,
 ) -> AuditCounters:
     counters = AuditCounters()
+    provider = PayPalProvider(core=PayPalCoreFees(countries=[country]))
     for rule in country.derived.transaction_fee_rules:
         if rule.calculation_status != "calculable":
             continue
@@ -474,11 +410,7 @@ def _audit_paypal(
 
         request = _paypal_request_from_rule(rule, country.country_code, currency)
         try:
-            from payment_fee.providers.paypal.models import PayPalCoreFees
-            from payment_fee.providers.paypal.provider import PayPalProvider
-
-            provider = PayPalProvider(core=PayPalCoreFees(countries=[country]))
-            provider.compile_rules(request)
+            provider._compile_single_rule_for_audit(rule, request)
             counters.parsed += 1
         except InsufficientTransactionContext:
             counters.parsed += 1
@@ -498,6 +430,7 @@ def _audit_paypal(
 
 def _audit_stripe(market: StripeMarketEntry, result: ContractAuditResult) -> AuditCounters:
     counters = AuditCounters()
+    provider = StripeProvider(core=StripeCoreFees(markets=[market]))
     for rule in market.rules:
         if rule.classification_status != "calculable_rule":
             continue
@@ -550,9 +483,7 @@ def _audit_stripe(market: StripeMarketEntry, result: ContractAuditResult) -> Aud
         currency = currency.upper()
 
         try:
-            from payment_fee.providers.stripe.provider import _executable_from_rule
-
-            _executable_from_rule(rule, currency)
+            provider._compile_single_rule_for_audit(rule, currency)
             counters.parsed += 1
         except PaymentFeeError as exc:
             result.failures.append(f"stripe:{market.account_country}:{rule.rule_id}: {exc}")

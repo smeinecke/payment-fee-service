@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from payment_fee.calculator import to_decimal
 
 
 class StripeFeeCondition(BaseModel):
@@ -18,15 +21,22 @@ class StripeFeeComponent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str
-    amount: str | None = None
-    basis_points: str | None = None
+    amount: Decimal | None = None
+    basis_points: Decimal | None = None
     currency: str | None = None
-    minor_amount: str | None = None
+    minor_amount: Decimal | None = None
     operator: str | None = None
     schedule_id: str | None = None
     source_entry_id: str | None = None
     source_text: str | None = None
-    value: str | None = None
+    value: Decimal | None = None
+
+    @field_validator("amount", "basis_points", "minor_amount", "value", mode="before")
+    @classmethod
+    def _decimal_fields(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return to_decimal(value, "fee component")
 
 
 class StripeFeeEvidence(BaseModel):
@@ -61,7 +71,7 @@ class StripeRule(BaseModel):
 
     # Additional dimensions that may appear as top-level fields
     additional_fees: list[dict[str, Any]] = Field(default_factory=list)
-    basis_points: str | None = None
+    basis_points: Decimal | None = None
     billing_type: str | None = None
     card_network: str | None = None
     card_origin: str | None = None
@@ -76,12 +86,12 @@ class StripeRule(BaseModel):
     dispute_state: str | None = None
     feature_enabled: str | None = None
     fee_type: str | None = None
-    fixed_amount: str | None = None
-    fixed_amount_minor: str | None = None
+    fixed_amount: Decimal | None = None
+    fixed_amount_minor: Decimal | None = None
     fixed_currency: str | None = None
     integration_type: str | None = None
-    maximum_amount: str | None = None
-    minimum_amount: str | None = None
+    maximum_amount: Decimal | None = None
+    minimum_amount: Decimal | None = None
     payer: str | None = None
     presentment_currency: str | None = None
     pricing_plan: str | None = None
@@ -92,13 +102,29 @@ class StripeRule(BaseModel):
     settlement_timing: str | None = None
     source_url: str | None = None
     success: bool | None = None
-    transaction_amount_max: str | None = None
-    transaction_amount_min: str | None = None
+    transaction_amount_max: Decimal | None = None
+    transaction_amount_min: Decimal | None = None
     transaction_region: str | None = None
     transaction_type: str | None = None
     payment_method_variant: str | None = None
     bank_account_validation: str | None = None
     bank_transfer_type: str | None = None
+
+    @field_validator(
+        "basis_points",
+        "fixed_amount",
+        "fixed_amount_minor",
+        "maximum_amount",
+        "minimum_amount",
+        "transaction_amount_max",
+        "transaction_amount_min",
+        mode="before",
+    )
+    @classmethod
+    def _decimal_fields(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return to_decimal(value, "rule")
 
 
 class StripeMarketEntry(BaseModel):

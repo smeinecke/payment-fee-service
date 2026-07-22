@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from payment_fee.calculator import to_decimal
 
 
 class PayPalFeeComponent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str
-    value: str | None = None
-    amount: str | None = None
+    value: Decimal | None = None
+    amount: Decimal | None = None
     currency: str | None = None
     schedule_id: str | None = None
+
+    @field_validator("value", "amount", mode="before")
+    @classmethod
+    def _decimal_fields(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return to_decimal(value, "fee component")
 
 
 class PayPalSource(BaseModel):
@@ -38,7 +48,7 @@ class PayPalTransactionFeeRule(BaseModel):
     id: str
     variant_id: str | None = None
     label: str | None = None
-    percentage: str | None = None
+    percentage: Decimal | None = None
     fixed_fee_schedule: str | None = None
     international_surcharge_schedule: str | None = None
     maximum_fee_schedule: str | None = None
@@ -48,18 +58,39 @@ class PayPalTransactionFeeRule(BaseModel):
     fee_components: list[PayPalFeeComponent] = Field(default_factory=list)
     source: PayPalSource | None = None
 
+    @field_validator("percentage", mode="before")
+    @classmethod
+    def _decimal_percentage(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return to_decimal(value, "percentage")
+
 
 class PayPalFixedFeeSchedule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    entries: dict[str, str] = Field(default_factory=dict)
+    entries: dict[str, Decimal] = Field(default_factory=dict)
+
+    @field_validator("entries", mode="before")
+    @classmethod
+    def _decimal_entries(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {k: to_decimal(v, "fixed fee") for k, v in value.items()}
 
 
 class PayPalInternationalSurchargeEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     payer_region: str
-    percentage_points: str | None = None
+    percentage_points: Decimal | None = None
+
+    @field_validator("percentage_points", mode="before")
+    @classmethod
+    def _decimal_percentage_points(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return to_decimal(value, "surcharge percentage")
 
 
 class PayPalInternationalSurchargeSchedule(BaseModel):
@@ -71,13 +102,27 @@ class PayPalInternationalSurchargeSchedule(BaseModel):
 class PayPalMaximumFeeSchedule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    entries: dict[str, str] = Field(default_factory=dict)
+    entries: dict[str, Decimal] = Field(default_factory=dict)
+
+    @field_validator("entries", mode="before")
+    @classmethod
+    def _decimal_entries(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {k: to_decimal(v, "maximum fee") for k, v in value.items()}
 
 
 class PayPalCurrencyConversion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    spread_percentage: str | None = None
+    spread_percentage: Decimal | None = None
+
+    @field_validator("spread_percentage", mode="before")
+    @classmethod
+    def _decimal_spread(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return to_decimal(value, "spread percentage")
 
 
 class PayPalDerivedData(BaseModel):

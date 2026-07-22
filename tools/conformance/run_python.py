@@ -7,6 +7,8 @@ cross-language divergence, which is the property the differential gate is meant
 to catch.
 """
 
+# Near-verbatim duplication across the three conformance runners is intentional.
+
 from __future__ import annotations
 
 import argparse
