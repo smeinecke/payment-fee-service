@@ -1,0 +1,119 @@
+{
+  "id": "stripe-us-boolean-strict-match",
+  "description": "Stripe rule with boolean success condition matches a literal boolean true value.",
+  "provider_documents": {
+    "stripe": {
+      "core": {
+        "schema_version": 1,
+        "markets": [
+          {
+            "account_country": "US",
+            "rules": [
+              {
+                "rule_id": "stripe:US:boolean-test",
+                "provider": "stripe",
+                "account_country": "US",
+                "classification_status": "calculable_rule",
+                "behavior": "base",
+                "product_id": "payments",
+                "variant_id": "standard",
+                "payment_method": "card",
+                "confidence": 1.0,
+                "label": "Boolean strict test",
+                "unit": "per_transaction",
+                "conditions": [
+                  {
+                    "dimension": "payment_method",
+                    "operator": "eq",
+                    "value": "card"
+                  },
+                  {
+                    "dimension": "success",
+                    "operator": "eq",
+                    "value": true
+                  }
+                ],
+                "fee_components": [
+                  {
+                    "type": "fixed_amount",
+                    "amount": "1.00",
+                    "currency": "USD"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "stripe",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "account_country": "US",
+    "transaction": {
+      "product_id": "payments",
+      "variant_id": "standard",
+      "payment_method": "card",
+      "context": {
+        "success": true
+      }
+    }
+  },
+  "expected_result": {
+    "provider": "stripe",
+    "status": "exact_for_public_rate",
+    "amount": {
+      "value": "100.00",
+      "currency": "USD"
+    },
+    "processing_fee": {
+      "value": "1.00",
+      "currency": "USD"
+    },
+    "net_amount": {
+      "value": "99.00",
+      "currency": "USD"
+    },
+    "components": [
+      {
+        "type": "processing",
+        "label": "Boolean strict test",
+        "amount": "1.00",
+        "currency": "USD",
+        "fixed_amount": "1.00",
+        "minimum_applied": false,
+        "maximum_applied": false,
+        "unit": "per_transaction",
+        "source_rule_id": "stripe:US:boolean-test"
+      }
+    ],
+    "matched_rules": [
+      {
+        "rule_id": "stripe:US:boolean-test",
+        "classification_status": "calculable_rule",
+        "confidence": 1,
+        "exactness": "exact"
+      }
+    ],
+    "selected_product_id": "payments",
+    "selected_variant_id": "standard",
+    "assumptions": [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+      "Assumed a successful transaction for providers that require success."
+    ],
+    "warnings": [],
+    "data": {
+      "provider": "stripe",
+      "schema_version": 1,
+      "market": "US",
+      "source_urls": [],
+      "data_ref": "documents"
+    }
+  },
+  "expected_error": null
+}

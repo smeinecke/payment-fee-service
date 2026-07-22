@@ -280,8 +280,10 @@ def _api_field_name_lookup(mapping: dict[str, str], dimension: str) -> str:
 
 
 def _values_equal(left: Any, right: Any) -> bool:
-    if isinstance(left, bool) or isinstance(right, bool):
-        return bool(left) is bool(right)
+    if isinstance(left, bool):
+        return isinstance(right, bool) and left is right
+    if isinstance(right, bool):
+        return False
     if isinstance(left, str) and isinstance(right, str):
         return left.casefold() == right.casefold()
     if isinstance(left, (int, float, Decimal)) or isinstance(right, (int, float, Decimal)):

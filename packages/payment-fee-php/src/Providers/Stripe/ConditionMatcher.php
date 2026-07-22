@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Smeinecke\PaymentFee\Providers\Stripe;
 
 use Brick\Math\BigDecimal;
+use Smeinecke\PaymentFee\Exception\InsufficientTransactionContext;
 use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
 use Smeinecke\PaymentFee\Exception\UnsupportedFeeShape;
 use Smeinecke\PaymentFee\Model\ExecutableFeeRule;
@@ -146,8 +147,11 @@ final class ConditionMatcher
 
     public static function valuesEqual(mixed $left, mixed $right): bool
     {
+        if (\is_bool($left) && \is_bool($right)) {
+            return $left === $right;
+        }
         if (\is_bool($left) || \is_bool($right)) {
-            return (bool) $left === (bool) $right;
+            return false;
         }
         if (\is_string($left) && \is_string($right)) {
             return strcasecmp($left, $right) === 0;
@@ -229,14 +233,39 @@ final class ConditionMatcher
                 continue;
             }
             $conditions = self::normalizeConditions($rule);
-            $match = true;
+            $conflict = false;
+            $paymentMethodMissing = false;
+            $anyMissing = false;
             foreach ($conditions as $condition) {
-                if (self::conditionStatus($condition, $context) !== 'match') {
-                    $match = false;
+                $status = self::conditionStatus($condition, $context);
+                if ($status === 'conflict') {
+                    $conflict = true;
                     break;
                 }
+                if ($status === 'missing') {
+                    $anyMissing = true;
+                    if ($condition['dimension'] === 'payment_method') {
+                        $paymentMethodMissing = true;
+                    }
+                }
             }
-            if ($match && self::isEvaluable($rule)) {
+            if ($conflict) {
+                continue;
+            }
+            if ($paymentMethodMissing) {
+                throw new InsufficientTransactionContext(
+                    [self::apiFieldName('payment_method')],
+                    [
+                        'provider' => 'stripe',
+                        'market' => (string) ($context['account_country'] ?? ''),
+                        'candidate_rule_ids' => [$rule['rule_id']],
+                    ],
+                );
+            }
+            if ($anyMissing) {
+                continue;
+            }
+            if (self::isEvaluable($rule)) {
                 $selected[] = $rule;
             }
         }

@@ -1,5 +1,9 @@
 import { Decimal } from "decimal.js";
-import { QuoteNotAvailable, UnsupportedFeeShape } from "../../errors.js";
+import {
+  InsufficientTransactionContext,
+  QuoteNotAvailable,
+  UnsupportedFeeShape,
+} from "../../errors.js";
 import type { ExecutableRule } from "../../calculator.js";
 import { toDecimal } from "../../rounding.js";
 
@@ -189,8 +193,11 @@ export function conditionStatus(
 }
 
 export function valuesEqual(left: unknown, right: unknown): boolean {
+  if (typeof left === "boolean" && typeof right === "boolean") {
+    return left === right;
+  }
   if (typeof left === "boolean" || typeof right === "boolean") {
-    return Boolean(left) === Boolean(right);
+    return false;
   }
   if (typeof left === "string" && typeof right === "string") {
     return left.toLowerCase() === right.toLowerCase();
@@ -255,7 +262,31 @@ export function selectAdditiveRules(
   for (const rule of rules) {
     if ((rule.behavior ?? "base") !== "additive") continue;
     const conditions = normalizeConditions(rule);
-    if (conditions.some((c) => conditionStatus(c, context) !== "match")) continue;
+    let conflict = false;
+    let paymentMethodMissing = false;
+    let anyMissing = false;
+    for (const condition of conditions) {
+      const status = conditionStatus(condition, context);
+      if (status === "conflict") {
+        conflict = true;
+        break;
+      }
+      if (status === "missing") {
+        anyMissing = true;
+        if (condition.dimension === "payment_method") {
+          paymentMethodMissing = true;
+        }
+      }
+    }
+    if (conflict) continue;
+    if (paymentMethodMissing) {
+      throw new InsufficientTransactionContext([apiFieldName("payment_method")], {
+        provider: "stripe",
+        market: typeof context.account_country === "string" ? context.account_country : "",
+        candidate_rule_ids: [rule.rule_id],
+      });
+    }
+    if (anyMissing) continue;
     if (isEvaluable(rule)) {
       additive.push(rule);
     }
