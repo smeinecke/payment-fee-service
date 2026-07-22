@@ -41,7 +41,7 @@ def _pinned_data_refs() -> dict[str, str]:
         try:
             document = json.loads(contract_path.read_text(encoding="utf-8"))
             return {name: spec.get("ref", "main") for name, spec in document.get("revisions", {}).items()}
-        except Exception:
+        except Exception:  # nosec B112
             continue
     return {}
 

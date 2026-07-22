@@ -25,6 +25,8 @@ dev = [
   "ruff>=0.9,<1",
   "pyright>=1.1.370",
   "bandit>=1.7.9",
+  "vulture>=2.16",
+  "xenon>=0.9.3",
 ]
 
 [project.scripts]

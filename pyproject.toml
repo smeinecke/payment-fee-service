@@ -33,3 +33,11 @@ markers = [
     "live: tests that hit the live network",
     "e2e: tests that start a real HTTP server",
 ]
+
+[tool.vulture]
+exclude = [".venv", "node_modules", "dist", "build", "tests"]
+ignore_decorators = ["@field_validator", "@model_validator", "@validator"]
+ignore_names = ["exc_type", "exc_val", "exc_tb", "format"]
+min_confidence = 80
+paths = ["."]
+sort_by_size = true

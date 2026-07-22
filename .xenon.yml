@@ -1,0 +1,10 @@
+max-absolute: E
+max-modules: C
+max-average: B
+no-assert: true
+exclude:
+  - .venv
+  - node_modules
+  - dist
+  - build
+  - tests

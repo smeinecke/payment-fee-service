@@ -3,7 +3,7 @@
 DOCKER_IMAGE ?= ghcr.io/smeinecke/payment-fee-service
 COMPOSER_BIN ?= $(shell command -v composer 2>/dev/null || echo /tmp/composer)
 
-.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-smoke docker-push lock-check help paypal-sandbox-validate-config paypal-sandbox-probe paypal-sandbox-probe-nvp paypal-sandbox-plan paypal-sandbox-smoke paypal-sandbox-report paypal-sandbox-install-playwright paypal-sandbox-manual-plan paypal-sandbox-manual-smoke paypal-sandbox-manual-formula paypal-sandbox-manual-report
+.PHONY: all format check validate test test-python test-php test-typescript test-conformance test-isolated test-unit test-e2e test-live build audit-contract docker-build docker-smoke docker-push lock-check vulture xenon complexity help paypal-sandbox-validate-config paypal-sandbox-probe paypal-sandbox-probe-nvp paypal-sandbox-plan paypal-sandbox-smoke paypal-sandbox-report paypal-sandbox-install-playwright paypal-sandbox-manual-plan paypal-sandbox-manual-smoke paypal-sandbox-manual-formula paypal-sandbox-manual-report
 
 all: validate test-unit
 
@@ -76,7 +76,16 @@ docker-smoke: docker-build
 docker-push:
 	docker buildx build --push --platform linux/amd64,linux/arm64 -t $(DOCKER_IMAGE):latest .
 
-validate: format check pyright bandit
+vulture:
+	uv run vulture
+
+xenon:
+	uv run xenon .
+
+complexity:
+	uv run radon cc packages services tools -a -nc
+
+validate: format check pyright bandit vulture xenon
 	@echo "Python validation passed."
 
 # -----------------------------------------------------------------------------
@@ -151,6 +160,9 @@ help:
 	@echo "  fix             - Run reformat-ruff and fix-ruff"
 	@echo "  pyright         - Run Python type checking"
 	@echo "  bandit          - Run security analysis"
+	@echo "  vulture         - Find dead Python code"
+	@echo "  xenon           - Check Python complexity thresholds"
+	@echo "  complexity      - Show Python cyclomatic complexity report"
 	@echo "  test            - Run all tests"
 	@echo "  test-python     - Run Python tests"
 	@echo "  test-php        - Run PHP tests"
