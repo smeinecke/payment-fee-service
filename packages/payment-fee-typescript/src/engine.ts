@@ -5,6 +5,14 @@ import type { QuoteRequest } from "./models.js";
 import { PayPalProvider, type PayPalCore } from "./providers/paypal/provider.js";
 import { StripeProvider, type StripeCore } from "./providers/stripe/provider.js";
 
+export interface Provider {
+  readonly providerId: string;
+  compileRules(request: QuoteRequest): ExecutableRule[];
+  auditContract(): Record<string, number>;
+  assumptions(request: QuoteRequest): string[];
+  data(request: QuoteRequest): Record<string, unknown>;
+}
+
 function deriveStatus(rules: ExecutableRule[]): string {
   const nonAdditive = rules.filter((r) => (r.behavior ?? "base") !== "additive");
   if (
@@ -36,11 +44,6 @@ function deriveStatus(rules: ExecutableRule[]): string {
   return "exact_for_public_rate";
 }
 
-interface Provider {
-  compileRules(request: QuoteRequest): ExecutableRule[];
-  auditContract(): Record<string, number>;
-}
-
 export class PaymentFeeEngine {
   private readonly _providers = new Map<string, Provider>();
 
@@ -55,13 +58,13 @@ export class PaymentFeeEngine {
       const core = JSON.parse(
         await readFile(`${args.paypal}/json/core-fees.json`, "utf-8"),
       ) as PayPalCore;
-      engine.register("paypal", new PayPalProvider(core));
+      engine.register(new PayPalProvider(core));
     }
     if (args.stripe) {
       const core = JSON.parse(
         await readFile(`${args.stripe}/json/core-fees.json`, "utf-8"),
       ) as StripeCore;
-      engine.register("stripe", new StripeProvider(core));
+      engine.register(new StripeProvider(core));
     }
     return engine;
   }
@@ -76,18 +79,18 @@ export class PaymentFeeEngine {
     if (args.paypal) {
       const paypal = args.paypal;
       const core = ("core" in paypal ? paypal.core : undefined) ?? (paypal as PayPalCore);
-      engine.register("paypal", new PayPalProvider(core));
+      engine.register(new PayPalProvider(core));
     }
     if (args.stripe) {
       const stripe = args.stripe;
       const core = ("core" in stripe ? stripe.core : undefined) ?? (stripe as StripeCore);
-      engine.register("stripe", new StripeProvider(core));
+      engine.register(new StripeProvider(core));
     }
     return engine;
   }
 
-  register(provider: string, instance: Provider): void {
-    this._providers.set(provider, instance);
+  register(instance: Provider): void {
+    this._providers.set(instance.providerId, instance);
   }
 
   quote(request: QuoteRequest): Record<string, unknown> {
@@ -97,47 +100,8 @@ export class PaymentFeeEngine {
     const result = calculate(request.amount, request.amount.currency, rules);
     const status = deriveStatus(rules);
 
-    if (request.provider === "paypal") {
-      return {
-        provider: "paypal",
-        status,
-        amount: result.amount,
-        processing_fee: result.processing_fee,
-        net_amount: result.net_amount,
-        components: result.components,
-        matched_rules: result.matched_rules,
-        selected_product_id: request.transaction.product_id,
-        selected_variant_id: request.transaction.variant_id,
-        assumptions: [
-          "Public standard pricing was used; negotiated merchant pricing is not represented.",
-          "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
-        ],
-        warnings: [],
-        data: {
-          provider: "paypal",
-          schema_version: 1,
-          market: request.account_country,
-          content_sha256: null,
-          source_urls: [],
-          source_updated_at: null,
-          data_ref: "documents",
-        },
-      };
-    }
-
-    const stripeAssumptions = [
-      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
-      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
-    ];
-    const successValue = request.transaction.context?.success;
-    if (successValue === true || successValue === undefined) {
-      stripeAssumptions.push(
-        "Assumed a successful transaction for providers that require success.",
-      );
-    }
-
     return {
-      provider: "stripe",
+      provider: provider.providerId,
       status,
       amount: result.amount,
       processing_fee: result.processing_fee,
@@ -146,17 +110,9 @@ export class PaymentFeeEngine {
       matched_rules: result.matched_rules,
       selected_product_id: request.transaction.product_id,
       selected_variant_id: request.transaction.variant_id,
-      assumptions: stripeAssumptions,
+      assumptions: provider.assumptions(request),
       warnings: [],
-      data: {
-        provider: "stripe",
-        schema_version: 1,
-        market: request.account_country,
-        content_sha256: null,
-        source_urls: [],
-        source_updated_at: null,
-        data_ref: "documents",
-      },
+      data: provider.data(request),
     };
   }
 
@@ -191,22 +147,13 @@ export class PaymentFeeEngine {
         result[key] = (result[key] ?? 0) + value;
       }
     }
-    const required = [
-      "paypal_calculable_rules_total",
-      "paypal_calculable_rules_parsed",
-      "paypal_calculable_rules_skipped",
-      "paypal_context_required",
-      "stripe_calculable_rules_total",
-      "stripe_calculable_rules_parsed",
-      "stripe_calculable_rules_skipped",
-      "stripe_context_required",
+    for (const key of [
       "unknown_fields",
       "unknown_condition_dimensions",
       "unknown_condition_operators",
       "unsupported_fee_components",
       "unresolved_schedule_references",
-    ];
-    for (const key of required) {
+    ]) {
       if (!(key in result)) {
         result[key] = 0;
       }

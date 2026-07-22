@@ -36,12 +36,38 @@ export interface StripeIndex {
 }
 
 export class StripeProvider {
+  readonly providerId = "stripe";
+
   private readonly markets = new Map<string, StripeMarket>();
 
   constructor(private readonly core: StripeCore) {
     for (const market of core.markets ?? []) {
       this.markets.set(market.account_country.toUpperCase(), market);
     }
+  }
+
+  assumptions(request: QuoteRequest): string[] {
+    const result = [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+    ];
+    const successValue = request.transaction.context?.success;
+    if (successValue === true || successValue === undefined) {
+      result.push("Assumed a successful transaction for providers that require success.");
+    }
+    return result;
+  }
+
+  data(request: QuoteRequest): Record<string, unknown> {
+    return {
+      provider: this.providerId,
+      schema_version: 1,
+      market: request.account_country,
+      content_sha256: null,
+      source_urls: [],
+      source_updated_at: null,
+      data_ref: "documents",
+    };
   }
 
   compileRules(request: QuoteRequest): ExecutableRule[] {
@@ -53,11 +79,32 @@ export class StripeProvider {
 
     const currency = stripeRequest.amount.currency;
     const context = buildContext(stripeRequest);
+    const { fullMatches } = this._evaluateCandidates(
+      market.rules ?? [],
+      context,
+      stripeRequest.account_country,
+    );
+    const base = this._selectBaseRule(fullMatches, stripeRequest.account_country);
+    const additiveRules = selectAdditiveRules(market.rules ?? [], context);
 
+    return [
+      executableFromRule(base, currency),
+      ...additiveRules.map((r) => executableFromRule(r, currency)),
+    ];
+  }
+
+  private _evaluateCandidates(
+    rules: StripeRule[],
+    context: Record<string, unknown>,
+    accountCountry: string,
+  ): {
+    fullMatches: { rule: StripeRule; specificity: number }[];
+    missingMatches: { rule: StripeRule; missing: string[]; specificity: number }[];
+  } {
     const fullMatches: { rule: StripeRule; specificity: number }[] = [];
     const missingMatches: { rule: StripeRule; missing: string[]; specificity: number }[] = [];
 
-    for (const rule of market.rules ?? []) {
+    for (const rule of rules) {
       const conditions = normalizeConditions(rule);
       let conflict = false;
       const missing: string[] = [];
@@ -85,22 +132,29 @@ export class StripeProvider {
         const allMissing = [...new Set(missingMatches.flatMap((m) => m.missing))].sort();
         throw new InsufficientTransactionContext(allMissing, {
           provider: "stripe",
-          market: stripeRequest.account_country,
+          market: accountCountry,
         });
       }
       throw new QuoteNotAvailable("No Stripe fee rule matched the supplied context.", {
         provider: "stripe",
-        market: stripeRequest.account_country,
+        market: accountCountry,
       });
     }
 
+    return { fullMatches, missingMatches };
+  }
+
+  private _selectBaseRule(
+    fullMatches: { rule: StripeRule; specificity: number }[],
+    accountCountry: string,
+  ): StripeRule {
     const maxSpec = Math.max(...fullMatches.map((m) => m.specificity));
     const mostSpecific = fullMatches.filter((m) => m.specificity === maxSpec).map((m) => m.rule);
 
     if (!mostSpecific.some((r) => isEvaluable(r))) {
       throw new QuoteNotAvailable("The most specific matching Stripe fee rule cannot be quoted.", {
         provider: "stripe",
-        market: stripeRequest.account_country,
+        market: accountCountry,
         rule_ids: mostSpecific.map((r) => r.rule_id),
       });
     }
@@ -112,19 +166,11 @@ export class StripeProvider {
     if (baseCandidates.length === 0) {
       throw new QuoteNotAvailable("No evaluable base Stripe fee rule matched.", {
         provider: "stripe",
-        market: stripeRequest.account_country,
+        market: accountCountry,
       });
     }
 
-    const base = baseCandidates[0];
-    const additiveRules = selectAdditiveRules(market.rules ?? [], context);
-
-    const rules = [executableFromRule(base, currency)];
-    for (const rule of additiveRules) {
-      rules.push(executableFromRule(rule, currency));
-    }
-
-    return rules;
+    return baseCandidates[0];
   }
 
   auditContract(): Record<string, number> {

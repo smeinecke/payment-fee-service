@@ -294,23 +294,16 @@ export function selectAdditiveRules(
   return additive;
 }
 
-export function compileStripeComponents(
-  rule: StripeRule,
-  currency: string,
-): {
-  percentage: string | null;
-  fixed_amount: string | null;
-  minimum_amount: string | null;
-  maximum_amount: string | null;
-  behavior: string;
-} {
-  let basePercentage = new Decimal("0");
-  let baseFixed = new Decimal("0");
-  let additivePercentage = new Decimal("0");
-  let additiveFixed = new Decimal("0");
-  let minimumAmount: Decimal | null = null;
-  let maximumAmount: Decimal | null = null;
+interface StripeComponentTotals {
+  basePercentage: Decimal;
+  baseFixed: Decimal;
+  additivePercentage: Decimal;
+  additiveFixed: Decimal;
+  minimumAmount: Decimal | null;
+  maximumAmount: Decimal | null;
+}
 
+function normalizeStripeComponents(rule: StripeRule, currency: string): StripeFeeComponent[] {
   const components = [...(rule.fee_components ?? [])];
   if (components.length === 0 && rule.basis_points) {
     components.push({ type: "percentage", basis_points: rule.basis_points });
@@ -336,6 +329,20 @@ export function compileStripeComponents(
       currency: rule.fixed_currency ?? currency,
     });
   }
+  return components;
+}
+
+function aggregateStripeComponents(
+  components: StripeFeeComponent[],
+  rule: StripeRule,
+  currency: string,
+): StripeComponentTotals {
+  let basePercentage = new Decimal("0");
+  let baseFixed = new Decimal("0");
+  let additivePercentage = new Decimal("0");
+  let additiveFixed = new Decimal("0");
+  let minimumAmount: Decimal | null = null;
+  let maximumAmount: Decimal | null = null;
 
   for (const comp of components) {
     const behavior = rule.behavior ?? "base";
@@ -367,6 +374,28 @@ export function compileStripeComponents(
     }
   }
 
+  return {
+    basePercentage,
+    baseFixed,
+    additivePercentage,
+    additiveFixed,
+    minimumAmount,
+    maximumAmount,
+  };
+}
+
+export function compileStripeComponents(
+  rule: StripeRule,
+  currency: string,
+): {
+  percentage: string | null;
+  fixed_amount: string | null;
+  minimum_amount: string | null;
+  maximum_amount: string | null;
+  behavior: string;
+} {
+  const components = normalizeStripeComponents(rule, currency);
+  const totals = aggregateStripeComponents(components, rule, currency);
   const behavior =
     rule.classification_status && ["free", "included"].includes(rule.classification_status)
       ? "included"
@@ -374,8 +403,8 @@ export function compileStripeComponents(
 
   if (behavior === "additive") {
     return {
-      percentage: additivePercentage.isZero() ? null : additivePercentage.toFixed(),
-      fixed_amount: additiveFixed.isZero() ? null : additiveFixed.toFixed(),
+      percentage: totals.additivePercentage.isZero() ? null : totals.additivePercentage.toFixed(),
+      fixed_amount: totals.additiveFixed.isZero() ? null : totals.additiveFixed.toFixed(),
       minimum_amount: null,
       maximum_amount: null,
       behavior,
@@ -393,10 +422,10 @@ export function compileStripeComponents(
   }
 
   return {
-    percentage: basePercentage.isZero() ? null : basePercentage.toFixed(),
-    fixed_amount: baseFixed.isZero() ? null : baseFixed.toFixed(),
-    minimum_amount: minimumAmount?.toFixed() ?? null,
-    maximum_amount: maximumAmount?.toFixed() ?? null,
+    percentage: totals.basePercentage.isZero() ? null : totals.basePercentage.toFixed(),
+    fixed_amount: totals.baseFixed.isZero() ? null : totals.baseFixed.toFixed(),
+    minimum_amount: totals.minimumAmount?.toFixed() ?? null,
+    maximum_amount: totals.maximumAmount?.toFixed() ?? null,
     behavior,
   };
 }

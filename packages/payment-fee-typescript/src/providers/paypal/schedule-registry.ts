@@ -28,36 +28,55 @@ export interface PayPalDerived {
 export class ScheduleRegistry {
   constructor(private readonly derived: PayPalDerived) {}
 
-  fixed(scheduleId: string, currency: string): string {
+  fixed(scheduleId: string, currency: string): string;
+  fixed(scheduleId: string, currency: string, raiseOnMissing: false): string | undefined;
+  fixed(scheduleId: string, currency: string, raiseOnMissing = true): string | undefined {
     const schedule = this.derived.fixed_fee_schedules?.[scheduleId];
     if (schedule === undefined) {
-      throw new QuoteNotAvailable("The selected PayPal fee category has no fixed-fee schedule.", {
-        schedule_id: scheduleId,
-      });
+      if (raiseOnMissing) {
+        throw new QuoteNotAvailable("The selected PayPal fee category has no fixed-fee schedule.", {
+          schedule_id: scheduleId,
+        });
+      }
+      return undefined;
     }
     const value = schedule.entries[currency];
     if (value === undefined) {
-      throw new QuoteNotAvailable(
-        "No PayPal fixed fee is published for the transaction currency.",
-        { schedule_id: scheduleId, currency },
-      );
+      if (raiseOnMissing) {
+        throw new QuoteNotAvailable(
+          "No PayPal fixed fee is published for the transaction currency.",
+          { schedule_id: scheduleId, currency },
+        );
+      }
+      return undefined;
     }
     return value;
   }
 
-  maximum(scheduleId: string, currency: string): string {
+  maximum(scheduleId: string, currency: string): string;
+  maximum(scheduleId: string, currency: string, raiseOnMissing: false): string | undefined;
+  maximum(scheduleId: string, currency: string, raiseOnMissing = true): string | undefined {
     const schedule = this.derived.maximum_fee_schedules?.[scheduleId];
     if (schedule === undefined) {
-      throw new QuoteNotAvailable("The selected PayPal fee category has no maximum-fee schedule.", {
-        schedule_id: scheduleId,
-      });
+      if (raiseOnMissing) {
+        throw new QuoteNotAvailable(
+          "The selected PayPal fee category has no maximum-fee schedule.",
+          {
+            schedule_id: scheduleId,
+          },
+        );
+      }
+      return undefined;
     }
     const value = schedule.entries[currency];
     if (value === undefined) {
-      throw new QuoteNotAvailable(
-        "No PayPal maximum fee is published for the transaction currency.",
-        { schedule_id: scheduleId, currency },
-      );
+      if (raiseOnMissing) {
+        throw new QuoteNotAvailable(
+          "No PayPal maximum fee is published for the transaction currency.",
+          { schedule_id: scheduleId, currency },
+        );
+      }
+      return undefined;
     }
     return value;
   }
@@ -66,6 +85,22 @@ export class ScheduleRegistry {
     const schedule = this.derived.international_surcharge_schedules?.[scheduleId];
     if (schedule === undefined) return [];
     return schedule.entries.map((entry) => entry.payer_region);
+  }
+
+  surchargeRate(scheduleId: string, payerRegion: string): string | undefined {
+    const schedule = this.derived.international_surcharge_schedules?.[scheduleId];
+    if (schedule === undefined) {
+      throw new QuoteNotAvailable(
+        "The selected PayPal fee category has no international surcharge schedule.",
+        { schedule_id: scheduleId },
+      );
+    }
+    for (const entry of schedule.entries) {
+      if (entry.payer_region.toLowerCase() === payerRegion.toLowerCase()) {
+        return entry.percentage_points ?? undefined;
+      }
+    }
+    return undefined;
   }
 
   surcharge(
