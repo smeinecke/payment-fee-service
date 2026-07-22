@@ -6,6 +6,7 @@ from typing import Any
 
 import click
 
+from paypal_sandbox_validation import diagnostics
 from paypal_sandbox_validation.accounts import (
     parse_accounts_csv,
 )
@@ -28,6 +29,7 @@ from paypal_sandbox_validation.persistence import (
     save_plan,
 )
 from paypal_sandbox_validation.planner import (
+    build_diagnostic_plan,
     generate_request_id,
     generate_run_id,
 )
@@ -61,8 +63,6 @@ def diagnose_cmd(
     max_new_captures: int,
 ) -> None:
     """Diagnose a real PayPal Sandbox fee mismatch."""
-    from . import diagnostics
-    from .planner import build_diagnostic_plan
 
     original = diagnostics.load_original_case(resume, case_id)
     validation = diagnostics.validate_case_constraints(original)

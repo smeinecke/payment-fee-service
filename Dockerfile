@@ -35,6 +35,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
+COPY contracts/data-revisions.json /app/contracts/data-revisions.json
 
 USER 65532:65532
 

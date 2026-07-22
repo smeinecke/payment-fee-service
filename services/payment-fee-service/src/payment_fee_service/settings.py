@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -11,19 +12,37 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import PydanticBaseSettingsSource
 
 
+def _data_revisions_file_candidates() -> list[Path]:
+    """Candidate locations for ``contracts/data-revisions.json``.
+
+    The search order is:
+    1. ``PAYMENT_FEE_DATA_REVISIONS_FILE`` environment variable.
+    2. Repository checkout layout (local development).
+    3. Standard Docker image layout at ``/app/contracts/data-revisions.json``.
+    """
+    candidates: list[Path] = []
+    env_path = os.environ.get("PAYMENT_FEE_DATA_REVISIONS_FILE")
+    if env_path:
+        candidates.append(Path(env_path))
+    with contextlib.suppress(IndexError):
+        candidates.append(Path(__file__).resolve().parents[4] / "contracts" / "data-revisions.json")
+    candidates.append(Path("/app/contracts/data-revisions.json"))
+    return candidates
+
+
 def _pinned_data_refs() -> dict[str, str]:
     """Return the pinned data-repo refs from contracts/data-revisions.json.
 
-    Falls back to ``main`` when the contract file is unavailable (e.g. installed
-    from a wheel without the contracts tree).
+    Falls back to ``main`` only in development when no contract file is found.
     """
-    try:
-        contract_path = Path(__file__).resolve().parents[4] / "contracts" / "data-revisions.json"
-        if contract_path.is_file():
+    for contract_path in _data_revisions_file_candidates():
+        if not contract_path.is_file():
+            continue
+        try:
             document = json.loads(contract_path.read_text(encoding="utf-8"))
             return {name: spec.get("ref", "main") for name, spec in document.get("revisions", {}).items()}
-    except Exception:
-        pass
+        except Exception:
+            continue
     return {}
 
 
@@ -95,6 +114,32 @@ class Settings(BaseSettings):
                 except json.JSONDecodeError as exc:
                     raise ValueError("PAYMENT_FEE_PROVIDERS must be valid JSON") from exc
         return values
+
+    @model_validator(mode="after")
+    def _require_pinned_data_refs(self) -> Settings:
+        """Require pinned data refs in non-development environments.
+
+        In development, falling back to the floating ``main`` branch is allowed
+        for convenience. In production-like environments the data revision must
+        be pinned via ``contracts/data-revisions.json``,
+        ``PAYMENT_FEE_DATA_REVISIONS_FILE``, or an explicit ``PAYMENT_FEE_PROVIDERS``
+        value so that fee calculations are reproducible.
+        """
+        if self.environment == "development":
+            return self
+        for provider_id, provider in (self.providers or {}).items():
+            if not provider.enabled:
+                continue
+            if provider.data_path is not None:
+                continue
+            if provider.data_ref in (None, "main"):
+                raise ValueError(
+                    f"Provider {provider_id!r} data_ref must be pinned in environment "
+                    f"{self.environment!r}. Set PAYMENT_FEE_DATA_REVISIONS_FILE, "
+                    "provide a contracts/data-revisions.json file, or set PAYMENT_FEE_PROVIDERS "
+                    "with explicit data_ref values."
+                )
+        return self
 
     @classmethod
     def settings_customise_sources(

@@ -62,3 +62,26 @@ def test_env_overrides_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("PAYMENT_FEE_ADMIN_TOKEN", "from-env")
     settings = Settings()
     assert settings.admin_token == "from-env"
+
+
+def test_production_requires_pinned_data_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PAYMENT_FEE_ENVIRONMENT", "production")
+    monkeypatch.setenv(
+        "PAYMENT_FEE_PROVIDERS",
+        '{"paypal": {"data_url": "https://example.com/paypal", "data_ref": "main"}, '
+        '"stripe": {"data_url": "https://example.com/stripe", "data_ref": "main"}}',
+    )
+    with pytest.raises(ValueError, match="data_ref must be pinned"):
+        Settings()
+
+
+def test_production_allows_pinned_data_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PAYMENT_FEE_ENVIRONMENT", "production")
+    monkeypatch.setenv(
+        "PAYMENT_FEE_PROVIDERS",
+        '{"paypal": {"data_url": "https://example.com/paypal", "data_ref": "abc123"}, '
+        '"stripe": {"data_url": "https://example.com/stripe", "data_ref": "def456"}}',
+    )
+    settings = Settings()
+    assert settings.providers["paypal"].data_ref == "abc123"
+    assert settings.providers["stripe"].data_ref == "def456"

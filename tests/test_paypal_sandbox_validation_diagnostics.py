@@ -314,3 +314,59 @@ def test_three_amount_formula_inference_against_library_rounding() -> None:
     ]
     assert base_surcharge_candidates
     assert base_surcharge_candidates[0]["fit"] is True
+
+
+def test_diagnose_command_resolves_imports_and_runs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The diagnose command imports its dependencies from the correct modules."""
+    from click.testing import CliRunner
+    from paypal_sandbox_validation.cli import cli
+    from paypal_sandbox_validation.cli import diagnose as diagnose_module
+    from paypal_sandbox_validation.models import Case
+
+    case = Case(
+        case_id="c1",
+        run_id="run_123",
+        merchant_country="GB",
+        buyer_country="US",
+        amount="10.00",
+        currency="GBP",
+        product_id="other_commercial",
+        variant_id="standard",
+    )
+
+    def fake_load_original_case(run_id: str, case_id: str) -> Case:
+        return case
+
+    reports = {"diagnostic_json": tmp_path / "report.json"}
+
+    monkeypatch.setattr(diagnose_module.diagnostics, "load_original_case", fake_load_original_case)
+    monkeypatch.setattr(
+        diagnose_module.diagnostics,
+        "validate_case_constraints",
+        lambda _original: {"valid": False, "classification": "mock"},
+    )
+    monkeypatch.setattr(
+        diagnose_module.diagnostics,
+        "decompose_case",
+        lambda _original: {
+            "library_base": {"percentage": "2.9", "direct_fixed_amount": "0.30"},
+            "library_surcharge": {"percentage": None},
+        },
+    )
+    monkeypatch.setattr(
+        diagnose_module.diagnostics,
+        "generate_diagnostic_reports",
+        lambda *args, **kwargs: reports,
+    )
+    monkeypatch.setattr(diagnose_module, "parse_accounts_csv", lambda _path: [])
+
+    csv_path = tmp_path / "accounts.csv"
+    csv_path.write_text("country_code;account_type\nGB;BUSINESS\n")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["diagnose", "--resume", "run_123", "--case-id", "c1", "--accounts-csv", str(csv_path)],
+    )
+    assert result.exit_code == 0
+    assert "mock" in result.output
