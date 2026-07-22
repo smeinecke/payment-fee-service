@@ -964,16 +964,17 @@ class PayPalProvider:
     def _compile_single_rule_for_audit(
         self,
         rule: PayPalTransactionFeeRule,
-        request: PayPalQuoteRequest,
+        context: Any,
     ) -> list[ExecutableFeeRule]:
         """Compile a single PayPal rule for contract auditing.
 
         This is the explicit audit hook called by ``audit.py`` so it does not
         have to reach into provider internals.
         """
+        request = context
         schedule_registry = self._schedule_registries[request.account_country.upper()]
-        context = _build_paypal_context(request)
+        ctx = _build_paypal_context(request)
         base_template, surcharge_template = self._rule_templates[
             (request.account_country.upper(), rule.id, rule.variant_id or "default")
         ]
-        return _compile_rule(rule, schedule_registry, request, context, base_template, surcharge_template)
+        return _compile_rule(rule, schedule_registry, request, ctx, base_template, surcharge_template)

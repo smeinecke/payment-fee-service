@@ -951,13 +951,14 @@ class StripeProvider:
     def _compile_single_rule_for_audit(
         self,
         rule: StripeRule,
-        currency: str,
+        context: Any,
     ) -> ExecutableFeeRule:
         """Compile a single Stripe rule for contract auditing.
 
         This is the explicit audit hook called by ``audit.py`` so it does not
         have to reach into provider internals.
         """
+        currency = context
         template = self._rule_template_by_id.get(rule.rule_id)
         if template is None:
             raise QuoteNotAvailable("No cached rule template found for audit.", rule_id=rule.rule_id)

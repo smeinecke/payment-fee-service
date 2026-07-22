@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { InsufficientTransactionContext, QuoteNotAvailable, UnknownMarket } from "../../errors.js";
 import type { ExecutableRule } from "../../calculator.js";
 import type { QuoteRequest, StripeQuoteRequest } from "../../models.js";
@@ -159,6 +160,24 @@ export class StripeProvider {
   }
 }
 
+function isNumeric(value: unknown): boolean {
+  return typeof value === "number" || (typeof value === "string" && !Number.isNaN(Number(value)));
+}
+
+function contextValuesEqual(a: unknown, b: unknown): boolean {
+  if (typeof a === "boolean" || typeof b === "boolean") {
+    return Boolean(a) === Boolean(b);
+  }
+  if (isNumeric(a) && isNumeric(b)) {
+    try {
+      return new Decimal(String(a)).eq(new Decimal(String(b)));
+    } catch {
+      return false;
+    }
+  }
+  return a === b;
+}
+
 function buildContext(request: StripeQuoteRequest): Record<string, unknown> {
   const t = request.transaction;
   const context: Record<string, unknown> = {
@@ -209,12 +228,26 @@ function buildContext(request: StripeQuoteRequest): Record<string, unknown> {
     context.bank_transfer_type = t.bank.transfer_type ?? null;
   }
 
-  if (t.context?.success !== undefined && t.context.success !== null) {
+  if (t.context?.success !== undefined) {
     context.success = t.context.success;
   }
 
   for (const [key, value] of Object.entries(t.context ?? {})) {
-    context[key] ??= value;
+    if (value === undefined) {
+      continue;
+    }
+    const existing = context[key];
+    if (existing !== undefined && existing !== null) {
+      if (!contextValuesEqual(value, existing)) {
+        throw new QuoteNotAvailable("Contradictory duplicate value in transaction context.", {
+          field: key,
+          typed_value: existing,
+          context_value: value,
+        });
+      }
+    } else {
+      context[key] = value;
+    }
   }
 
   return context;
