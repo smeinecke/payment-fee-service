@@ -79,6 +79,89 @@ class AuditCounters:
     context_required: int = 0
 
 
+def _resolve_amount_condition(
+    expected: Any,
+    amount_value: Decimal,
+    amount_currency: str,
+) -> tuple[Decimal, str]:
+    """Pick a concrete amount value that satisfies an amount condition."""
+    if isinstance(expected, dict):
+        if expected.get("currency"):
+            amount_currency = str(expected["currency"]).upper()
+        op = str(expected.get("operator", "eq")).lower()
+        val = _safe_decimal(expected.get("value"))
+        if val is not None:
+            if op == "eq" or op == "gte":
+                amount_value = val
+            elif op in {"gt", "ne"}:
+                amount_value = val + Decimal("1")
+            elif op == "lt":
+                amount_value = max(val - Decimal("1"), Decimal("0"))
+            elif op == "lte":
+                amount_value = val
+    return amount_value, amount_currency
+
+
+def _resolve_applies_to_markets_condition(
+    expected: Any,
+    account_country: str,
+    customer_country: str,
+    transaction_region: str | None,
+) -> tuple[str, str | None]:
+    """Resolve applies_to_markets into a concrete customer_country and transaction_region."""
+    markets = [str(v).upper() for v in _as_list(expected)]
+    if "ALL_OTHER_MARKETS" in markets:
+        return customer_country, transaction_region
+    if markets:
+        selected = markets[0]
+        if selected == account_country.upper():
+            return selected, "domestic"
+        return selected, "international"
+    return customer_country, transaction_region
+
+
+def _resolve_payment_method_condition(expected: Any) -> str | None:
+    """Pick the first payment method declared in a condition."""
+    methods = _as_list(expected)
+    if methods:
+        return str(methods[0]).lower()
+    return None
+
+
+def _resolve_transaction_region_condition(expected: Any) -> str | None:
+    """Normalize a transaction_region condition value."""
+    scalar = _first_scalar(expected)
+    if scalar is not None:
+        return str(scalar).lower()
+    return None
+
+
+def _resolve_customer_country_condition(expected: Any) -> str | None:
+    """Normalize a customer_country condition value."""
+    scalar = _first_scalar(expected)
+    if scalar is not None:
+        return str(scalar).upper()
+    return None
+
+
+def _route_paypal_dimension(
+    dim: str,
+    value: Any,
+    tx_kwargs: dict[str, Any],
+    tx_context: dict[str, Any],
+) -> None:
+    """Place a PayPal condition value using the provider's API field name mapping."""
+    path = PAYPAL_API_FIELD_NAMES.get(dim, f"transaction.context.{dim}")
+    if path in {"amount.currency", "amount.value", "account_country", "customer_country"}:
+        return
+    if path.startswith("transaction.context."):
+        tx_context[path.split(".")[-1]] = value
+    elif path.startswith("transaction."):
+        tx_kwargs[path.split(".")[-1]] = _first_scalar(value)
+    else:
+        tx_context[dim] = value
+
+
 def _paypal_request_from_rule(
     rule: PayPalTransactionFeeRule,
     account_country: str,
@@ -95,64 +178,23 @@ def _paypal_request_from_rule(
     }
     tx_context: dict[str, Any] = {}
 
-    def _route_paypal_dimension(dim: str, value: Any) -> None:
-        """Place a PayPal condition value using the provider's API field name
-        mapping, with all special-case transformations handled above.
-        """
-        path = PAYPAL_API_FIELD_NAMES.get(dim, f"transaction.context.{dim}")
-        if path in {"amount.currency", "amount.value", "account_country", "customer_country"}:
-            return
-        if path.startswith("transaction.context."):
-            tx_context[path.split(".")[-1]] = value
-        elif path.startswith("transaction."):
-            tx_kwargs[path.split(".")[-1]] = _first_scalar(value)
-        else:
-            tx_context[dim] = value
-
     for dimension, expected in rule.conditions.items():
         if dimension == "amount":
-            if isinstance(expected, dict):
-                if expected.get("currency"):
-                    amount_currency = str(expected["currency"]).upper()
-                op = str(expected.get("operator", "eq")).lower()
-                val = _safe_decimal(expected.get("value"))
-                if val is not None:
-                    if op == "eq":
-                        amount_value = val
-                    elif op in {"gt", "ne"}:
-                        amount_value = val + Decimal("1")
-                    elif op == "gte":
-                        amount_value = val
-                    elif op == "lt":
-                        amount_value = max(val - Decimal("1"), Decimal("0"))
-                    elif op == "lte":
-                        amount_value = val
+            amount_value, amount_currency = _resolve_amount_condition(expected, amount_value, amount_currency)
         elif dimension == "applies_to_markets":
-            markets = [str(v).upper() for v in _as_list(expected)]
-            if "ALL_OTHER_MARKETS" in markets:
-                continue
-            if markets:
-                selected = markets[0]
-                if selected == account_country.upper():
-                    customer_country = selected
-                    transaction_region = "domestic"
-                else:
-                    customer_country = selected
-                    transaction_region = "international"
+            customer_country, transaction_region = _resolve_applies_to_markets_condition(
+                expected, account_country, customer_country, transaction_region
+            )
         elif dimension == "payment_methods":
-            methods = _as_list(expected)
-            if methods:
-                tx_kwargs["payment_method"] = str(methods[0]).lower()
+            payment_method = _resolve_payment_method_condition(expected)
+            if payment_method is not None:
+                tx_kwargs["payment_method"] = payment_method
         elif dimension == "transaction_region":
-            scalar = _first_scalar(expected)
-            if scalar is not None:
-                transaction_region = str(scalar).lower()
+            transaction_region = _resolve_transaction_region_condition(expected) or transaction_region
         elif dimension == "customer_country":
-            scalar = _first_scalar(expected)
-            if scalar is not None:
-                customer_country = str(scalar).upper()
+            customer_country = _resolve_customer_country_condition(expected) or customer_country
         else:
-            _route_paypal_dimension(dimension, expected)
+            _route_paypal_dimension(dimension, expected, tx_kwargs, tx_context)
 
     if transaction_region is not None:
         tx_kwargs["transaction_region"] = transaction_region

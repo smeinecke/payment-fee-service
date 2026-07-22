@@ -71,6 +71,161 @@ def _is_more_specific(spec: int | float, max_spec: int | float) -> bool:
     return spec > max_spec and not math.isclose(spec, max_spec, rel_tol=0, abs_tol=1e-9)
 
 
+def _handle_no_match(
+    full_matches: list[tuple[Any, int | float]],
+    missing_matches: list[tuple[Any, list[str], int | float]],
+    account_country: str,
+    provider_id: str,
+    error_context: dict[str, Any] | None,
+) -> None:
+    """Raise when no rule fully matched, preferring missing-context over no-match."""
+    if full_matches:
+        return
+    if missing_matches:
+        all_missing = sorted({m for _, missing, _ in missing_matches for m in missing})
+        raise InsufficientTransactionContext(
+            all_missing,
+            provider=provider_id,
+            market=account_country,
+            **(error_context or {}),
+        )
+    raise QuoteNotAvailable(
+        "No fee rule matched the supplied context.",
+        provider=provider_id,
+        market=account_country,
+        **(error_context or {}),
+    )
+
+
+def _collect_most_specific_full(
+    full_matches: list[tuple[Any, int | float]],
+) -> tuple[list[Any], int | float]:
+    """Return the rule(s) tied for highest specificity among full matches."""
+    max_full_spec = max(spec for _, spec in full_matches)
+    most_specific = [rule for rule, spec in full_matches if math.isclose(spec, max_full_spec, rel_tol=0, abs_tol=1e-9)]
+    return most_specific, max_full_spec
+
+
+def _require_evaluable_most_specific(
+    most_specific_full: list[Any],
+    *,
+    is_evaluable: Callable[[Any], bool],
+    classification_status: Callable[[Any], str] | None,
+    unsupported_statuses: set[str] | None,
+    account_country: str,
+    provider_id: str,
+    rule_id: Callable[[Any], str],
+    not_calculable_message: str,
+    error_context: dict[str, Any] | None,
+) -> None:
+    """Raise when the most-specific full match cannot be quoted."""
+    if any(is_evaluable(rule) for rule in most_specific_full):
+        return
+    ctx = error_context or {}
+    if (
+        classification_status
+        and unsupported_statuses
+        and any(classification_status(rule) in unsupported_statuses for rule in most_specific_full)
+    ):
+        raise UnsupportedFeeShape(
+            "The most specific matching fee rule is unsupported.",
+            provider=provider_id,
+            market=account_country,
+            rule_ids=[rule_id(rule) for rule in most_specific_full],
+            **ctx,
+        )
+    raise QuoteNotAvailable(
+        not_calculable_message,
+        provider=provider_id,
+        market=account_country,
+        rule_ids=[rule_id(rule) for rule in most_specific_full],
+        **ctx,
+    )
+
+
+def _check_no_more_specific_missing(
+    missing_matches: list[tuple[Any, list[str], int | float]],
+    max_full_spec: int | float,
+    *,
+    is_evaluable: Callable[[Any], bool],
+    account_country: str,
+    provider_id: str,
+    rule_id: Callable[[Any], str],
+    error_context: dict[str, Any] | None,
+) -> None:
+    """Raise when a more-specific missing-context rule would change the selection."""
+    more_specific_missing = [
+        (rule, missing, spec)
+        for rule, missing, spec in missing_matches
+        if _is_more_specific(spec, max_full_spec) and is_evaluable(rule)
+    ]
+    if not more_specific_missing:
+        return
+    ctx = error_context or {}
+    blocker_missing = sorted({m for _, missing, _ in more_specific_missing for m in missing})
+    raise InsufficientTransactionContext(
+        blocker_missing,
+        provider=provider_id,
+        market=account_country,
+        candidate_rule_ids=[rule_id(rule) for rule, _, _ in more_specific_missing],
+        **ctx,
+    )
+
+
+def _resolve_ambiguity(
+    full_matches: list[tuple[Any, int | float]],
+    max_full_spec: int | float,
+    *,
+    is_evaluable: Callable[[Any], bool],
+    select_filter: Callable[[Any], bool] | None,
+    financial_signature: Callable[[Any], Any] | None,
+    rule_id: Callable[[Any], str],
+    sort_key: Callable[[Any], Any] | None,
+    account_country: str,
+    provider_id: str,
+    no_selectable_message: str,
+    error_context: dict[str, Any] | None,
+) -> Any:
+    """Pick a single selectable rule from the most-specific tied set."""
+    select_filter = select_filter or is_evaluable
+    selectable_specs = [spec for rule, spec in full_matches if select_filter(rule)]
+    if not selectable_specs:
+        raise QuoteNotAvailable(
+            no_selectable_message,
+            provider=provider_id,
+            market=account_country,
+            **(error_context or {}),
+        )
+
+    select_max_spec = max(selectable_specs)
+    selectable = [
+        rule
+        for rule, spec in full_matches
+        if math.isclose(spec, select_max_spec, rel_tol=0, abs_tol=1e-9) and select_filter(rule)
+    ]
+
+    if len(selectable) > 1:
+        ctx = error_context or {}
+        if financial_signature is None:
+            raise AmbiguousFeeRules(
+                [rule_id(rule) for rule in selectable],
+                provider=provider_id,
+                market=account_country,
+                **ctx,
+            )
+        signatures = {financial_signature(rule) for rule in selectable}
+        if len(signatures) > 1:
+            raise AmbiguousFeeRules(
+                [rule_id(rule) for rule in selectable],
+                provider=provider_id,
+                market=account_country,
+                **ctx,
+            )
+
+    sort_key = sort_key or rule_id
+    return sorted(selectable, key=sort_key)[0]
+
+
 def _select_single_rule(
     full_matches: list[tuple[Any, int | float]],
     missing_matches: list[tuple[Any, list[str], int | float]],
@@ -91,102 +246,42 @@ def _select_single_rule(
     error_context: dict[str, Any] | None = None,
 ) -> tuple[Any, int | float]:
     """Select the single most-specific, evaluable, unambiguous rule from full matches."""
-    error_context = error_context or {}
-
-    if not full_matches:
-        if missing_matches:
-            all_missing = sorted({m for _, missing, _ in missing_matches for m in missing})
-            raise InsufficientTransactionContext(
-                all_missing,
-                provider=provider_id,
-                market=account_country,
-                **error_context,
-            )
-        raise QuoteNotAvailable(
-            "No fee rule matched the supplied context.",
-            provider=provider_id,
-            market=account_country,
-            **error_context,
-        )
-
-    max_full_spec = max(spec for _, spec in full_matches)
-    most_specific_full = [
-        rule for rule, spec in full_matches if math.isclose(spec, max_full_spec, rel_tol=0, abs_tol=1e-9)
-    ]
-
-    if not any(is_evaluable(rule) for rule in most_specific_full):
-        if (
-            classification_status
-            and unsupported_statuses
-            and any(classification_status(rule) in unsupported_statuses for rule in most_specific_full)
-        ):
-            raise UnsupportedFeeShape(
-                "The most specific matching fee rule is unsupported.",
-                provider=provider_id,
-                market=account_country,
-                rule_ids=[rule_id(rule) for rule in most_specific_full],
-                **error_context,
-            )
-        raise QuoteNotAvailable(
-            not_calculable_message,
-            provider=provider_id,
-            market=account_country,
-            rule_ids=[rule_id(rule) for rule in most_specific_full],
-            **error_context,
-        )
-
+    _handle_no_match(full_matches, missing_matches, account_country, provider_id, error_context)
+    most_specific_full, max_full_spec = _collect_most_specific_full(full_matches)
+    _require_evaluable_most_specific(
+        most_specific_full,
+        is_evaluable=is_evaluable,
+        classification_status=classification_status,
+        unsupported_statuses=unsupported_statuses,
+        account_country=account_country,
+        provider_id=provider_id,
+        rule_id=rule_id,
+        not_calculable_message=not_calculable_message,
+        error_context=error_context,
+    )
     if check_more_specific_missing:
-        more_specific_missing = [
-            (rule, missing, spec)
-            for rule, missing, spec in missing_matches
-            if _is_more_specific(spec, max_full_spec) and is_evaluable(rule)
-        ]
-        if more_specific_missing:
-            blocker_missing = sorted({m for _, missing, _ in more_specific_missing for m in missing})
-            raise InsufficientTransactionContext(
-                blocker_missing,
-                provider=provider_id,
-                market=account_country,
-                candidate_rule_ids=[rule_id(rule) for rule, _, _ in more_specific_missing],
-                **error_context,
-            )
-
-    select_filter = select_filter or is_evaluable
-    selectable_specs = [spec for rule, spec in full_matches if select_filter(rule)]
-    if not selectable_specs:
-        raise QuoteNotAvailable(
-            no_selectable_message,
-            provider=provider_id,
-            market=account_country,
-            **error_context,
+        _check_no_more_specific_missing(
+            missing_matches,
+            max_full_spec,
+            is_evaluable=is_evaluable,
+            account_country=account_country,
+            provider_id=provider_id,
+            rule_id=rule_id,
+            error_context=error_context,
         )
-
-    select_max_spec = max(selectable_specs)
-    selectable = [
-        rule
-        for rule, spec in full_matches
-        if math.isclose(spec, select_max_spec, rel_tol=0, abs_tol=1e-9) and select_filter(rule)
-    ]
-
-    if len(selectable) > 1:
-        if financial_signature is None:
-            raise AmbiguousFeeRules(
-                [rule_id(rule) for rule in selectable],
-                provider=provider_id,
-                market=account_country,
-                **error_context,
-            )
-        signatures = {financial_signature(rule) for rule in selectable}
-        if len(signatures) > 1:
-            raise AmbiguousFeeRules(
-                [rule_id(rule) for rule in selectable],
-                provider=provider_id,
-                market=account_country,
-                **error_context,
-            )
-
-    sort_key = sort_key or rule_id
-    selected = sorted(selectable, key=sort_key)[0]
+    selected = _resolve_ambiguity(
+        full_matches,
+        max_full_spec,
+        is_evaluable=is_evaluable,
+        select_filter=select_filter,
+        financial_signature=financial_signature,
+        rule_id=rule_id,
+        sort_key=sort_key,
+        account_country=account_country,
+        provider_id=provider_id,
+        no_selectable_message=no_selectable_message,
+        error_context=error_context,
+    )
     return selected, max_full_spec
 
 
@@ -286,7 +381,7 @@ def _values_equal(left: Any, right: Any) -> bool:
         return False
     if isinstance(left, str) and isinstance(right, str):
         return left.casefold() == right.casefold()
-    if isinstance(left, (int, float, Decimal)) or isinstance(right, (int, float, Decimal)):
+    if isinstance(left, int | float | Decimal) or isinstance(right, int | float | Decimal):
         try:
             return Decimal(str(left)) == Decimal(str(right))
         except Exception:
