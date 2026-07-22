@@ -5,6 +5,8 @@
     "cases/unknown-provider.json",
     "cases/unknown-market.json",
     "cases/paypal-minimal-fixed.json",
+    "cases/paypal-payment-method-condition.json",
+    "cases/paypal-payment-method-selection.json",
     "cases/paypal-international-surcharge-gb.json",
     "cases/paypal-international-surcharge-no-region.json",
     "cases/rounding-jpy-midpoint.json",

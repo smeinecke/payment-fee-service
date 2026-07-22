@@ -1,0 +1,81 @@
+{
+  "id": "paypal-payment-method-condition",
+  "description": "PayPal product with condition-gated rules requires payment_method context.",
+  "provider_documents": {
+    "paypal": {
+      "core": {
+        "schema_version": 1,
+        "countries": [
+          {
+            "country_code": "DE",
+            "derived_status": "calculable",
+            "derived": {
+              "status": "calculable",
+              "transaction_fee_rules": [
+                {
+                  "id": "other_commercial",
+                  "variant_id": "standard",
+                  "label": "Commercial transaction (PayPal)",
+                  "percentage": "2.49",
+                  "fixed_fee_schedule": "fixed__applies_to_markets=DE",
+                  "calculation_status": "calculable",
+                  "fee_components": [
+                    { "type": "percentage" },
+                    { "type": "fixed_fee_schedule" }
+                  ],
+                  "conditions": {
+                    "payment_methods": ["paypal"]
+                  }
+                },
+                {
+                  "id": "other_commercial",
+                  "variant_id": "standard",
+                  "label": "Commercial transaction (Card)",
+                  "percentage": "2.99",
+                  "fixed_fee_schedule": "fixed__applies_to_markets=DE",
+                  "calculation_status": "calculable",
+                  "fee_components": [
+                    { "type": "percentage" },
+                    { "type": "fixed_fee_schedule" }
+                  ],
+                  "conditions": {
+                    "payment_methods": ["card"]
+                  }
+                }
+              ],
+              "fixed_fee_schedules": {
+                "fixed__applies_to_markets=DE": { "entries": { "EUR": "0.35" } }
+              },
+              "international_surcharge_schedules": {},
+              "maximum_fee_schedules": {}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "request": {
+    "provider": "paypal",
+    "amount": { "value": "100.00", "currency": "EUR" },
+    "account_country": "DE",
+    "customer_country": "DE",
+    "settlement_currency": "EUR",
+    "transaction": {
+      "product_id": "other_commercial",
+      "variant_id": "standard",
+      "transaction_region": "domestic"
+    }
+  },
+  "expected_result": null,
+  "expected_error": {
+    "code": "INSUFFICIENT_TRANSACTION_CONTEXT",
+    "message": "Additional transaction context is required to select an applicable fee rule.",
+    "details": {
+      "missing_fields": ["transaction.payment_method"],
+      "provider": "paypal",
+      "market": "DE",
+      "product_id": "other_commercial",
+      "variant_id": "standard"
+    }
+  }
+}
