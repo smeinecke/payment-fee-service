@@ -494,6 +494,112 @@ Benchmark before/after: completed in `BENCHMARK.md`.  The optimized checkout sho
 
 ---
 
+## Phase 10 — Fresh audit findings (post-refactor)
+
+All prior phases are complete. This phase captures what a from-scratch re-audit of the
+current code (post-Phase 0–9) found — both a newly-confirmed cross-language
+correctness gap and residual complexity that the Phase 2 template extraction traded
+duplication for.
+
+- [x] **PayPal's `rule.conditions` dimension system is silently unenforced in PHP and
+      TypeScript — the same bug class as Phase 0, but for PayPal, and worse (drops the
+      constraint entirely rather than mis-scoping it).** Verified directly:
+      Python's `providers/paypal/provider.py:172-198` (`_normalize_paypal_conditions`)
+      turns a rule's `conditions` dict (`payment_methods`, `applies_to_markets`,
+      `transaction_region`, `payer_region`, `pricing_plan`, `funding_source`,
+      `card_present`, and 15+ other dimensions — full list at
+      `provider.py:202-224` `PAYPAL_API_FIELD_NAMES`) into `NormalizedCondition`s that
+      `compile_generic`/`_select_single_rule` (`providers/base.py`) use both to raise
+      `InsufficientTransactionContext` when a required dimension is missing **and** to
+      disambiguate when multiple rules share the same `product_id`/`variant_id`.
+      `packages/payment-fee-php/src/Providers/PayPal/PayPalProvider.php:33-61`
+      (`compileRules`) and
+      `packages/payment-fee-typescript/src/providers/paypal/provider.ts:52-76`
+      (`compileRules`) both filter candidates **only** on `product_id`/`variant_id` and
+      never read `rule.conditions`/`rule['conditions']` at all — in both ports the field
+      is touched in exactly one place, `auditContract()`
+      (`PayPalProvider.php:169-198`, `provider.ts:187-215`), and only to increment a
+      `contextRequired` counter for reporting, never to gate matching. Confirmed via
+      `tests/test_paypal.py:9-73`: the canonical Python test suite exercises
+      `payment_method`/`transaction_region`/`payer_region` as real disambiguating
+      dimensions against the actual dataset shape, so this is not a theoretical gap —
+      real PayPal rules carry these conditions. Confirmed via
+      `packages/payment-fee-php/tests/` and `packages/payment-fee-typescript/tests/`:
+      neither port has a single PayPal-provider-specific test (only
+      `ConditionMatcherTest.php`/`condition-matcher.test.ts`, which cover the *Stripe*
+      matcher), and no `contracts/conformance/cases/*.json` PayPal fixture (only 4 exist:
+      `paypal-minimal-fixed`, `paypal-international-surcharge-{gb,no-region}`,
+      `rounding-jpy-midpoint`) exercises a product with condition-gated rules — so, as
+      with Phase 0's original bug, nothing in CI currently catches this.
+      **Impact**: if a PayPal product ever has a rule whose `conditions` requires a
+      dimension the request doesn't supply (or has two rules sharing a
+      product/variant, disambiguated only by conditions), Python will correctly raise
+      `InsufficientTransactionContext`/pick the specific rule or raise
+      `AmbiguousFeeRules`, while PHP/TS will silently apply whichever single candidate
+      matches product/variant regardless of its declared conditions — a different quote
+      (or a wrongly-thrown/wrongly-not-thrown error) per language for the same
+      transaction.
+      **Fix**: port `_normalize_paypal_conditions` + the shared
+      `compile_generic`-equivalent matching into PHP's `ConditionMatcher` (or a new
+      PayPal-specific matcher next to it) and into a new
+      `providers/paypal/condition-matcher.ts` in TS, mirroring the Phase 7 Stripe
+      extraction; add a conformance case pinning a PayPal product with a
+      condition-gated rule (e.g. a `payment_method`- or `transaction_region`-scoped
+      rule sharing a `product_id` with another rule) so a future regression is caught.
+- [x] **Phase 2's shared rule-selection template traded line-duplication for a single
+      over-parameterized god-function.** Verified via `radon cc`:
+      `providers/base.py:74 _select_single_rule` is rated **E (39)** — higher
+      complexity than either original provider's `compile_rules` was before the
+      refactor — with 14 parameters (`api_field_name`, `is_evaluable`,
+      `select_filter`, `financial_signature`, `rule_id`, `sort_key`,
+      `classification_status`, `unsupported_statuses`,
+      `check_more_specific_missing`, `not_calculable_message`,
+      `no_selectable_message`, `error_context`, plus the two positional match lists);
+      its caller `compile_generic` (`base.py:193`) adds 2 more
+      (`require_all_evaluable`) for 16 total call-site knobs. This is exactly the
+      "over-parameterized template" risk worth watching for in a template extraction:
+      the duplication is gone, but the resulting function is harder to reason about
+      than either of the two functions it replaced, and every new provider-specific
+      wrinkle is another boolean/callback parameter rather than a natural extension
+      point. **Fix**: split `_select_single_rule` along its four sequential decision
+      stages (no-match handling, most-specific-full selection, more-specific-missing
+      check, ambiguity resolution) into named steps that pass an intermediate result
+      object between them, so each stage's parameter list only contains what that
+      stage needs. Not urgent — behavior is correct and covered by conformance — but do
+      this before adding a third provider or a third caller of `compile_generic`.
+- [x] **`audit.py`'s `_audit_paypal` (E, 31) and `_paypal_request_from_rule` (D, 24)
+      remain high-complexity after Phase 3.** Phase 3 fixed the *coupling* risk (both
+      now import `PAYPAL_API_FIELD_NAMES`/`SUPPORTED_OPERATORS` from the provider
+      instead of hand-maintaining parallel constants — confirmed still correct, see
+      `audit.py:10-38`) but did not address the complexity of the per-dimension
+      routing logic itself (`audit.py:97-152`, the `amount`/`applies_to_markets`/
+      `payment_methods`/`transaction_region`/`customer_country` special cases plus the
+      generic `_route_paypal_dimension` fallback). This is legitimate business logic,
+      not duplication or drift risk — low/medium priority. **Fix**: extract one
+      resolver function per special-cased dimension (mirroring the Stripe
+      `_synthesize_legacy_components`/`_aggregate_components` split style from Phase
+      2), e.g. `_resolve_amount_condition`, `_resolve_market_condition`,
+      `_resolve_payment_method_condition`.
+
+Gate: provider unit tests (Python `pytest`, PHP `phpunit`, TS test runner) + full
+`make test-conformance` after the PayPal condition-matching port — this is a
+calculation-core change with the same risk profile as Phase 2.
+
+**Confirmed healthy — not re-flagged:**
+- Phase 3's audit hook (`FeeProvider._compile_single_rule_for_audit`) is correctly
+  defined in `base.py:475` and used by both `_audit_paypal`/`_audit_stripe` instead of
+  reaching into provider internals.
+- Phase 9's dataset pin is real and wired end-to-end: `contracts/data-revisions.json`
+  is read by `.github/workflows/ci.yml`'s `resolve-data-revisions` job and threaded via
+  `needs:` outputs into every job that checks out the data repos.
+- Phase 9's `artifacts/paypal-sandbox-provisioning/` gitignore gap is fixed —
+  `.gitignore` now lists all five sibling `artifacts/paypal-sandbox-*` directories.
+- Phase 0/7's Stripe dimension parity fix held: PHP's `ConditionMatcher.php` and TS's
+  `condition-matcher.ts` are both extracted, dedicated modules (Phase 7), and Stripe's
+  full dimension list is present in all three languages.
+
+---
+
 ## Execution order & safety net
 
 | Phase | Risk | Gate |
@@ -509,6 +615,9 @@ Benchmark before/after: completed in `BENCHMARK.md`.  The optimized checkout sho
 | 7 PHP/TS structural parity | Medium | `make test-conformance` after every provider-file change |
 | 8.1–8.2 perf (rule indexing, dedup compilation) | Medium | conformance + benchmark |
 | 9 dataset pin + stray directories | Low (process/hygiene) | CI reproducibility check — same commit, two runs, same result |
+| 10.1 PayPal condition-matching gap (PHP/TS) | **High priority, correctness** | provider unit tests (3 languages) + new conformance case + full differential run |
+| 10.2 `_select_single_rule` decomposition | Low | provider unit tests + conformance |
+| 10.3 `audit.py` PayPal resolver split | Low | `make audit-contract` |
 
 Non-negotiable invariants:
 - `POST /v1/quotes`, `/v1/providers`, capabilities/quote-schema endpoints, and the
