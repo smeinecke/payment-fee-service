@@ -369,8 +369,8 @@ def _compile_rule(
     schedule_registry: _PayPalScheduleRegistry,
     request: PayPalQuoteRequest,
     context: dict[str, Any],
-    base_template: dict[str, Any],
-    surcharge_template: dict[str, Any],
+    base_static_model: ExecutableFeeRule,
+    surcharge_static_model: ExecutableFeeRule,
 ) -> list[ExecutableFeeRule]:
     currency = request.amount.currency
     payer_region = context.get("payer_region") or context.get("surcharge_region")
@@ -391,8 +391,8 @@ def _compile_rule(
         fixed_currency=fixed_currency,
         maximum_amount=maximum_amount,
         surcharge_rate=surcharge_rate,
-        base_template=base_template,
-        surcharge_template=surcharge_template,
+        base_static_model=base_static_model,
+        surcharge_static_model=surcharge_static_model,
     )
 
 
@@ -405,45 +405,42 @@ def _build_executable_rules(
     fixed_currency: str | None,
     maximum_amount: Decimal | None,
     surcharge_rate: Decimal | None,
-    base_template: dict[str, Any],
-    surcharge_template: dict[str, Any],
+    base_static_model: ExecutableFeeRule,
+    surcharge_static_model: ExecutableFeeRule,
 ) -> list[ExecutableFeeRule]:
     executable_rules: list[ExecutableFeeRule] = []
     currency = request.amount.currency
 
     if percentage is not None or fixed_amount is not None or maximum_amount is not None:
         executable_rules.append(
-            ExecutableFeeRule(
-                **base_template,
-                percentage=percentage,
-                fixed_amount=fixed_amount,
-                fixed_currency=fixed_currency or currency,
-                maximum_amount=maximum_amount,
-                currency=currency,
+            base_static_model.model_copy(
+                update={
+                    "percentage": percentage,
+                    "fixed_amount": fixed_amount,
+                    "fixed_currency": fixed_currency or currency,
+                    "maximum_amount": maximum_amount,
+                    "currency": currency,
+                }
             )
         )
 
     if surcharge_rate is not None:
         executable_rules.append(
-            ExecutableFeeRule(
-                rule_id=(
-                    f"paypal:{request.account_country}:{rule.id}:"
-                    f"{rule.variant_id or 'default'}:surcharge:{payer_region}"
-                ),
-                label=f"International surcharge ({payer_region})",
-                component_type=surcharge_template["component_type"],
-                behavior=surcharge_template["behavior"],
-                percentage=surcharge_rate,
-                currency=currency,
-                classification_status=surcharge_template["classification_status"],
-                exactness=surcharge_template["exactness"],
-                confidence=surcharge_template["confidence"],
-                source_url=surcharge_template["source_url"],
-                metadata={
-                    "product_id": rule.id,
-                    "variant_id": rule.variant_id,
-                    "payer_region": payer_region,
-                },
+            surcharge_static_model.model_copy(
+                update={
+                    "rule_id": (
+                        f"paypal:{request.account_country}:{rule.id}:"
+                        f"{rule.variant_id or 'default'}:surcharge:{payer_region}"
+                    ),
+                    "label": f"International surcharge ({payer_region})",
+                    "percentage": surcharge_rate,
+                    "currency": currency,
+                    "metadata": {
+                        "product_id": rule.id,
+                        "variant_id": rule.variant_id,
+                        "payer_region": payer_region,
+                    },
+                }
             )
         )
 
@@ -589,9 +586,24 @@ class PayPalProvider:
 
         self._rule_indexes: dict[str, dict[str, dict[str, list[PayPalTransactionFeeRule]]]] = {}
         self._rule_specificity: dict[int, float] = {}
-        self._rule_templates: dict[tuple[str, str, str], tuple[dict[str, Any], dict[str, Any]]] = {}
+        self._rule_static_models: dict[tuple[str, str, str], tuple[ExecutableFeeRule, ExecutableFeeRule]] = {}
+        self._compiled_plan_templates: dict[str, CompiledFeePlan] = {}
 
         for code, country in self._countries.items():
+            index_entry = self._index_map.get(code)
+            self._compiled_plan_templates[code] = CompiledFeePlan(
+                provider=self.provider_id,
+                market=code,
+                currency="",
+                rules=[],
+                schema_version=self.core.schema_version,
+                content_sha256=index_entry.content_sha256 if index_entry else None,
+                source_urls=[],
+                source_updated_at=index_entry.source_updated_at if index_entry else None,
+                data_ref=self.data_ref,
+                product_id=None,
+                variant_id=None,
+            )
             index_by_product: dict[str, dict[str, list[PayPalTransactionFeeRule]]] = {}
             for rule in country.derived.transaction_fee_rules:
                 product_id = rule.id.lower()
@@ -600,35 +612,37 @@ class PayPalProvider:
                 self._rule_specificity[id(rule)] = _specificity(rule)
 
                 source_url = self._resolve_source_url(rule, code)
-                base_template = {
-                    "rule_id": f"paypal:{code}:{rule.id}:{rule.variant_id or 'default'}:base",
-                    "label": rule.label or rule.id,
-                    "component_type": "processing",
-                    "behavior": "base",
-                    "classification_status": rule.calculation_status,
-                    "exactness": "exact",
-                    "confidence": 1.0,
-                    "source_url": source_url,
-                    "metadata": {
+                base_static_model = ExecutableFeeRule(
+                    rule_id=f"paypal:{code}:{rule.id}:{rule.variant_id or 'default'}:base",
+                    label=rule.label or rule.id,
+                    component_type="processing",
+                    behavior="base",
+                    classification_status=rule.calculation_status,
+                    exactness="exact",
+                    confidence=1.0,
+                    source_url=source_url,
+                    metadata={
                         "product_id": rule.id,
                         "variant_id": rule.variant_id,
                     },
-                }
-                surcharge_template = {
-                    "component_type": "surcharge",
-                    "behavior": "additive",
-                    "classification_status": rule.calculation_status,
-                    "exactness": "exact",
-                    "confidence": 1.0,
-                    "source_url": source_url,
-                    "metadata": {
+                )
+                surcharge_static_model = ExecutableFeeRule(
+                    rule_id="",
+                    label="",
+                    component_type="surcharge",
+                    behavior="additive",
+                    classification_status=rule.calculation_status,
+                    exactness="exact",
+                    confidence=1.0,
+                    source_url=source_url,
+                    metadata={
                         "product_id": rule.id,
                         "variant_id": rule.variant_id,
                     },
-                }
-                self._rule_templates[(code, rule.id, rule.variant_id or "default")] = (
-                    base_template,
-                    surcharge_template,
+                )
+                self._rule_static_models[(code, rule.id, rule.variant_id or "default")] = (
+                    base_static_model,
+                    surcharge_static_model,
                 )
 
             self._rule_indexes[code] = index_by_product
@@ -795,11 +809,11 @@ class PayPalProvider:
         )
 
         source_url = self._resolve_source_url(selected, request.account_country)
-        base_template, surcharge_template = self._rule_templates[
+        base_static_model, surcharge_static_model = self._rule_static_models[
             (request.account_country.upper(), selected.id, selected.variant_id or "default")
         ]
         executable_rules = _compile_rule(
-            selected, schedule_registry, request, context, base_template, surcharge_template
+            selected, schedule_registry, request, context, base_static_model, surcharge_static_model
         )
 
         assumptions = [
@@ -809,19 +823,19 @@ class PayPalProvider:
         ]
 
         index_entry = self._index_map.get(request.account_country.upper())
-        return CompiledFeePlan(
-            provider=self.provider_id,
-            market=request.account_country,
-            currency=request.amount.currency,
-            rules=executable_rules,
-            assumptions=assumptions,
-            schema_version=self.core.schema_version,
-            content_sha256=index_entry.content_sha256 if index_entry else None,
-            source_urls=[source_url] if source_url else [],
-            source_updated_at=index_entry.source_updated_at if index_entry else None,
-            data_ref=self.data_ref,
-            product_id=selected.id,
-            variant_id=selected.variant_id,
+        plan_template = self._compiled_plan_templates[request.account_country.upper()]
+        return plan_template.model_copy(
+            update={
+                "market": request.account_country,
+                "currency": request.amount.currency,
+                "rules": executable_rules,
+                "assumptions": assumptions,
+                "content_sha256": index_entry.content_sha256 if index_entry else None,
+                "source_urls": [source_url] if source_url else [],
+                "source_updated_at": index_entry.source_updated_at if index_entry else None,
+                "product_id": selected.id,
+                "variant_id": selected.variant_id,
+            }
         )
 
     def markets(self) -> list[MarketInfo]:
@@ -923,7 +937,7 @@ class PayPalProvider:
         request = context
         schedule_registry = self._schedule_registries[request.account_country.upper()]
         ctx = _build_paypal_context(request)
-        base_template, surcharge_template = self._rule_templates[
+        base_static_model, surcharge_static_model = self._rule_static_models[
             (request.account_country.upper(), rule.id, rule.variant_id or "default")
         ]
-        return _compile_rule(rule, schedule_registry, request, ctx, base_template, surcharge_template)
+        return _compile_rule(rule, schedule_registry, request, ctx, base_static_model, surcharge_static_model)

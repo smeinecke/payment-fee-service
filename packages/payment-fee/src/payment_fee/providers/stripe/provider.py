@@ -380,18 +380,19 @@ def _executable_from_rule(
     rule: StripeRule,
     currency: str,
     compiled: dict[str, Any] | None,
-    template: dict[str, Any],
+    static_model: ExecutableFeeRule,
 ) -> ExecutableFeeRule:
     if compiled is None:
         compiled = _compile_stripe_components(rule, currency)
-    return ExecutableFeeRule(
-        **template,
-        percentage=compiled.get("percentage"),
-        fixed_amount=compiled.get("fixed_amount"),
-        fixed_currency=currency,
-        minimum_amount=compiled.get("minimum_amount"),
-        maximum_amount=compiled.get("maximum_amount"),
-        currency=currency,
+    return static_model.model_copy(
+        update={
+            "percentage": compiled.get("percentage"),
+            "fixed_amount": compiled.get("fixed_amount"),
+            "fixed_currency": currency,
+            "minimum_amount": compiled.get("minimum_amount"),
+            "maximum_amount": compiled.get("maximum_amount"),
+            "currency": currency,
+        }
     )
 
 
@@ -540,10 +541,25 @@ class StripeProvider:
 
         self._market_candidates: dict[str, list[tuple[StripeRule, list[NormalizedCondition], int]]] = {}
         self._market_additive_candidates: dict[str, list[tuple[StripeRule, list[NormalizedCondition], int]]] = {}
-        self._rule_templates: dict[tuple[str, str], dict[str, Any]] = {}
-        self._rule_template_by_id: dict[str, dict[str, Any]] = {}
+        self._rule_static_models: dict[tuple[str, str], ExecutableFeeRule] = {}
+        self._rule_static_model_by_id: dict[str, ExecutableFeeRule] = {}
+        self._compiled_plan_templates: dict[str, CompiledFeePlan] = {}
 
         for code, market in self._markets.items():
+            index_entry = self._index_map.get(code)
+            self._compiled_plan_templates[code] = CompiledFeePlan(
+                provider=self.provider_id,
+                market=code,
+                currency="",
+                rules=[],
+                schema_version=self.core.schema_version,
+                content_sha256=index_entry.content_sha256 if index_entry else None,
+                source_urls=list(index_entry.source_urls) if index_entry else [],
+                source_updated_at=index_entry.source_updated_at if index_entry else None,
+                data_ref=self.data_ref,
+                product_id=None,
+                variant_id=None,
+            )
             candidates: list[tuple[StripeRule, list[NormalizedCondition], int]] = []
             additive: list[tuple[StripeRule, list[NormalizedCondition], int]] = []
             for rule in market.rules:
@@ -562,24 +578,24 @@ class StripeProvider:
                     else "processing"
                 )
                 label = rule.label or rule.name or rule.rule_id
-                template = {
-                    "rule_id": rule.rule_id,
-                    "label": label,
-                    "component_type": component_type,
-                    "behavior": behavior,
-                    "payer": rule.payer,
-                    "unit": rule.unit,
-                    "classification_status": rule.classification_status,
-                    "confidence": rule.confidence,
-                    "exactness": rule.exactness,
-                    "source_url": rule.source_url,
-                    "metadata": {
+                static_model = ExecutableFeeRule(
+                    rule_id=rule.rule_id,
+                    label=label,
+                    component_type=component_type,
+                    behavior=behavior,
+                    payer=rule.payer,
+                    unit=rule.unit,
+                    classification_status=rule.classification_status,
+                    confidence=rule.confidence,
+                    exactness=rule.exactness,
+                    source_url=rule.source_url,
+                    metadata={
                         "product_id": rule.product_id,
                         "variant_id": rule.variant_id,
                     },
-                }
-                self._rule_templates[(code, rule.rule_id)] = template
-                self._rule_template_by_id.setdefault(rule.rule_id, template)
+                )
+                self._rule_static_models[(code, rule.rule_id)] = static_model
+                self._rule_static_model_by_id.setdefault(rule.rule_id, static_model)
 
             self._market_candidates[code] = candidates
             self._market_additive_candidates[code] = additive
@@ -693,14 +709,14 @@ class StripeProvider:
 
         additive_rules = self._select_additive_rules(additive_candidates, context, request.account_country)
 
-        base_template = self._rule_templates[(country_code, selected_base.rule_id)]
-        rules = [_executable_from_rule(selected_base, currency, base_compiled, base_template)]
+        base_static_model = self._rule_static_models[(country_code, selected_base.rule_id)]
+        rules = [_executable_from_rule(selected_base, currency, base_compiled, base_static_model)]
         for rule in additive_rules:
             additive_compiled = compiled_cache.setdefault(
                 (rule.rule_id, currency), _compile_stripe_components(rule, currency)
             )
-            additive_template = self._rule_templates[(country_code, rule.rule_id)]
-            rules.append(_executable_from_rule(rule, currency, additive_compiled, additive_template))
+            additive_static_model = self._rule_static_models[(country_code, rule.rule_id)]
+            rules.append(_executable_from_rule(rule, currency, additive_compiled, additive_static_model))
 
         index_entry = self._index_map.get(request.account_country.upper())
         source_urls = list(index_entry.source_urls) if index_entry else []
@@ -715,19 +731,19 @@ class StripeProvider:
         if context.get("success") is True:
             assumptions.append("Assumed a successful transaction for providers that require success.")
 
-        return CompiledFeePlan(
-            provider=self.provider_id,
-            market=request.account_country,
-            currency=currency,
-            rules=rules,
-            assumptions=assumptions,
-            schema_version=self.core.schema_version,
-            content_sha256=index_entry.content_sha256 if index_entry else None,
-            source_urls=source_urls,
-            source_updated_at=index_entry.source_updated_at if index_entry else None,
-            data_ref=self.data_ref,
-            product_id=selected_base.product_id,
-            variant_id=selected_base.variant_id,
+        plan_template = self._compiled_plan_templates[country_code]
+        return plan_template.model_copy(
+            update={
+                "market": request.account_country,
+                "currency": currency,
+                "rules": rules,
+                "assumptions": assumptions,
+                "content_sha256": index_entry.content_sha256 if index_entry else None,
+                "source_urls": source_urls,
+                "source_updated_at": index_entry.source_updated_at if index_entry else None,
+                "product_id": selected_base.product_id,
+                "variant_id": selected_base.variant_id,
+            }
         )
 
     def _select_additive_rules(
@@ -848,7 +864,7 @@ class StripeProvider:
         have to reach into provider internals.
         """
         currency = context
-        template = self._rule_template_by_id.get(rule.rule_id)
-        if template is None:
+        static_model = self._rule_static_model_by_id.get(rule.rule_id)
+        if static_model is None:
             raise QuoteNotAvailable("No cached rule template found for audit.", rule_id=rule.rule_id)
-        return _executable_from_rule(rule, currency, None, template)
+        return _executable_from_rule(rule, currency, None, static_model)
