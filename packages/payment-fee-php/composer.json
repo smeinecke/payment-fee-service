@@ -13,9 +13,11 @@
     "brick/math": "^0.12"
   },
   "require-dev": {
-    "phpunit/phpunit": "^11.0",
+    "friendsofphp/php-cs-fixer": "^3.64",
+    "phpmd/phpmd": "^2.15",
     "phpstan/phpstan": "^2.0",
-    "friendsofphp/php-cs-fixer": "^3.64"
+    "phpunit/phpunit": "^11.0",
+    "symfony/console": "^7.0"
   },
   "autoload": {
     "psr-4": {
@@ -30,6 +32,7 @@
   "scripts": {
     "test": "phpunit",
     "analyse": "phpstan analyse",
+    "mess": "php -d 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED' vendor/bin/phpmd src,tests text phpmd.xml",
     "format-check": "php-cs-fixer fix --dry-run --diff",
     "format": "php-cs-fixer fix",
     "audit": "composer audit"

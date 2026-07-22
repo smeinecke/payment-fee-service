@@ -1,4 +1,4 @@
-.PHONY: test analyse format-check format audit install
+.PHONY: test analyse mess format-check format audit install
 
 COMPOSER_BIN ?= composer
 
@@ -10,6 +10,9 @@ test:
 
 analyse:
 	$(COMPOSER_BIN) analyse
+
+mess:
+	$(COMPOSER_BIN) mess
 
 format-check:
 	$(COMPOSER_BIN) format-check

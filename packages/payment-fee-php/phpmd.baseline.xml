@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<phpmd-baseline>
+  <violation rule="PHPMD\Rule\Design\LongParameterList" file="src/Model/CardContext.php" method="__construct"/>
+  <violation rule="PHPMD\Rule\Design\LongParameterList" file="src/Model/ExecutableFeeRule.php" method="__construct"/>
+  <violation rule="PHPMD\Rule\Design\LongParameterList" file="src/Model/PayPalTransaction.php" method="__construct"/>
+  <violation rule="PHPMD\Rule\Design\LongParameterList" file="src/Model/StripeTransaction.php" method="__construct"/>
+  <violation rule="PHPMD\Rule\CyclomaticComplexity" file="src/Providers/PayPal/ConditionMatcher.php" method="conditionStatus"/>
+  <violation rule="PHPMD\Rule\CyclomaticComplexity" file="src/Providers/PayPal/PayPalProvider.php" method="compileRules"/>
+  <violation rule="PHPMD\Rule\Design\LongMethod" file="src/Providers/PayPal/PayPalProvider.php" method="compileRules"/>
+  <violation rule="PHPMD\Rule\CyclomaticComplexity" file="src/Providers/PayPal/PayPalProvider.php" method="compileRule"/>
+  <violation rule="PHPMD\Rule\CyclomaticComplexity" file="src/Providers/Stripe/ConditionMatcher.php" method="conditionStatus"/>
+  <violation rule="PHPMD\Rule\CyclomaticComplexity" file="src/Providers/Stripe/ConditionMatcher.php" method="compileComponents"/>
+</phpmd-baseline>
