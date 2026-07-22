@@ -144,7 +144,7 @@ final class ConditionMatcher
         throw new UnsupportedFeeShape('Unsupported condition operator: ' . $operator, ['operator' => $operator]);
     }
 
-    private static function valuesEqual(mixed $left, mixed $right): bool
+    public static function valuesEqual(mixed $left, mixed $right): bool
     {
         if (\is_bool($left) || \is_bool($right)) {
             return (bool) $left === (bool) $right;

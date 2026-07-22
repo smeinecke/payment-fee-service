@@ -188,7 +188,7 @@ export function conditionStatus(
   throw new UnsupportedFeeShape(`Unsupported condition operator: ${operator}`, { operator });
 }
 
-function valuesEqual(left: unknown, right: unknown): boolean {
+export function valuesEqual(left: unknown, right: unknown): boolean {
   if (typeof left === "boolean" || typeof right === "boolean") {
     return Boolean(left) === Boolean(right);
   }

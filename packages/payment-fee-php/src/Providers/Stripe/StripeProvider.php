@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Smeinecke\PaymentFee\Providers\Stripe;
 
-use Brick\Math\BigDecimal;
 use Smeinecke\PaymentFee\Exception\InsufficientTransactionContext;
 use Smeinecke\PaymentFee\Exception\QuoteNotAvailable;
 use Smeinecke\PaymentFee\Exception\UnknownMarket;
@@ -163,37 +162,6 @@ final class StripeProvider implements ProviderInterface
         throw new UnknownMarket('stripe', $code);
     }
 
-    private function isNumeric(mixed $value): bool
-    {
-        if (\is_int($value) || \is_float($value) || $value instanceof BigDecimal) {
-            return true;
-        }
-
-        return \is_string($value) && is_numeric($value);
-    }
-
-    private function contextValuesEqual(mixed $left, mixed $right): bool
-    {
-        if (\is_bool($left) && \is_bool($right)) {
-            return $left === $right;
-        }
-
-        if ((\is_bool($left) && (\is_int($right) || \is_float($right))) ||
-            (\is_bool($right) && (\is_int($left) || \is_float($left)))) {
-            return (int) $left === (int) $right;
-        }
-
-        if ($this->isNumeric($left) && $this->isNumeric($right)) {
-            try {
-                return BigDecimal::of((string) $left)->isEqualTo(BigDecimal::of((string) $right));
-            } catch (\Throwable) {
-                return false;
-            }
-        }
-
-        return $left === $right;
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -258,7 +226,7 @@ final class StripeProvider implements ProviderInterface
             if (\array_key_exists($key, $context)) {
                 $existing = $context[$key];
                 if ($existing !== null) {
-                    if (!$this->contextValuesEqual($value, $existing)) {
+                    if (!ConditionMatcher::valuesEqual($value, $existing)) {
                         throw new QuoteNotAvailable('Contradictory duplicate value in transaction context.', [
                             'field' => $key,
                             'typed_value' => $existing,

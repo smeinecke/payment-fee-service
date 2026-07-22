@@ -7,7 +7,6 @@ from typing import Any
 from payment_fee.calculator import to_decimal
 from payment_fee.data import load_json
 from payment_fee.errors import (
-    AmbiguousFeeRules,
     DatasetValidationError,
     InsufficientTransactionContext,
     QuoteNotAvailable,
@@ -20,9 +19,8 @@ from payment_fee.providers.base import (
     NormalizedCondition,
     _api_field_name_lookup,
     _check_schema_version,
-    _condition_matches,
     _merge_context_overrides,
-    _missing_dimensions,
+    compile_generic,
 )
 from payment_fee.providers.paypal.adapter import (
     adapt_paypal_core_document,
@@ -729,74 +727,6 @@ class PayPalProvider:
 
         return product_rules, product_id, variant_id
 
-    def _match_rules(
-        self,
-        product_rules: list[PayPalTransactionFeeRule],
-        context: dict[str, Any],
-        account_country: str,
-        product_id: str,
-        variant_id: str | None,
-    ) -> list[PayPalTransactionFeeRule]:
-        missing: set[str] = set()
-        matching: list[PayPalTransactionFeeRule] = []
-        for rule in product_rules:
-            conditions = _normalize_paypal_conditions(rule)
-            rule_missing = _missing_dimensions(conditions, context, _api_field_name)
-            if rule_missing:
-                missing.update(rule_missing)
-                continue
-            if _condition_matches(conditions, context):
-                matching.append(rule)
-
-        if not matching and missing:
-            raise InsufficientTransactionContext(
-                sorted(missing),
-                provider=self.provider_id,
-                market=account_country,
-            )
-
-        if not matching:
-            raise QuoteNotAvailable(
-                "No PayPal fee rule matched the supplied context.",
-                market=account_country,
-                product_id=product_id,
-                variant_id=variant_id,
-            )
-
-        return matching
-
-    def _require_calculable(self, matching: list[PayPalTransactionFeeRule], account_country: str) -> None:
-        for rule in matching:
-            if rule.calculation_status != "calculable":
-                raise QuoteNotAvailable(
-                    "A selected PayPal rule is not calculable.",
-                    rule_id=rule.id,
-                    status=rule.calculation_status,
-                )
-
-    def _select_rule(
-        self,
-        matching: list[PayPalTransactionFeeRule],
-        schedule_registry: _PayPalScheduleRegistry,
-        currency: str,
-        payer_region: str | None,
-        account_country: str,
-    ) -> PayPalTransactionFeeRule:
-        specificities = [(rule, self._rule_specificity[id(rule)]) for rule in matching]
-        max_specificity = max(score for _, score in specificities)
-        most_specific = [rule for rule, score in specificities if abs(score - max_specificity) < 1e-9]
-
-        if len(most_specific) > 1:
-            signatures = {_rule_signature(r, schedule_registry, currency, payer_region) for r in most_specific}
-            if len(signatures) > 1:
-                raise AmbiguousFeeRules(
-                    [r.id for r in most_specific],
-                    provider=self.provider_id,
-                    market=account_country,
-                )
-
-        return sorted(most_specific, key=lambda r: (r.id, r.variant_id or ""))[0]
-
     def _check_surcharge_region_context(
         self,
         selected: PayPalTransactionFeeRule,
@@ -834,12 +764,31 @@ class PayPalProvider:
         context = _build_paypal_context(request)
 
         product_rules, product_id, variant_id = self._resolve_product_rules(context, request.account_country)
-        matching = self._match_rules(product_rules, context, request.account_country, product_id, variant_id)
-        self._require_calculable(matching, request.account_country)
-
+        candidates = [
+            (rule, _normalize_paypal_conditions(rule), self._rule_specificity[id(rule)]) for rule in product_rules
+        ]
         payer_region = context.get("payer_region") or context.get("surcharge_region")
-        selected = self._select_rule(
-            matching, schedule_registry, request.amount.currency, payer_region, request.account_country
+
+        def _signature(rule: PayPalTransactionFeeRule) -> tuple[Any, ...]:
+            return _rule_signature(rule, schedule_registry, request.amount.currency, payer_region)
+
+        selected, _ = compile_generic(
+            candidates,
+            context,
+            request.account_country,
+            self.provider_id,
+            api_field_name=_api_field_name,
+            is_evaluable=lambda r: r.calculation_status == "calculable",
+            select_filter=lambda r: r.calculation_status == "calculable",
+            financial_signature=_signature,
+            rule_id=lambda r: r.id,
+            sort_key=lambda r: (r.id, r.variant_id or ""),
+            classification_status=lambda r: r.calculation_status,
+            require_all_evaluable=True,
+            check_more_specific_missing=False,
+            not_calculable_message="A selected PayPal rule is not calculable.",
+            no_selectable_message="No evaluable PayPal fee rule matched the supplied context.",
+            error_context={"product_id": product_id, "variant_id": variant_id},
         )
         self._check_surcharge_region_context(
             selected, schedule_registry, payer_region, context.get("transaction_region"), request.account_country

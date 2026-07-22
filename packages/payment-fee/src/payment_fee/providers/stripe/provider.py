@@ -6,7 +6,6 @@ from typing import Any
 from payment_fee.calculator import to_decimal
 from payment_fee.data import load_json
 from payment_fee.errors import (
-    AmbiguousFeeRules,
     InsufficientTransactionContext,
     ProviderDataUnavailable,
     QuoteNotAvailable,
@@ -25,6 +24,7 @@ from payment_fee.providers.base import (
     _check_schema_version,
     _evaluate_condition,
     _merge_context_overrides,
+    compile_generic,
 )
 from payment_fee.providers.stripe.models import (
     StripeCoreFees,
@@ -655,133 +655,6 @@ class StripeProvider:
             raise UnknownMarket(self.provider_id, code)
         return market
 
-    def _match_candidates(
-        self,
-        candidates: list[tuple[StripeRule, list[NormalizedCondition], int]],
-        context: dict[str, Any],
-    ) -> tuple[list[tuple[StripeRule, int]], list[tuple[StripeRule, list[str], int]]]:
-        full_matches: list[tuple[StripeRule, int]] = []
-        missing_matches: list[tuple[StripeRule, list[str], int]] = []
-        for rule, conditions, specificity in candidates:
-            conflict = False
-            missing: list[str] = []
-            for condition in conditions:
-                status = _evaluate_condition(condition, context)
-                if status == "conflict":
-                    conflict = True
-                    break
-                if status == "missing":
-                    missing.append(_api_field_name(condition.dimension))
-            if conflict:
-                continue
-            if missing:
-                missing_matches.append((rule, sorted(set(missing)), specificity))
-            else:
-                full_matches.append((rule, specificity))
-        return full_matches, missing_matches
-
-    def _require_any_full_match(
-        self,
-        full_matches: list[tuple[StripeRule, int]],
-        missing_matches: list[tuple[StripeRule, list[str], int]],
-        account_country: str,
-    ) -> None:
-        if full_matches:
-            return
-        if missing_matches:
-            all_missing = sorted({m for _, missing, _ in missing_matches for m in missing})
-            raise InsufficientTransactionContext(
-                all_missing,
-                provider=self.provider_id,
-                market=account_country,
-            )
-        raise QuoteNotAvailable(
-            "No Stripe fee rule matched the supplied context.",
-            provider=self.provider_id,
-            market=account_country,
-        )
-
-    def _require_evaluable_most_specific(
-        self, full_matches: list[tuple[StripeRule, int]], account_country: str
-    ) -> tuple[list[StripeRule], int]:
-        max_full_spec = max(spec for _, spec in full_matches)
-        most_specific_full = [r for r, spec in full_matches if spec == max_full_spec]
-
-        if not any(_is_evaluable(r) for r in most_specific_full):
-            rule_statuses = {r.classification_status for r in most_specific_full}
-            if "unsupported" in rule_statuses:
-                raise UnsupportedFeeShape(
-                    "The most specific matching Stripe fee rule is unsupported.",
-                    provider=self.provider_id,
-                    market=account_country,
-                    rule_ids=[r.rule_id for r in most_specific_full],
-                )
-            raise QuoteNotAvailable(
-                "The most specific matching Stripe fee rule cannot be quoted.",
-                provider=self.provider_id,
-                market=account_country,
-                rule_ids=[r.rule_id for r in most_specific_full],
-            )
-        return most_specific_full, max_full_spec
-
-    def _check_no_more_specific_missing(
-        self,
-        missing_matches: list[tuple[StripeRule, list[str], int]],
-        max_full_spec: int,
-        account_country: str,
-    ) -> None:
-        more_specific_missing = [
-            (rule, missing, spec)
-            for rule, missing, spec in missing_matches
-            if spec > max_full_spec and _is_evaluable(rule)
-        ]
-        if more_specific_missing:
-            blocker_missing = sorted({m for _, missing, _ in more_specific_missing for m in missing})
-            raise InsufficientTransactionContext(
-                blocker_missing,
-                provider=self.provider_id,
-                market=account_country,
-                candidate_rule_ids=[r.rule_id for r, _, _ in more_specific_missing],
-            )
-
-    def _select_base_rule(
-        self,
-        full_matches: list[tuple[StripeRule, int]],
-        currency: str,
-        account_country: str,
-        compiled_cache: dict[tuple[str, str], dict[str, Any]],
-    ) -> tuple[StripeRule, dict[str, Any]]:
-        base_candidates: list[StripeRule] = []
-        for spec in sorted({spec for _, spec in full_matches}, reverse=True):
-            candidates = [r for r, s in full_matches if s == spec and _is_evaluable(r) and r.behavior != "additive"]
-            if candidates:
-                base_candidates = candidates
-                break
-
-        if not base_candidates:
-            raise QuoteNotAvailable(
-                "No evaluable base Stripe fee rule matched the supplied context.",
-                provider=self.provider_id,
-                market=account_country,
-            )
-
-        candidate_compiled: dict[int, dict[str, Any]] = {
-            id(r): compiled_cache.setdefault((r.rule_id, currency), _compile_stripe_components(r, currency))
-            for r in base_candidates
-        }
-
-        if len(base_candidates) > 1:
-            signatures = {_rule_financial_signature(r, currency, candidate_compiled[id(r)]) for r in base_candidates}
-            if len(signatures) > 1:
-                raise AmbiguousFeeRules(
-                    [r.rule_id for r in base_candidates],
-                    provider=self.provider_id,
-                    market=account_country,
-                )
-
-        selected = sorted(base_candidates, key=lambda r: r.rule_id)[0]
-        return selected, candidate_compiled[id(selected)]
-
     def compile_rules(self, request: BaseQuoteRequest) -> CompiledFeePlan:
         if not isinstance(request, StripeQuoteRequest):
             raise TypeError(f"Expected StripeQuoteRequest, got {type(request).__name__}")
@@ -794,12 +667,28 @@ class StripeProvider:
         candidates = self._market_candidates[country_code]
         additive_candidates = self._market_additive_candidates[country_code]
 
-        full_matches, missing_matches = self._match_candidates(candidates, context)
-        self._require_any_full_match(full_matches, missing_matches, request.account_country)
-        _, max_full_spec = self._require_evaluable_most_specific(full_matches, request.account_country)
-        self._check_no_more_specific_missing(missing_matches, max_full_spec, request.account_country)
-        selected_base, base_compiled = self._select_base_rule(
-            full_matches, currency, request.account_country, compiled_cache
+        def _signature(rule: StripeRule) -> tuple[Any, ...]:
+            compiled = compiled_cache.setdefault((rule.rule_id, currency), _compile_stripe_components(rule, currency))
+            return _rule_financial_signature(rule, currency, compiled)
+
+        selected_base, _ = compile_generic(
+            candidates,
+            context,
+            request.account_country,
+            self.provider_id,
+            api_field_name=_api_field_name,
+            is_evaluable=_is_evaluable,
+            select_filter=lambda r: _is_evaluable(r) and r.behavior != "additive",
+            financial_signature=_signature,
+            rule_id=lambda r: r.rule_id,
+            sort_key=lambda r: r.rule_id,
+            classification_status=lambda r: r.classification_status,
+            unsupported_statuses={"unsupported"},
+            not_calculable_message="The most specific matching Stripe fee rule cannot be quoted.",
+            no_selectable_message="No evaluable base Stripe fee rule matched the supplied context.",
+        )
+        base_compiled = compiled_cache.setdefault(
+            (selected_base.rule_id, currency), _compile_stripe_components(selected_base, currency)
         )
 
         additive_rules = self._select_additive_rules(additive_candidates, context, request.account_country)

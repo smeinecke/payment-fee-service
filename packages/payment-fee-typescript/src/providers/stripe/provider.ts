@@ -1,4 +1,3 @@
-import { Decimal } from "decimal.js";
 import { InsufficientTransactionContext, QuoteNotAvailable, UnknownMarket } from "../../errors.js";
 import type { ExecutableRule } from "../../calculator.js";
 import type { QuoteRequest, StripeQuoteRequest } from "../../models.js";
@@ -11,6 +10,7 @@ import {
   normalizeConditions,
   selectAdditiveRules,
   sortBySpecificityDesc,
+  valuesEqual,
 } from "./condition-matcher.js";
 
 export interface StripeMarket {
@@ -160,24 +160,6 @@ export class StripeProvider {
   }
 }
 
-function isNumeric(value: unknown): boolean {
-  return typeof value === "number" || (typeof value === "string" && !Number.isNaN(Number(value)));
-}
-
-function contextValuesEqual(a: unknown, b: unknown): boolean {
-  if (typeof a === "boolean" || typeof b === "boolean") {
-    return Boolean(a) === Boolean(b);
-  }
-  if (isNumeric(a) && isNumeric(b)) {
-    try {
-      return new Decimal(String(a)).eq(new Decimal(String(b)));
-    } catch {
-      return false;
-    }
-  }
-  return a === b;
-}
-
 function buildContext(request: StripeQuoteRequest): Record<string, unknown> {
   const t = request.transaction;
   const context: Record<string, unknown> = {
@@ -238,7 +220,7 @@ function buildContext(request: StripeQuoteRequest): Record<string, unknown> {
     }
     const existing = context[key];
     if (existing !== undefined && existing !== null) {
-      if (!contextValuesEqual(value, existing)) {
+      if (!valuesEqual(value, existing)) {
         throw new QuoteNotAvailable("Contradictory duplicate value in transaction context.", {
           field: key,
           typed_value: existing,

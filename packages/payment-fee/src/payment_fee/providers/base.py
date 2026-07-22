@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+import math
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal, Protocol
 
-from payment_fee.errors import QuoteNotAvailable, UnsupportedFeeShape
+from payment_fee.errors import AmbiguousFeeRules, InsufficientTransactionContext, QuoteNotAvailable, UnsupportedFeeShape
 from payment_fee.models import BaseQuoteRequest, CapabilityInfo, MarketInfo, QuoteSchema
 from payment_fee.rules import CompiledFeePlan
 from payment_fee.util import _as_list
@@ -27,7 +28,7 @@ def _merge_context_overrides(context: dict[str, Any], overrides: dict[str, Any])
         if key in context:
             if context[key] is None:
                 context[key] = value
-            elif value != context[key]:
+            elif not _values_equal(value, context[key]):
                 raise QuoteNotAvailable(
                     "Contradictory duplicate value in transaction context.",
                     field=key,
@@ -36,6 +37,217 @@ def _merge_context_overrides(context: dict[str, Any], overrides: dict[str, Any])
                 )
         else:
             context[key] = value
+
+
+def _match_candidates(
+    candidates: Sequence[tuple[Any, list[NormalizedCondition], int | float]],
+    context: dict[str, Any],
+    api_field_name: Callable[[str], str],
+) -> tuple[list[tuple[Any, int | float]], list[tuple[Any, list[str], int | float]]]:
+    """Bucket candidates into full matches and missing-context matches."""
+    full_matches: list[tuple[Any, int | float]] = []
+    missing_matches: list[tuple[Any, list[str], int | float]] = []
+    for rule, conditions, specificity in candidates:
+        conflict = False
+        missing: list[str] = []
+        for condition in conditions:
+            status = _evaluate_condition(condition, context)
+            if status == "conflict":
+                conflict = True
+                break
+            if status == "missing":
+                missing.append(api_field_name(condition.dimension))
+        if conflict:
+            continue
+        if missing:
+            missing_matches.append((rule, sorted(set(missing)), specificity))
+        else:
+            full_matches.append((rule, specificity))
+    return full_matches, missing_matches
+
+
+def _is_more_specific(spec: int | float, max_spec: int | float) -> bool:
+    """Return True when ``spec`` is meaningfully greater than ``max_spec``."""
+    return spec > max_spec and not math.isclose(spec, max_spec, rel_tol=0, abs_tol=1e-9)
+
+
+def _select_single_rule(
+    full_matches: list[tuple[Any, int | float]],
+    missing_matches: list[tuple[Any, list[str], int | float]],
+    account_country: str,
+    provider_id: str,
+    *,
+    api_field_name: Callable[[str], str],
+    is_evaluable: Callable[[Any], bool],
+    select_filter: Callable[[Any], bool] | None = None,
+    financial_signature: Callable[[Any], Any] | None = None,
+    rule_id: Callable[[Any], str] = lambda r: str(r),
+    sort_key: Callable[[Any], Any] | None = None,
+    classification_status: Callable[[Any], str] | None = None,
+    unsupported_statuses: set[str] | None = None,
+    check_more_specific_missing: bool = True,
+    not_calculable_message: str = "The most specific matching fee rule cannot be quoted.",
+    no_selectable_message: str = "No evaluable fee rule matched the supplied context.",
+    error_context: dict[str, Any] | None = None,
+) -> tuple[Any, int | float]:
+    """Select the single most-specific, evaluable, unambiguous rule from full matches."""
+    error_context = error_context or {}
+
+    if not full_matches:
+        if missing_matches:
+            all_missing = sorted({m for _, missing, _ in missing_matches for m in missing})
+            raise InsufficientTransactionContext(
+                all_missing,
+                provider=provider_id,
+                market=account_country,
+                **error_context,
+            )
+        raise QuoteNotAvailable(
+            "No fee rule matched the supplied context.",
+            provider=provider_id,
+            market=account_country,
+            **error_context,
+        )
+
+    max_full_spec = max(spec for _, spec in full_matches)
+    most_specific_full = [
+        rule for rule, spec in full_matches if math.isclose(spec, max_full_spec, rel_tol=0, abs_tol=1e-9)
+    ]
+
+    if not any(is_evaluable(rule) for rule in most_specific_full):
+        if (
+            classification_status
+            and unsupported_statuses
+            and any(classification_status(rule) in unsupported_statuses for rule in most_specific_full)
+        ):
+            raise UnsupportedFeeShape(
+                "The most specific matching fee rule is unsupported.",
+                provider=provider_id,
+                market=account_country,
+                rule_ids=[rule_id(rule) for rule in most_specific_full],
+                **error_context,
+            )
+        raise QuoteNotAvailable(
+            not_calculable_message,
+            provider=provider_id,
+            market=account_country,
+            rule_ids=[rule_id(rule) for rule in most_specific_full],
+            **error_context,
+        )
+
+    if check_more_specific_missing:
+        more_specific_missing = [
+            (rule, missing, spec)
+            for rule, missing, spec in missing_matches
+            if _is_more_specific(spec, max_full_spec) and is_evaluable(rule)
+        ]
+        if more_specific_missing:
+            blocker_missing = sorted({m for _, missing, _ in more_specific_missing for m in missing})
+            raise InsufficientTransactionContext(
+                blocker_missing,
+                provider=provider_id,
+                market=account_country,
+                candidate_rule_ids=[rule_id(rule) for rule, _, _ in more_specific_missing],
+                **error_context,
+            )
+
+    select_filter = select_filter or is_evaluable
+    selectable_specs = [spec for rule, spec in full_matches if select_filter(rule)]
+    if not selectable_specs:
+        raise QuoteNotAvailable(
+            no_selectable_message,
+            provider=provider_id,
+            market=account_country,
+            **error_context,
+        )
+
+    select_max_spec = max(selectable_specs)
+    selectable = [
+        rule
+        for rule, spec in full_matches
+        if math.isclose(spec, select_max_spec, rel_tol=0, abs_tol=1e-9) and select_filter(rule)
+    ]
+
+    if len(selectable) > 1:
+        if financial_signature is None:
+            raise AmbiguousFeeRules(
+                [rule_id(rule) for rule in selectable],
+                provider=provider_id,
+                market=account_country,
+                **error_context,
+            )
+        signatures = {financial_signature(rule) for rule in selectable}
+        if len(signatures) > 1:
+            raise AmbiguousFeeRules(
+                [rule_id(rule) for rule in selectable],
+                provider=provider_id,
+                market=account_country,
+                **error_context,
+            )
+
+    sort_key = sort_key or rule_id
+    selected = sorted(selectable, key=sort_key)[0]
+    return selected, max_full_spec
+
+
+def compile_generic(
+    candidates: Sequence[tuple[Any, list[NormalizedCondition], int | float]],
+    context: dict[str, Any],
+    account_country: str,
+    provider_id: str,
+    *,
+    api_field_name: Callable[[str], str],
+    is_evaluable: Callable[[Any], bool],
+    select_filter: Callable[[Any], bool] | None = None,
+    financial_signature: Callable[[Any], Any] | None = None,
+    rule_id: Callable[[Any], str] = lambda r: str(r),
+    sort_key: Callable[[Any], Any] | None = None,
+    classification_status: Callable[[Any], str] | None = None,
+    unsupported_statuses: set[str] | None = None,
+    check_more_specific_missing: bool = True,
+    require_all_evaluable: bool = False,
+    not_calculable_message: str = "The most specific matching fee rule cannot be quoted.",
+    no_selectable_message: str = "No evaluable fee rule matched the supplied context.",
+    error_context: dict[str, Any] | None = None,
+) -> tuple[Any, int | float]:
+    """Shared rule-matching and selection pipeline for Stripe and PayPal.
+
+    Each provider supplies its candidates (rule, normalized conditions, specificity)
+    and the hooks that differ between providers.
+    """
+    full_matches, missing_matches = _match_candidates(candidates, context, api_field_name)
+
+    if require_all_evaluable:
+        for rule, _ in full_matches:
+            if not is_evaluable(rule):
+                status = classification_status(rule) if classification_status else None
+                raise QuoteNotAvailable(
+                    "A selected fee rule is not calculable.",
+                    provider=provider_id,
+                    market=account_country,
+                    rule_id=rule_id(rule),
+                    status=status,
+                    **(error_context or {}),
+                )
+
+    return _select_single_rule(
+        full_matches,
+        missing_matches,
+        account_country,
+        provider_id,
+        api_field_name=api_field_name,
+        is_evaluable=is_evaluable,
+        select_filter=select_filter,
+        financial_signature=financial_signature,
+        rule_id=rule_id,
+        sort_key=sort_key,
+        classification_status=classification_status,
+        unsupported_statuses=unsupported_statuses,
+        check_more_specific_missing=check_more_specific_missing,
+        not_calculable_message=not_calculable_message,
+        no_selectable_message=no_selectable_message,
+        error_context=error_context,
+    )
 
 
 @dataclass
