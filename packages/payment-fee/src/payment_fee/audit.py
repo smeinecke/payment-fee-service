@@ -6,7 +6,7 @@ from typing import Any
 
 from payment_fee.engine import PaymentFeeEngine
 from payment_fee.errors import InsufficientTransactionContext, PaymentFeeError, QuoteNotAvailable
-from payment_fee.models import Money, PayPalQuoteRequest, PayPalTransaction, StripeQuoteRequest, StripeTransaction
+from payment_fee.models import Money, PayPalQuoteRequest, PayPalTransaction
 from payment_fee.providers.paypal.models import PayPalCoreFees, PayPalCountryEntry, PayPalTransactionFeeRule
 from payment_fee.providers.paypal.provider import (
     PAYPAL_API_FIELD_NAMES,
@@ -18,7 +18,7 @@ from payment_fee.providers.paypal.provider import (
 from payment_fee.providers.paypal.provider import (
     SUPPORTED_OPERATORS as PAYPAL_SUPPORTED_OPERATORS,
 )
-from payment_fee.providers.stripe.models import StripeCoreFees, StripeMarketEntry, StripeRule
+from payment_fee.providers.stripe.models import StripeCoreFees, StripeMarketEntry
 from payment_fee.providers.stripe.provider import (
     STRIPE_API_FIELD_NAMES,
     StripeProvider,
@@ -44,45 +44,6 @@ def _first_scalar(value: Any) -> Any:
     if isinstance(value, list) and value:
         return value[0]
     return value
-
-
-def _string_not_in(values: list[str]) -> str:
-    base = "__audit_other__"
-    candidate = base
-    counter = 0
-    while candidate in values:
-        counter += 1
-        candidate = f"{base}{counter}"
-    return candidate
-
-
-def _number_not_in(values: list[Any]) -> Decimal | int:
-    try:
-        nums = [Decimal(str(v)) for v in values]
-    except Exception:
-        nums = []
-    if not nums:
-        return Decimal("0")
-    candidate = max(nums) + Decimal("1")
-    while candidate in nums:
-        candidate += Decimal("1")
-    return candidate
-
-
-def _actual_for_condition(value: Any, operator: str | None) -> Any:
-    op = (operator or "eq").lower()
-    values = _as_list(value)
-    if op in {"in", "eq", "==", "equals"}:
-        return _first_scalar(value)
-    if op in {"not_in", "nin", "ne", "!=", "not_equals"}:
-        if all(isinstance(v, str) for v in values):
-            strs = [str(v) for v in values]
-            return _string_not_in(strs)
-        try:
-            return _number_not_in(values)
-        except Exception:
-            return None
-    return _first_scalar(value)
 
 
 def _safe_decimal(value: Any) -> Decimal | None:
@@ -134,6 +95,20 @@ def _paypal_request_from_rule(
     }
     tx_context: dict[str, Any] = {}
 
+    def _route_paypal_dimension(dim: str, value: Any) -> None:
+        """Place a PayPal condition value using the provider's API field name
+        mapping, with all special-case transformations handled above.
+        """
+        path = PAYPAL_API_FIELD_NAMES.get(dim, f"transaction.context.{dim}")
+        if path in {"amount.currency", "amount.value", "account_country", "customer_country"}:
+            return
+        if path.startswith("transaction.context."):
+            tx_context[path.split(".")[-1]] = value
+        elif path.startswith("transaction."):
+            tx_kwargs[path.split(".")[-1]] = _first_scalar(value)
+        else:
+            tx_context[dim] = value
+
     for dimension, expected in rule.conditions.items():
         if dimension == "amount":
             if isinstance(expected, dict):
@@ -169,13 +144,15 @@ def _paypal_request_from_rule(
             if methods:
                 tx_kwargs["payment_method"] = str(methods[0]).lower()
         elif dimension == "transaction_region":
-            transaction_region = str(expected).lower()
+            scalar = _first_scalar(expected)
+            if scalar is not None:
+                transaction_region = str(scalar).lower()
         elif dimension == "customer_country":
-            customer_country = str(expected).upper()
-        elif dimension in tx_kwargs or dimension in ("payer_region", "surcharge_region"):
-            tx_kwargs[dimension] = expected
+            scalar = _first_scalar(expected)
+            if scalar is not None:
+                customer_country = str(scalar).upper()
         else:
-            tx_context[dimension] = expected
+            _route_paypal_dimension(dimension, expected)
 
     if transaction_region is not None:
         tx_kwargs["transaction_region"] = transaction_region
@@ -189,142 +166,6 @@ def _paypal_request_from_rule(
         account_country=account_country,
         customer_country=customer_country,
         transaction=PayPalTransaction(**tx_kwargs),
-    )
-
-
-def _stripe_request_from_rule(
-    rule: StripeRule,
-    account_country: str,
-    currency: str,
-) -> StripeQuoteRequest:
-    amount_value = Decimal("100")
-    amount_currency = currency
-    settlement_currency = currency
-    customer_country = account_country
-
-    # When a rule encodes a fixed amount in a specific currency, drive the
-    # transaction currency from that currency unless an explicit condition says
-    # otherwise.
-    fixed_currency: str | None = None
-    if rule.fixed_currency:
-        fixed_currency = rule.fixed_currency.upper()
-    else:
-        for comp in rule.fee_components:
-            if comp.type in {"fixed_amount", "fixed_surcharge", "minimum_fee", "maximum_fee"} and comp.currency:
-                fixed_currency = comp.currency.upper()
-                break
-    if fixed_currency:
-        amount_currency = fixed_currency
-        settlement_currency = fixed_currency
-
-    tx_kwargs: dict[str, Any] = {}
-    tx_context: dict[str, Any] = {}
-    card: dict[str, Any] = {}
-    settlement: dict[str, Any] = {}
-    bank: dict[str, Any] = {}
-
-    transaction_fields = {
-        "payment_method",
-        "payment_method_variant",
-        "channel",
-        "pricing_plan",
-        "pricing_tier",
-        "payer",
-        "unit",
-        "currency_conversion_required",
-        "recurring",
-        "billing_type",
-        "transaction_region",
-        "cross_border",
-        "integration_type",
-        "product_feature",
-        "contract_length",
-        "feature_enabled",
-        "dispute_state",
-    }
-    card_fields = {
-        "card_origin": "origin",
-        "card_region": "region",
-        "card_tier": "tier",
-        "card_type": "type",
-        "card_network": "network",
-        "card_entry_mode": "entry_mode",
-    }
-
-    def _set_tx(field: str, value: Any) -> None:
-        tx_kwargs[field] = value
-
-    for condition in list(rule.conditions):
-        dim = condition.dimension
-        val = condition.value
-        op = condition.operator
-        actual = _actual_for_condition(val, op)
-        if dim == "transaction_amount":
-            dec = _safe_decimal(val)
-            if dec is not None:
-                if op in {"gt", "gte"}:
-                    amount_value = dec + Decimal("1")
-                elif op in {"lt", "lte"}:
-                    amount_value = max(dec - Decimal("1"), Decimal("0"))
-                else:
-                    amount_value = dec
-        elif dim in {"amount_currency", "presentment_currency"}:
-            amount_currency = str(actual).upper() if actual else currency
-        elif dim == "settlement_currency":
-            settlement_currency = str(actual).upper() if actual else currency
-        elif dim == "account_country":
-            account_country = str(actual).upper() if actual else account_country
-        elif dim == "customer_country":
-            customer_country = str(actual).upper() if actual else customer_country
-        elif dim == "product_id":
-            _set_tx("product_id", actual)
-        elif dim == "variant_id":
-            _set_tx("variant_id", actual)
-        elif dim in transaction_fields:
-            _set_tx(dim, actual)
-        elif dim in card_fields:
-            card[card_fields[dim]] = actual
-        elif dim == "settlement_timing":
-            settlement["timing"] = actual
-        elif dim == "bank_account_validation":
-            bank["validation"] = actual
-        elif dim == "bank_transfer_type":
-            bank["transfer_type"] = actual
-        else:
-            tx_context[dim] = actual
-
-    if rule.transaction_amount_min is not None:
-        dec = _safe_decimal(rule.transaction_amount_min)
-        if dec is not None:
-            amount_value = dec + Decimal("1")
-    elif rule.transaction_amount_max is not None:
-        dec = _safe_decimal(rule.transaction_amount_max)
-        if dec is not None:
-            amount_value = max(dec - Decimal("1"), Decimal("0"))
-
-    if not tx_kwargs.get("product_id"):
-        tx_kwargs["product_id"] = rule.product_id
-    if not tx_kwargs.get("variant_id"):
-        tx_kwargs["variant_id"] = rule.variant_id
-    if tx_kwargs.get("unit") is None and rule.unit:
-        tx_kwargs["unit"] = rule.unit
-
-    if card:
-        tx_kwargs["card"] = card
-    if settlement:
-        tx_kwargs["settlement"] = settlement
-    if bank:
-        tx_kwargs["bank"] = bank
-    if tx_context:
-        tx_kwargs["context"] = tx_context
-
-    return StripeQuoteRequest(
-        provider="stripe",
-        amount=Money(value=amount_value, currency=amount_currency),
-        account_country=account_country,
-        customer_country=customer_country,
-        settlement_currency=settlement_currency,
-        transaction=StripeTransaction(**tx_kwargs),
     )
 
 

@@ -29,8 +29,7 @@ final readonly class ExecutableFeeRule
         public ?string $source_url = null,
         public ?string $payer = null,
         public ?string $unit = null,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array<string, mixed>
