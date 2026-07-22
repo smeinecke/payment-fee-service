@@ -125,6 +125,15 @@ export class PaymentFeeEngine {
       };
     }
 
+    const stripeAssumptions = [
+      "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
+      "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
+    ];
+    const successValue = request.transaction.context?.success;
+    if (successValue === true || successValue === undefined) {
+      stripeAssumptions.push("Assumed a successful transaction for providers that require success.");
+    }
+
     return {
       provider: "stripe",
       status,
@@ -135,11 +144,7 @@ export class PaymentFeeEngine {
       matched_rules: result.matched_rules,
       selected_product_id: request.transaction.product_id,
       selected_variant_id: request.transaction.variant_id,
-      assumptions: [
-        "Public standard pricing was used; negotiated or IC++ pricing is not represented.",
-        "The published dataset does not encode provider settlement rounding, so standard currency rounding is used.",
-        "Assumed a successful transaction for providers that require success.",
-      ],
+      assumptions: stripeAssumptions,
       warnings: [],
       data: {
         provider: "stripe",

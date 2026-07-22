@@ -114,6 +114,15 @@ final class PaymentFeeEngine
             $result = $calculator->calculate($request->amount, $request->amount->currency, $rules);
             $status = $this->deriveStatus($rules);
 
+            $assumptions = [
+                'Public standard pricing was used; negotiated or IC++ pricing is not represented.',
+                'The published dataset does not encode provider settlement rounding, so standard currency rounding is used.',
+            ];
+            $transactionContext = $request->transaction->context;
+            if (!\array_key_exists('success', $transactionContext) || $transactionContext['success'] === true) {
+                $assumptions[] = 'Assumed a successful transaction for providers that require success.';
+            }
+
             return [
                 'provider' => $request->provider,
                 'status' => $status,
@@ -124,11 +133,7 @@ final class PaymentFeeEngine
                 'matched_rules' => $result['matched_rules'],
                 'selected_product_id' => $request->transaction->productId,
                 'selected_variant_id' => $request->transaction->variantId,
-                'assumptions' => [
-                    'Public standard pricing was used; negotiated or IC++ pricing is not represented.',
-                    'The published dataset does not encode provider settlement rounding, so standard currency rounding is used.',
-                    'Assumed a successful transaction for providers that require success.',
-                ],
+                'assumptions' => $assumptions,
                 'warnings' => [],
                 'data' => [
                     'provider' => $request->provider,
