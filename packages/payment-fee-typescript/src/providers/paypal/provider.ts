@@ -504,13 +504,10 @@ export class PayPalProvider {
     if (!scheduleId) {
       return [executable];
     }
-    requireSurchargeRegionContext(
-      scheduleId,
-      registry,
-      payerRegion,
-      transactionRegion,
-      { provider: "paypal", market: request.account_country },
-    );
+    requireSurchargeRegionContext(scheduleId, registry, payerRegion, transactionRegion, {
+      provider: "paypal",
+      market: request.account_country,
+    });
 
     const surcharge = registry.surcharge(scheduleId, payerRegion, currency);
     if (!surcharge || (surcharge.percentage === null && surcharge.fixed_amount === null)) {
@@ -565,7 +562,11 @@ export class PayPalProvider {
   private _buildSurchargeExecutable(
     rule: PayPalRule,
     request: PayPalQuoteRequest,
-    surcharge: { percentage?: string | null; fixed_amount?: string | null; fixed_currency?: string | null },
+    surcharge: {
+      percentage?: string | null;
+      fixed_amount?: string | null;
+      fixed_currency?: string | null;
+    },
     payerRegion: string | null | undefined,
   ): ExecutableRule {
     const currency = request.amount.currency;
