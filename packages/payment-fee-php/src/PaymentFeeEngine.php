@@ -59,6 +59,39 @@ final class PaymentFeeEngine
         return $engine;
     }
 
+    public static function fromRemote(
+        ?string $paypal = null,
+        ?string $stripe = null,
+        ?string $paypalDataRef = null,
+        ?string $stripeDataRef = null,
+        ?string $cacheDir = null,
+        float $ttlSeconds = 86400.0,
+        bool $autoRefresh = true,
+        bool $validate = false,
+    ): self {
+        $engine = new self();
+
+        if ($paypal === null && $stripe === null) {
+            $paypal = JsonDataSource::defaultPayPalUrl();
+            $stripe = JsonDataSource::defaultStripeUrl();
+        }
+
+        if ($paypal !== null) {
+            $location = dataLocationFromString('paypal', $paypal, $paypalDataRef);
+            $source = new JsonDataSource($location, $cacheDir, $ttlSeconds, $autoRefresh);
+            $core = $source->readJson('json/core-fees.json');
+            $engine->register('paypal', new PayPalProvider($core));
+        }
+        if ($stripe !== null) {
+            $location = dataLocationFromString('stripe', $stripe, $stripeDataRef);
+            $source = new JsonDataSource($location, $cacheDir, $ttlSeconds, $autoRefresh);
+            $core = $source->readJson('json/core-fees.json');
+            $engine->register('stripe', new StripeProvider($core));
+        }
+
+        return $engine;
+    }
+
     public function register(string $provider, ProviderInterface $instance): void
     {
         $this->providers[$provider] = $instance;

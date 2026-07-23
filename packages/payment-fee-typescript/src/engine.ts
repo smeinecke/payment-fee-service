@@ -1,5 +1,11 @@
 import { calculate } from "./calculator.js";
 import type { ExecutableRule } from "./calculator.js";
+import {
+  DEFAULT_PAYPAL_URL,
+  DEFAULT_STRIPE_URL,
+  dataLocationFromString,
+  JsonDataSource,
+} from "./data-source.js";
 import { UnknownProvider } from "./errors.js";
 import type { QuoteRequest } from "./models.js";
 import { PayPalProvider, type PayPalCore } from "./providers/paypal/provider.js";
@@ -86,6 +92,46 @@ export class PaymentFeeEngine {
       const core = ("core" in stripe ? stripe.core : undefined) ?? (stripe as StripeCore);
       engine.register(new StripeProvider(core));
     }
+    return engine;
+  }
+
+  static async fromRemote(args: {
+    paypal?: string | null;
+    stripe?: string | null;
+    paypalDataRef?: string;
+    stripeDataRef?: string;
+    cacheDir?: string;
+    ttlSeconds?: number;
+    autoRefresh?: boolean;
+    validate?: boolean;
+  }): Promise<PaymentFeeEngine> {
+    const engine = new PaymentFeeEngine();
+
+    async function load(providerId: "paypal" | "stripe", url: string, dataRef?: string) {
+      const location = dataLocationFromString(providerId, url, dataRef);
+      const source = new JsonDataSource(location, {
+        cacheDir: args.cacheDir,
+        ttlSeconds: args.ttlSeconds,
+        autoRefresh: args.autoRefresh,
+      });
+      const core = await source.readJson<PayPalCore | StripeCore>("json/core-fees.json");
+      if (providerId === "paypal") {
+        engine.register(new PayPalProvider(core as PayPalCore));
+      } else {
+        engine.register(new StripeProvider(core as StripeCore));
+      }
+    }
+
+    const paypalUrl =
+      args.paypal === undefined && args.stripe === undefined
+        ? DEFAULT_PAYPAL_URL
+        : (args.paypal ?? null);
+    const stripeUrl =
+      args.paypal === undefined && args.stripe === undefined
+        ? DEFAULT_STRIPE_URL
+        : (args.stripe ?? null);
+    if (paypalUrl) await load("paypal", paypalUrl, args.paypalDataRef);
+    if (stripeUrl) await load("stripe", stripeUrl, args.stripeDataRef);
     return engine;
   }
 

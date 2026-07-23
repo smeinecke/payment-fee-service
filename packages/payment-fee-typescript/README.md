@@ -37,6 +37,20 @@ const result = engine.quote({
 });
 ```
 
+## Remote data with caching
+
+```ts
+const engine = await PaymentFeeEngine.fromRemote({
+  // Uses default public GitHub URLs when omitted.
+  cacheDir: "/var/cache/payment-fee",
+  ttlSeconds: 24 * 60 * 60, // 24 hours (default)
+  autoRefresh: true,         // refresh on first call after TTL (default)
+});
+
+// Force a refresh of a single file:
+// await source.refresh("json/core-fees.json");
+```
+
 For Node.js-specific utilities (filesystem loading, streams):
 
 ```ts

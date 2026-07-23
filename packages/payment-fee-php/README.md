@@ -42,6 +42,20 @@ $result = $engine->quote(
 );
 ```
 
+## Remote data with caching
+
+```php
+$engine = PaymentFeeEngine::fromRemote(
+    cacheDir: '/var/cache/payment-fee', // defaults to ~/.cache/payment-fee or sys temp
+    ttlSeconds: 86400,                  // 24 hours (default)
+    autoRefresh: true,                  // refresh on first call after TTL (default)
+);
+
+// Force a refresh of a single file:
+// $source = new JsonDataSource(new DataLocation('paypal', null, JsonDataSource::defaultPayPalUrl()));
+// $source->refresh('json/core-fees.json');
+```
+
 ## Development
 
 ```bash

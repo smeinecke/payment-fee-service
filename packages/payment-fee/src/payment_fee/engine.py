@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
 from payment_fee.calculator import FeeCalculator
+from payment_fee.data_source import (
+    DEFAULT_PAYPAL_URL,
+    DEFAULT_STRIPE_URL,
+    JsonDataSource,
+    _load_documents,
+    _location_from_string,
+)
 from payment_fee.errors import UnknownProvider
 from payment_fee.models import (
     BaseQuoteRequest,
@@ -41,6 +49,70 @@ class PaymentFeeEngine:
             registry.register(PayPalProvider.from_paths(paypal, data_ref="local", validate_schema=validate))
         if stripe:
             registry.register(StripeProvider.from_paths(stripe, data_ref="local", validate_schema=validate))
+        return cls(registry)
+
+    @classmethod
+    def from_remote(
+        cls,
+        paypal: str | None = None,
+        stripe: str | None = None,
+        *,
+        paypal_data_ref: str | None = None,
+        stripe_data_ref: str | None = None,
+        cache_dir: str | Path | None = None,
+        ttl_seconds: float = 86400.0,
+        auto_refresh: bool = True,
+        validate: bool = False,
+    ) -> PaymentFeeEngine:
+        """Build an engine from remote data sources with TTL caching.
+
+        ``paypal`` and ``stripe`` are base URLs. They may contain ``{data_ref}``,
+        which is replaced by the corresponding ``*_data_ref`` argument or the
+        pinned revision from ``contracts/data-revisions.json`` (falling back to
+        ``main``).
+
+        ``cache_dir`` defaults to ``~/.cache/payment-fee`` (or the system temp
+        directory). ``ttl_seconds`` defaults to 24 hours.
+        """
+        if paypal is None and stripe is None:
+            paypal = DEFAULT_PAYPAL_URL
+            stripe = DEFAULT_STRIPE_URL
+
+        registry = ProviderRegistry()
+        if paypal:
+            location = _location_from_string("paypal", paypal, paypal_data_ref)
+            source = JsonDataSource(
+                location,
+                cache_dir=Path(cache_dir) if cache_dir else None,
+                ttl_seconds=ttl_seconds,
+                auto_refresh=auto_refresh,
+            )
+            docs = _load_documents(source, validate)
+            registry.register(
+                PayPalProvider.from_documents(
+                    core=docs["core"],
+                    index=docs["index"],
+                    data_ref=location.data_ref,
+                    validate_schema=validate,
+                )
+            )
+        if stripe:
+            location = _location_from_string("stripe", stripe, stripe_data_ref)
+            source = JsonDataSource(
+                location,
+                cache_dir=Path(cache_dir) if cache_dir else None,
+                ttl_seconds=ttl_seconds,
+                auto_refresh=auto_refresh,
+            )
+            docs = _load_documents(source, validate)
+            registry.register(
+                StripeProvider.from_documents(
+                    core=docs["core"],
+                    index=docs["index"],
+                    data_ref=location.data_ref,
+                    validate_schema=validate,
+                )
+            )
         return cls(registry)
 
     @classmethod
