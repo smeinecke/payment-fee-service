@@ -59,6 +59,9 @@ final class PaymentFeeEngine
         return $engine;
     }
 
+    /**
+     * @SuppressWarnings("PHPMD.ExcessiveParameterList")
+     */
     public static function fromRemote(
         ?string $paypal = null,
         ?string $stripe = null,
