@@ -8,7 +8,7 @@
     },
     "stripe": {
       "repo": "smeinecke/stripe-fee-data",
-      "ref": "f9a36533f3bcb70d58505ceeae63ec8c119c0e6b"
+      "ref": "b306c60be74a266fe9441498a00ccaa1700bb2d6"
     }
   }
 }
